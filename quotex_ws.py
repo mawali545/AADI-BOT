@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import ssl
 import time
 from collections.abc import Awaitable, Callable
 
@@ -36,12 +37,31 @@ class QuotexSocket:
         if "EIO=3" not in WSS_URL or "ws2." not in WSS_URL:
             raise RuntimeError("Configured endpoint is not the expected live Quotex EIO=3 ws2 endpoint.")
 
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/142.0.0.0 Safari/537.36"
+            ),
+            "Cache-Control": "no-cache",
+            "Pragma": "no-cache",
+            "Accept-Language": "en-US,en;q=0.9",
+        }
+
+        # Keep certificate verification enabled by default. If a local Python
+        # environment has a broken CA bundle, the connection error is surfaced
+        # instead of silently weakening TLS security.
+        ssl_context = ssl.create_default_context()
+
         self.ws = await websockets.connect(
             WSS_URL,
+            additional_headers=headers,
+            origin=WS_ORIGIN,
             ping_interval=None,
             max_size=16 * 1024 * 1024,
-            origin=WS_ORIGIN,
+            ssl=ssl_context,
         )
+
         handshake = await self.ws.recv()
         self.last_message_at = time.monotonic()
 
@@ -67,13 +87,16 @@ class QuotexSocket:
         )
         await self.send_event("depth/follow", ASSET)
         await self.send_event("chart_notification/get")
-        await self.send_event("history/load", {
-            "asset": ASSET,
-            "index": 0,
-            "time": int(time.time()),
-            "offset": max(HISTORY_CANDLES, 300),
-            "period": TIMEFRAME,
-        })
+        await self.send_event(
+            "history/load",
+            {
+                "asset": ASSET,
+                "index": 0,
+                "time": int(time.time()),
+                "offset": max(HISTORY_CANDLES, 300),
+                "period": TIMEFRAME,
+            },
+        )
 
     async def _dispatch(self, event: str, payload: object):
         if event == "s_authorization":
