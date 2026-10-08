@@ -96,8 +96,15 @@ class Scanner:
             rows = payload.get("candles")
             if rows is None:
                 rows = payload.get("history")
+            if rows is None:
+                rows = payload.get("data")
             if isinstance(rows, dict):
-                rows = rows.get("candles") or rows.get("history") or []
+                rows = (
+                    rows.get("candles")
+                    or rows.get("history")
+                    or rows.get("data")
+                    or []
+                )
         elif isinstance(payload, list):
             rows = payload
 
