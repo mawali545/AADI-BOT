@@ -70,7 +70,40 @@ class QuotexSocket:
         if not str(handshake).startswith("0"):
             raise RuntimeError(f"Unexpected Engine.IO handshake: {handshake!r}")
 
+        # Engine.IO opened; now wait for the Socket.IO namespace ACK before
+        # sending any application event. Community clients commonly require
+        # this separate "40" acknowledgement from the server.
         await self.ws.send("40")
+        deadline = time.monotonic() + 12
+        while time.monotonic() < deadline:
+            try:
+                packet = await asyncio.wait_for(
+                    self.ws.recv(),
+                    timeout=max(0.1, deadline - time.monotonic()),
+                )
+            except asyncio.TimeoutError as exc:
+                raise TimeoutError(
+                    "Timed out waiting for Quotex Socket.IO namespace acknowledgement."
+                ) from exc
+            self.last_message_at = time.monotonic()
+            if isinstance(packet, bytes):
+                await self._handle_binary(packet)
+                continue
+            packet = str(packet)
+            if packet == "2":
+                await self.ws.send("3")
+                continue
+            if packet == "40" or packet.startswith("40{"):
+                break
+            if packet == "41":
+                raise ConnectionError("Quotex rejected/disconnected the Socket.IO namespace")
+            if packet.startswith("42"):
+                await self._handle_text(packet)
+        else:
+            raise TimeoutError(
+                "Timed out waiting for Quotex Socket.IO namespace acknowledgement."
+            )
+
         await self.send_event(
             "authorization",
             {"session": SSID, "isDemo": 0, "tournamentId": 0},
