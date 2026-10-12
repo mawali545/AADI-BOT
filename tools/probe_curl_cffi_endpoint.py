@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+from pathlib import Path
 
 from curl_cffi import CurlWsFlag
 from curl_cffi.requests import AsyncSession
@@ -58,6 +59,8 @@ async def main() -> int:
                 )
 
                 deadline = asyncio.get_running_loop().time() + 15
+                pending_binary_event = None
+                capture_index = 0
                 while asyncio.get_running_loop().time() < deadline:
                     remaining = deadline - asyncio.get_running_loop().time()
                     try:
@@ -65,10 +68,25 @@ async def main() -> int:
                     except asyncio.TimeoutError:
                         break
                     if flags & CurlWsFlag.BINARY:
-                        print(f"BINARY_FRAME: {len(raw)} bytes; not yet decoded as a verified tick")
+                        capture_index += 1
+                        packet_bytes = bytes(raw)
+                        filename = Path(f"aadi_binary_capture_{capture_index:02d}.bin")
+                        filename.write_bytes(packet_bytes)
+                        prefix = packet_bytes[:96]
+                        printable = "".join(chr(b) if 32 <= b < 127 else "." for b in packet_bytes[:160])
+                        print(f"BINARY_FRAME: event={pending_binary_event!r} bytes={len(packet_bytes)} file={filename}")
+                        print(f"BINARY_HEX_PREFIX: {prefix.hex()}")
+                        print(f"BINARY_TEXT_PREFIX: {printable!r}")
                         continue
                     message = raw.decode("utf-8", "replace") if isinstance(raw, bytes) else str(raw)
                     print(f"frame={message[:500]!r}")
+                    if message.startswith("451-"):
+                        try:
+                            binary_header = json.loads(message[4:])
+                            pending_binary_event = str(binary_header[0]) if isinstance(binary_header, list) and binary_header else None
+                            print(f"BINARY_EVENT_HEADER: event={pending_binary_event!r} header={binary_header!r}")
+                        except (TypeError, ValueError, IndexError):
+                            pending_binary_event = None
                     if message.startswith("42"):
                         try:
                             packet = json.loads(message[2:])
