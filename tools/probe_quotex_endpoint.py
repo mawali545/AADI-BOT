@@ -12,7 +12,7 @@ import websockets
 from websockets.exceptions import WebSocketException
 
 PATH = "/socket.io/?EIO=3&transport=websocket"
-HOSTS = ("ws2.qxbroker.com", "ws.qxbroker.com", "qxbroker.com", "quotex.com", "qxbroker.io", "quotex.io")
+HOSTS = ("ws2.quotex.com", "ws.quotex.com", "ws2.qxbroker.com", "ws.qxbroker.com", "qxbroker.com", "quotex.com", "qxbroker.io", "quotex.io")
 ORIGINS = ("https://qxbroker.com", "https://quotex.com")
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36"
 
