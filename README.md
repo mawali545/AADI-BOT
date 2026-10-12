@@ -1,66 +1,53 @@
 # AADI BOT
 
-A phone-first, read-only trading scanner with a dark mobile dashboard. It calculates EMA 9/21, RSI 14, momentum and a confluence score. It never places trades; CALL/PUT/WAIT are analysis signals, not guarantees.
+A phone-first, read-only Quotex scanner with a dark mobile dashboard. It is intended to calculate EMA 9/21, RSI 14, momentum, and a confluence score from received market data. It never places trades; CALL/PUT/WAIT are analysis signals, not guarantees.
 
-## New alternate data route (no Quotex SSID)
+## Direct Quotex feed (default)
 
-The default provider is **OTCharts**, an independent third-party service that claims to relay Quotex market data. It is **not official or endorsed by Quotex**. It uses its own API key and does not require your Quotex password or session token.
+The default provider is `quotex`. The WebSocket transport uses `curl_cffi` with the same Chromium-impersonated TLS client that previously received a public Socket.IO namespace acknowledgement from `ws2.quotex.com`. A namespace acknowledgement only proves the public transport opened; it does **not** prove account authentication or live market data. The app must remain DISCONNECTED/STALE until actual current ticks arrive.
 
-**Important before paying:** OTCharts' own pages currently disagree about whether its free API key includes a live stream (the API reference says no; its PyPI package page says one stream). Do not pay yet. Use the free key to fetch candles and compare the latest timestamp/OHLC with the Quotex app; then check the account's actual stream entitlement. If the feed cannot be verified or the quotes do not match, do not use it for signals. Check current terms and limits directly at https://otcharts.com/quotex-api, https://otcharts.com/api, and https://pypi.org/project/otcharts/0.6.1/.
-
-### Termux setup — OTCharts mode
-
-1. Create an OTCharts account and API key at https://otcharts.com/account. Never share that key in chat or commit it to GitHub.
-2. Install the lightweight dependency:
+1. Install dependencies:
    ```sh
    python -m pip install -r requirements.txt
    ```
-3. Set the key only in your local Termux shell and select the symbol:
+2. Set your own current Quotex session value locally in Termux. Never send it in chat, screenshots, or GitHub:
    ```sh
-   export AADI_FEED_PROVIDER='otcharts'
-   export AADI_OTCHARTS_API_KEY='YOUR_OTCHARTS_KEY'
+   export AADI_FEED_PROVIDER='quotex'
+   export AADI_QUOTEX_SSID='YOUR_CURRENT_QUOTEX_SESSION'
    export AADI_ASSET='EURUSD_otc'
    export AADI_TIMEFRAME='60'
    python app.py
    ```
-4. Before running the dashboard, verify the free candle feed once (this does not open a live stream):
-   ```sh
-   python tools/check_otcharts_quotes.py
-   ```
-   Compare the printed candle time and OHLC values with the same symbol/timeframe in the Quotex app. If they differ, stop here and do not use the service for signals.
-5. Open http://127.0.0.1:8000. The dashboard must show LIVE with the tick age updating before treating the feed as live. If the API key's plan does not include streaming, the app should remain disconnected rather than fabricate ticks.
+3. Open `http://127.0.0.1:8000` in your phone browser. Do not use signals unless the dashboard shows LIVE and the displayed price/time match the same instrument in Quotex.
 
-## Optional direct Quotex WebSocket mode
+**Android compatibility is not yet verified:** `curl_cffi` can be difficult to install on Termux because its bundled native TLS library may not provide an Android wheel. The GitHub runner can test the transport, but that alone does not prove it installs or connects on your phone. Do not remove working packages or overwrite your backup until this is verified on-device.
 
-This older mode needs a currently accepted Quotex session and may be rejected by the broker endpoint. It is not the default, and it is not guaranteed to work.
+## Public endpoint probe (no login)
 
-Install its extra dependency only if you want to test that mode:
+To check only the unauthenticated handshake and see whether any public market-data event arrives:
 ```sh
-python -m pip install -r requirements-quotex-ws.txt
-export AADI_FEED_PROVIDER='quotex'
-export AADI_QUOTEX_SSID='YOUR_CURRENT_QUOTEX_SESSION'
-python app.py
+python tools/probe_curl_cffi_endpoint.py
 ```
+The probe sends no credentials and makes no trades. A successful namespace ACK is not counted as live ticks. If the server requires authentication, the public probe stops without trying to evade that requirement.
 
-Never paste your Quotex session token into chat, screenshots, or GitHub.
+## Optional third-party feed
+
+OTCharts support remains optional and is not the default. It is an independent service, not official or endorsed by Quotex, and its free streaming entitlement must be verified directly before use. AADI Bot does not require an OTCharts API key in the default Quotex mode.
 
 ## Configuration
 
-- `AADI_FEED_PROVIDER`: `otcharts` (default) or `quotex`
-- `AADI_OTCHARTS_API_KEY`: independent OTCharts key, local only
-- `AADI_QUOTEX_SSID`: session token for optional direct WebSocket mode
-- `AADI_ASSET`: exact instrument id, default `EURUSD_otc`
+- `AADI_FEED_PROVIDER`: `quotex` (default) or optional `otcharts`
+- `AADI_QUOTEX_SSID`: current session value for direct mode; keep it private
+- `AADI_ASSET`: instrument ID, default `EURUSD_otc`
 - `AADI_TIMEFRAME`: candle period in seconds, default `60`
-- `AADI_HISTORY_CANDLES`: requested candle history, default `300`
-- `AADI_WSS_URL`, `AADI_WS_ORIGIN`: optional direct WebSocket settings
+- `AADI_WSS_URL`, `AADI_WS_ORIGIN`: optional WebSocket settings
 - `AADI_HOST`, `AADI_PORT`: local dashboard bind/port
 - `AADI_EMA_FAST`, `AADI_EMA_SLOW`, `AADI_RSI_PERIOD`, `AADI_MIN_CONFLUENCE`
 - `AADI_STALE_AFTER`: seconds before data is marked stale
 
-## Safety and data integrity
+## Data integrity and safety
 
-- No synthetic/test values are used in the production feed.
-- OTCharts is a third-party relay, not the broker. Validate its price/time against the Quotex app before using the scanner.
-- The dashboard only reports LIVE when the configured provider has connected and a recent tick was received.
-- No trades are placed automatically. The user remains responsible for any manual trade.
-- A successful app launch or HTTP connection alone does not prove the feed is accurate or live.
+- No synthetic prices or demo ticks are used.
+- A handshake, a successful app launch, or historical candles alone does not prove a live feed.
+- The dashboard reports LIVE only while a recent tick has been received by the configured provider.
+- No trades are placed automatically. All trade decisions and any real-money clicks remain manual.
