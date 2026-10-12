@@ -6,8 +6,12 @@ import logging
 import time
 from collections.abc import Awaitable, Callable
 
-from curl_cffi import CurlWsFlag
-from curl_cffi.requests import AsyncSession
+try:
+    from curl_cffi import CurlWsFlag
+    from curl_cffi.requests import AsyncSession
+except ImportError:  # Optional legacy direct-WebSocket mode.
+    CurlWsFlag = None
+    AsyncSession = None
 
 from config import ASSET, HISTORY_CANDLES, SSID, TIMEFRAME, WS_ORIGIN, WSS_URL
 
@@ -47,6 +51,8 @@ class QuotexSocket:
         await self.ws.send_str("42" + json.dumps(packet, separators=(",", ":")))
 
     async def connect(self):
+        if AsyncSession is None or CurlWsFlag is None:
+            raise RuntimeError("Direct Quotex WebSocket mode needs curl_cffi; install requirements-quotex-ws.txt or use AADI_FEED_PROVIDER=otcharts.")
         if not SSID:
             raise RuntimeError("AADI_QUOTEX_SSID is missing; provide a live Quotex SSID.")
         if "EIO=3" not in WSS_URL or "ws2." not in WSS_URL:
