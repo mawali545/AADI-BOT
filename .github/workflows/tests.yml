@@ -25,7 +25,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: python -m pip install -r requirements.txt curl_cffi
+      - run: python -m pip install -r requirements.txt curl_cffi websockets
       - name: Test Quotex WebSocket handshake only (no login or trades)
         continue-on-error: true
         run: python tools/probe_quotex_endpoint.py
