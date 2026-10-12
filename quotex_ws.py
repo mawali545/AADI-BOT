@@ -141,7 +141,7 @@ class QuotexSocket:
     async def _handle_text(self, raw: str):
         if raw == "2":
             if self.ws:
-                await self.ws.send("3")
+                await self._send_text("3")
             return
         if raw in {"3", "40"}:
             return
