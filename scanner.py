@@ -141,6 +141,9 @@ class Scanner:
 
         if event == "quotes/stream":
             rows = payload if isinstance(payload, list) else []
+            # Quotex may send one tick [asset, timestamp, price] or a batch.
+            if len(rows) >= 3 and isinstance(rows[0], str):
+                rows = [rows]
             for row in rows:
                 if isinstance(row, (list, tuple)) and len(row) >= 3:
                     self._consume_tick(row[0], row[1], row[2])
