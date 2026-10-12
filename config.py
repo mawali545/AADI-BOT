@@ -1,5 +1,8 @@
 import os
 
+FEED_PROVIDER = os.getenv("AADI_FEED_PROVIDER", "otcharts").strip().lower()
+OTCHARTS_API_KEY = os.getenv("AADI_OTCHARTS_API_KEY", "")
+
 WSS_URL = os.getenv(
     "AADI_WSS_URL",
     "wss://ws2.qxbroker.com/socket.io/?EIO=3&transport=websocket",
