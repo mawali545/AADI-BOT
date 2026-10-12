@@ -11,7 +11,8 @@ import urllib.request
 import websockets
 from websockets.exceptions import WebSocketException
 
-PATH = "/socket.io/?EIO=3&transport=websocket"
+def socket_path(eio: int) -> str:
+    return f"/socket.io/?EIO={eio}&transport=websocket"
 HOSTS = ("ws2.quotex.com", "ws.quotex.com", "ws2.qxbroker.com", "ws.qxbroker.com", "qxbroker.com", "quotex.com", "qxbroker.io", "quotex.io")
 ORIGINS = ("https://qxbroker.com", "https://quotex.com")
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36"
@@ -71,9 +72,9 @@ async def inspect_socket(ws) -> bool:
     return False
 
 
-async def probe(host: str, origin: str) -> bool:
-    url = "wss://" + host + PATH
-    print(f"Trying host={host}, origin={origin}", flush=True)
+async def probe(host: str, origin: str, eio: int) -> bool:
+    url = "wss://" + host + socket_path(eio)
+    print(f"Trying host={host}, EIO={eio}, origin={origin}", flush=True)
     try:
         async with websockets.connect(
             url,
@@ -117,11 +118,13 @@ async def main() -> None:
     seen: set[tuple[str, str]] = set()
     for host in hosts:
         for origin in origins:
-            if (host, origin) in seen:
-                continue
-            seen.add((host, origin))
-            if await probe(host, origin):
-                return
+            for eio in (3, 4):
+                key = (host, origin, eio)
+                if key in seen:
+                    continue
+                seen.add(key)
+                if await probe(host, origin, eio):
+                    return
     raise SystemExit("No tested Quotex host completed the Socket.IO handshake.")
 
 
