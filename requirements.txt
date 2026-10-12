@@ -1,1 +1,1 @@
-otcharts>=0.7.0
+otcharts>=0.6.1
