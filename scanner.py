@@ -6,6 +6,8 @@ from typing import Any
 
 from config import (
     ASSET,
+    FEED_PROVIDER,
+    OTCHARTS_API_KEY,
     EMA_FAST,
     EMA_SLOW,
     MIN_CONFLUENCE,
@@ -37,6 +39,9 @@ class Scanner:
             "candle_count": 0,
         }
         self.socket = QuotexSocket(self.handle_event)
+        self.provider_connected = False
+        self.provider_authenticated = False
+        self.provider_error: str | None = None
 
     @staticmethod
     def _number(value: Any) -> float | None:
@@ -164,8 +169,59 @@ class Scanner:
         self.latest["authenticated"] = self.socket.authenticated
         self.latest["candle_count"] = len(self.closes)
 
+    def _otcharts_history(self, rows: list[dict[str, float | int]]) -> None:
+        self._load_history({"candles": rows})
+        self.latest["candle_count"] = len(self.closes)
+
+    def _otcharts_tick(self, symbol: str, timestamp: float, price: float) -> None:
+        self._consume_tick(symbol, timestamp, price)
+        self.latest["connected"] = self.provider_connected
+        self.latest["authenticated"] = self.provider_authenticated
+        self.latest["candle_count"] = len(self.closes)
+
+    def _otcharts_status(self, connected: bool, message: str) -> None:
+        self.provider_connected = connected
+        self.provider_authenticated = connected
+        self.provider_error = None if connected else message
+        self.latest["connected"] = connected
+        self.latest["authenticated"] = connected
+        self.latest["feed_provider"] = "otcharts"
+        self.latest["feed_note"] = message
+
+    def _run_otcharts(self) -> None:
+        from otcharts_feed import run_feed
+        try:
+            run_feed(
+                OTCHARTS_API_KEY,
+                ASSET,
+                TIMEFRAME,
+                HISTORY_CANDLES,
+                self._otcharts_history,
+                self._otcharts_tick,
+                self._otcharts_status,
+            )
+        except Exception as exc:
+            self.provider_connected = False
+            self.provider_authenticated = False
+            self.provider_error = str(exc)
+            self.latest["feed_provider"] = "otcharts"
+            self.latest["feed_error"] = str(exc)
+            self.latest["connected"] = False
+            self.latest["authenticated"] = False
+            self.latest["market_status"] = "DISCONNECTED"
+            self.latest["signal"] = "WAIT"
+            log.exception("OTCharts read-only feed stopped")
+
     async def run(self):
-        await self.socket.run()
+        if FEED_PROVIDER == "otcharts":
+            import asyncio
+            await asyncio.to_thread(self._run_otcharts)
+        elif FEED_PROVIDER in {"quotex", "websocket", "ws"}:
+            await self.socket.run()
+        else:
+            self.provider_error = f"Unknown AADI_FEED_PROVIDER: {FEED_PROVIDER}"
+            self.latest["feed_error"] = self.provider_error
+            log.error(self.provider_error)
 
     def snapshot(self):
         out = dict(self.latest)
@@ -173,9 +229,19 @@ class Scanner:
         out["data_age"] = age
         out["candle_count"] = len(self.closes)
 
-        if not self.socket.connected:
+        if FEED_PROVIDER == "otcharts":
+            connected = self.provider_connected
+            authenticated = self.provider_authenticated
+        else:
+            connected = self.socket.connected
+            authenticated = self.socket.authenticated
+
+        out["feed_provider"] = FEED_PROVIDER
+        if self.provider_error:
+            out["feed_error"] = self.provider_error
+        if not connected:
             out["market_status"] = "DISCONNECTED"
-        elif not self.socket.authenticated:
+        elif not authenticated:
             out["market_status"] = "AUTHENTICATING"
         elif age is None or age > STALE_AFTER:
             out["market_status"] = "STALE"
