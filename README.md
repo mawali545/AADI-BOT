@@ -1,57 +1,39 @@
-# AADI BOT — Live Quotex Scanner
+# AADI BOT — Browser-based live Quotex scanner
 
-A real-market Quotex scanner. **No fake, demo, mock, or generated market feed is used at runtime.**
+AADI BOT is a local mobile dashboard and read-only market-data scanner. It does not place trades. CALL/PUT/WAIT are analysis signals, not guaranteed outcomes.
 
-## Architecture
+## What it does
+- Connects to the configured Quotex Socket.IO/WebSocket endpoint.
+- Builds candle closes from received market data/history.
+- Calculates EMA 9/21, RSI 14, momentum, and a simple confluence score.
+- Shows connection state and data freshness in a local browser dashboard.
+- Does not create fake/demo market ticks. Without an accepted authenticated session and live ticks, it remains disconnected/waiting.
 
-Quotex live Socket.IO/WebSocket
-→ real historical candles
-→ real-time quote ticks
-→ local OHLC candle builder
-→ EMA 9 / EMA 21 + RSI 14 + momentum
-→ CALL / PUT / WAIT
-→ mobile dashboard
+## Termux setup
+Python and pip are required. Install the only Python dependency:
+```sh
+python -m pip install -r requirements.txt
+```
 
-The scanner **does not place real-money orders**. Any trade remains manual.
+Set your own session locally in Termux; never paste it into chat, screenshots, or GitHub:
+```sh
+export AADI_QUOTEX_SSID='PASTE_YOUR_CURRENT_SESSION_HERE'
+export AADI_ASSET='EURUSD_otc'
+export AADI_TIMEFRAME='60'
+python app.py
+```
 
-## Live connection
+Open `http://127.0.0.1:8000` in the phone browser. Keep Termux running while using the dashboard.
 
-The current connection targets Quotex's EIO=3 WebSocket endpoint:
+## Configuration
+- `AADI_QUOTEX_SSID`: current authenticated Quotex session token (required)
+- `AADI_ASSET`: exact Quotex asset symbol; default `EURUSD_otc`
+- `AADI_TIMEFRAME`: candle period in seconds; default `60`
+- `AADI_WSS_URL`, `AADI_WS_ORIGIN`: WebSocket endpoint/origin
+- `AADI_HISTORY_CANDLES`: history request size
+- `AADI_HOST`, `AADI_PORT`: local server bind/port
+- `AADI_EMA_FAST`, `AADI_EMA_SLOW`, `AADI_RSI_PERIOD`, `AADI_MIN_CONFLUENCE`
+- `AADI_STALE_AFTER`: seconds before data is marked stale
 
-`wss://ws2.qxbroker.com/socket.io/?EIO=3&transport=websocket`
-
-Community implementations document `quotes/stream` as real-time quote data and `history/list/v2` / `history/load` as candle-history flows. The code handles the Socket.IO `451-` binary-event headers and binary JSON payloads used by these implementations.
-
-## Setup
-
-1. Install Python 3.11+.
-2. Install dependencies:
-   `pip install -r requirements.txt`
-3. Set the live Quotex SSID **locally**. Never commit the SSID:
-   - `AADI_QUOTEX_SSID=<your-live-ssid>`
-   - `AADI_ASSET=EURUSD_otc` (change to the exact asset you want)
-   - `AADI_TIMEFRAME=60`
-4. Run:
-   `python app.py`
-5. Open the local dashboard in your phone browser.
-
-### Optional environment settings
-
-- `AADI_WSS_URL`
-- `AADI_WS_ORIGIN`
-- `AADI_ASSET`
-- `AADI_TIMEFRAME`
-- `AADI_HISTORY_CANDLES`
-- `AADI_STALE_AFTER`
-- `AADI_EMA_FAST`
-- `AADI_EMA_SLOW`
-- `AADI_RSI_PERIOD`
-- `AADI_MIN_CONFLUENCE`
-- `AADI_HOST`
-- `AADI_PORT`
-
-## Important
-
-If the SSID is missing, expired, rejected, or the live WebSocket stops delivering ticks, AADI BOT does **not** invent prices/candles/signals. The dashboard shows the connection/data state instead.
-
-Never paste your SSID into GitHub, chat, screenshots, or public files.
+## Important limitations
+The Quotex endpoint and event format can change. A successful Python start or dashboard load does not prove that a session was accepted or that live ticks arrived. Confirm the dashboard reports `LIVE` and the tick age continues to update before relying on any analysis. Never share your session token.
