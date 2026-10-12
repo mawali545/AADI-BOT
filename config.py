@@ -1,6 +1,6 @@
 import os
 
-FEED_PROVIDER = os.getenv("AADI_FEED_PROVIDER", "otcharts").strip().lower()
+FEED_PROVIDER = os.getenv("AADI_FEED_PROVIDER", "quotex").strip().lower()
 OTCHARTS_API_KEY = os.getenv("AADI_OTCHARTS_API_KEY", "")
 
 WSS_URL = os.getenv(
