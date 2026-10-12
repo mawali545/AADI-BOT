@@ -72,6 +72,32 @@ async def inspect_socket(ws) -> bool:
     return False
 
 
+
+def probe_polling(host: str, origin: str, eio: int) -> bool:
+    url = f"https://{host}/socket.io/?EIO={eio}&transport=polling&t=aadi_probe"
+    req = urllib.request.Request(
+        url,
+        headers={
+            "Origin": origin,
+            "Referer": origin + "/",
+            "User-Agent": USER_AGENT,
+            "Accept": "*/*",
+            "Cache-Control": "no-cache",
+        },
+    )
+    print(f"Trying standard HTTP polling host={host}, EIO={eio}, origin={origin}", flush=True)
+    try:
+        with urllib.request.urlopen(req, timeout=8) as response:
+            body = response.read(4096).decode("utf-8", "replace")
+            if response.status == 200 and '"sid"' in body and body.lstrip("0123456789:").startswith("0{"):
+                print("SUCCESS: Engine.IO polling open handshake accepted; session ID received.", flush=True)
+                print("No login, authentication, market ticks, or trades tested.", flush=True)
+                return True
+            print(f"Polling HTTP {response.status}; response did not contain an open session.", flush=True)
+    except Exception as exc:
+        print(f"Polling failed: {type(exc).__name__}: {exc}", flush=True)
+    return False
+
 async def probe(host: str, origin: str, eio: int) -> bool:
     url = "wss://" + host + socket_path(eio)
     print(f"Trying host={host}, EIO={eio}, origin={origin}", flush=True)
@@ -123,6 +149,8 @@ async def main() -> None:
                 if key in seen:
                     continue
                 seen.add(key)
+                if probe_polling(host, origin, eio):
+                    return
                 if await probe(host, origin, eio):
                     return
     raise SystemExit("No tested Quotex host completed the Socket.IO handshake.")
