@@ -33,7 +33,7 @@ class QuotexSocket:
     async def _send_text(self, text: str):
         if not self.ws:
             raise RuntimeError("WebSocket is not connected")
-        await self.ws.send_str(text)
+        await self.ws.send(text, flags=CurlWsFlag.TEXT)
 
     async def _recv_text(self) -> str:
         if not self.ws:
@@ -48,7 +48,7 @@ class QuotexSocket:
         if not self.ws:
             raise RuntimeError("WebSocket is not connected")
         packet = [name] if payload is None else [name, payload]
-        await self.ws.send_str("42" + json.dumps(packet, separators=(",", ":")))
+        await self._send_text("42" + json.dumps(packet, separators=(",", ":")))
 
     async def connect(self):
         if AsyncSession is None or CurlWsFlag is None:
@@ -67,7 +67,7 @@ class QuotexSocket:
 
         # Use curl_cffi's documented WebSocket API without TLS fingerprint
         # impersonation. Certificate verification stays enabled.
-        self._session = AsyncSession(timeout=15)
+        self._session = AsyncSession(impersonate="chrome", timeout=15)
         self.ws = await self._session.ws_connect(WSS_URL, headers=headers)
         handshake = await self._recv_text()
         self.last_message_at = time.monotonic()
