@@ -3,11 +3,11 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import ssl
 import time
 from collections.abc import Awaitable, Callable
 
-import websockets
+from curl_cffi import CurlWsFlag
+from curl_cffi.requests import AsyncSession
 
 from config import ASSET, HISTORY_CANDLES, SSID, TIMEFRAME, WS_ORIGIN, WSS_URL
 
@@ -20,16 +20,31 @@ class QuotexSocket:
     def __init__(self, on_event: Callable[[str, object], Awaitable[None]]):
         self.on_event = on_event
         self.ws = None
+        self._session = None
         self.connected = False
         self.authenticated = False
         self.last_message_at = 0.0
         self._pending_binary_event: str | None = None
 
+    async def _send_text(self, text: str):
+        if not self.ws:
+            raise RuntimeError("WebSocket is not connected")
+        await self.ws.send_str(text)
+
+    async def _recv_text(self) -> str:
+        if not self.ws:
+            raise RuntimeError("WebSocket is not connected")
+        payload, flags = await self.ws.recv()
+        if flags & CurlWsFlag.BINARY:
+            await self._handle_binary(payload)
+            return ""
+        return payload.decode("utf-8", "replace") if isinstance(payload, bytes) else str(payload)
+
     async def send_event(self, name: str, payload: object | None = None):
         if not self.ws:
             raise RuntimeError("WebSocket is not connected")
         packet = [name] if payload is None else [name, payload]
-        await self.ws.send("42" + json.dumps(packet, separators=(",", ":")))
+        await self.ws.send_str("42" + json.dumps(packet, separators=(",", ":")))
 
     async def connect(self):
         if not SSID:
@@ -38,31 +53,17 @@ class QuotexSocket:
             raise RuntimeError("Configured endpoint is not the expected live Quotex EIO=3 ws2 endpoint.")
 
         headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/142.0.0.0 Safari/537.36"
-            ),
+            "Origin": WS_ORIGIN,
             "Cache-Control": "no-cache",
             "Pragma": "no-cache",
             "Accept-Language": "en-US,en;q=0.9",
         }
 
-        # Keep certificate verification enabled by default. If a local Python
-        # environment has a broken CA bundle, the connection error is surfaced
-        # instead of silently weakening TLS security.
-        ssl_context = ssl.create_default_context()
-
-        self.ws = await websockets.connect(
-            WSS_URL,
-            additional_headers=headers,
-            origin=WS_ORIGIN,
-            ping_interval=None,
-            max_size=16 * 1024 * 1024,
-            ssl=ssl_context,
-        )
-
-        handshake = await self.ws.recv()
+        # Use curl_cffi's documented WebSocket API without TLS fingerprint
+        # impersonation. Certificate verification stays enabled.
+        self._session = AsyncSession(timeout=15)
+        self.ws = await self._session.ws_connect(WSS_URL, headers=headers)
+        handshake = await self._recv_text()
         self.last_message_at = time.monotonic()
 
         if isinstance(handshake, bytes):
@@ -73,12 +74,12 @@ class QuotexSocket:
         # Engine.IO opened; now wait for the Socket.IO namespace ACK before
         # sending any application event. Community clients commonly require
         # this separate "40" acknowledgement from the server.
-        await self.ws.send("40")
+        await self._send_text("40")
         deadline = time.monotonic() + 12
         while time.monotonic() < deadline:
             try:
                 packet = await asyncio.wait_for(
-                    self.ws.recv(),
+                    self._recv_text(),
                     timeout=max(0.1, deadline - time.monotonic()),
                 )
             except asyncio.TimeoutError as exc:
@@ -91,7 +92,7 @@ class QuotexSocket:
                 continue
             packet = str(packet)
             if packet == "2":
-                await self.ws.send("3")
+                await self._send_text("3")
                 continue
             if packet == "40" or packet.startswith("40{"):
                 break
@@ -208,11 +209,10 @@ class QuotexSocket:
                 self.connected = True
                 backoff = 2
 
-                async for raw in self.ws:
+                while True:
+                    raw = await self._recv_text()
                     self.last_message_at = time.monotonic()
-                    if isinstance(raw, bytes):
-                        await self._handle_binary(raw)
-                    else:
+                    if raw:
                         await self._handle_text(raw)
 
             except asyncio.CancelledError:
@@ -221,5 +221,12 @@ class QuotexSocket:
                 self.connected = False
                 self.authenticated = False
                 log.warning("Live Quotex connection lost: %s", exc)
+                if self._session is not None:
+                    try:
+                        await self._session.close()
+                    except Exception:
+                        pass
+                    self._session = None
+                self.ws = None
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2, 30)
