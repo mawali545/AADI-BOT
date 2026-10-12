@@ -27,7 +27,7 @@ h1{margin:0 0 6px;color:#72e3c2}.muted{color:#9099aa;font-size:13px}
 .v{font-size:19px;font-weight:700;overflow-wrap:anywhere}.status{font-weight:700;margin-top:14px}
 .note{font-size:12px;line-height:1.5;color:#aeb8c9}
 </style></head><body>
-<div class="card"><h1>AADI BOT</h1><div class="muted">REAL QUOTEX DATA · MANUAL TRADES ONLY</div>
+<div class="card"><h1>AADI BOT</h1><div class="muted">QUOTEX BOOK DATA · READ-ONLY · MANUAL TRADES</div>
 <div id="status" class="status">Checking local scanner…</div><div id="age" class="muted">Waiting for feed status</div></div>
 <div class="card"><div class="muted">CURRENT DECISION</div><div id="sig" class="sig">WAIT</div>
 <div id="score" class="muted">Confluence 0</div><div class="note">A signal is analysis, not a guarantee. AADI Bot never places trades.</div></div>
@@ -40,7 +40,7 @@ h1{margin:0 0 6px;color:#72e3c2}.muted{color:#9099aa;font-size:13px}
 <div class="card"><div class="muted">Momentum</div><div id="mom" class="v">—</div></div>
 </div>
 <div class="card"><div class="muted">CLOSED CANDLES</div><div id="candles" class="v">0</div>
-<div class="note">Candles and indicators are calculated only from received Quotex data. If the session is missing, rejected, or stale, the bot stays disconnected/waiting.</div></div>
+<div class="note">Feed is independent and unofficial when using OTCharts. Compare its price with your Quotex app before trusting it. No fake ticks; no orders are placed.</div></div>
 <script>
 const $=id=>document.getElementById(id);
 function n(v,d=6){return typeof v==='number'&&Number.isFinite(v)?v.toFixed(d):'—'}
