@@ -32,6 +32,7 @@ async def main() -> int:
         try:
             async with session.ws_connect(url, headers=headers) as ws:
                 first, _flags = await asyncio.wait_for(ws.recv(), timeout=10)
+                first = first.decode("utf-8", "replace") if isinstance(first, bytes) else str(first)
                 print(f"first_frame={first[:200]!r}")
                 if not first.startswith("0"):
                     print("NO_ENGINE_IO_HANDSHAKE")
@@ -39,6 +40,7 @@ async def main() -> int:
 
                 await ws.send("40", flags=CurlWsFlag.TEXT)
                 ack, _flags = await asyncio.wait_for(ws.recv(), timeout=8)
+                ack = ack.decode("utf-8", "replace") if isinstance(ack, bytes) else str(ack)
                 print(f"namespace_reply={ack[:200]!r}")
                 if not (ack == "40" or ack.startswith("40{")):
                     print("NO_PUBLIC_NAMESPACE")
@@ -77,7 +79,7 @@ async def main() -> int:
                         if event in {"quotes/stream", "tick", "candle-generated", "candle"} and payload:
                             print("LIVE_DATA_CANDIDATE: received market-data event; inspect payload before production use")
                             return 0
-                                    print("NO_TICK: public namespace opened but no recognizable live tick arrived without authorization")
+                print("NO_TICK: public namespace opened but no recognizable live tick arrived without authorization")
                 return 2
         except Exception as exc:
             print(f"PUBLIC_STREAM_FAILED: {type(exc).__name__}: {str(exc)[:250]}")
