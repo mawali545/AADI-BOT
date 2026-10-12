@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import time
 from collections import deque
 from typing import Any
@@ -17,6 +18,8 @@ from config import (
 )
 from indicators import signal
 from quotex_ws import QuotexSocket
+
+log = logging.getLogger("aadi.scanner")
 
 
 class Scanner:
