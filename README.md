@@ -23,7 +23,12 @@ The default provider is **OTCharts**, an independent third-party service that cl
    export AADI_TIMEFRAME='60'
    python app.py
    ```
-4. Open http://127.0.0.1:8000. The dashboard must show LIVE with the tick age updating before treating the feed as live. If the API key's plan does not include streaming, the app should remain disconnected rather than fabricate ticks.
+4. Before running the dashboard, verify the free candle feed once (this does not open a live stream):
+   ```sh
+   python tools/check_otcharts_quotes.py
+   ```
+   Compare the printed candle time and OHLC values with the same symbol/timeframe in the Quotex app. If they differ, stop here and do not use the service for signals.
+5. Open http://127.0.0.1:8000. The dashboard must show LIVE with the tick age updating before treating the feed as live. If the API key's plan does not include streaming, the app should remain disconnected rather than fabricate ticks.
 
 ## Optional direct Quotex WebSocket mode
 
