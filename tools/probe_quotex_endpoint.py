@@ -1,4 +1,4 @@
-"""Probe Quotex Socket.IO transport without credentials or trades."""
+"""Probe Quotex-owned/community-listed WebSocket host candidates; no credentials or trades."""
 from __future__ import annotations
 
 import asyncio
@@ -12,12 +12,12 @@ import websockets
 from websockets.exceptions import WebSocketException
 
 PATH = "/socket.io/?EIO=3&transport=websocket"
-HOSTS = ("ws2.qxbroker.com", "ws.qxbroker.com")
-ORIGIN = os.getenv("AADI_WS_ORIGIN", "https://qxbroker.com")
+HOSTS = ("ws2.qxbroker.com", "ws.qxbroker.com", "qxbroker.com", "quotex.com", "qxbroker.io", "quotex.io")
+ORIGINS = ("https://qxbroker.com", "https://quotex.com")
+USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36"
 
 
 def resolve_via_doh(host: str) -> list[str]:
-    """Use public DNS-over-HTTPS if the device/runner's normal DNS fails."""
     answers: list[str] = []
     for resolver in ("https://cloudflare-dns.com/dns-query", "https://dns.google/resolve"):
         try:
@@ -32,60 +32,8 @@ def resolve_via_doh(host: str) -> list[str]:
             if answers:
                 break
         except Exception as exc:
-            print(f"DNS-over-HTTPS lookup via {resolver.split('/')[2]} failed: {type(exc).__name__}", flush=True)
+            print(f"DoH lookup via {resolver.split('/')[2]}: {type(exc).__name__}", flush=True)
     return answers
-
-
-async def probe(host: str) -> bool:
-    url = "wss://" + host + PATH
-    print(f"Trying official-host candidate: {host}", flush=True)
-    try:
-        async with websockets.connect(
-            url,
-            additional_headers={
-                "Origin": ORIGIN,
-                "User-Agent": "Mozilla/5.0 AADI-Bot-Endpoint-Probe",
-                "Cache-Control": "no-cache",
-                "Pragma": "no-cache",
-            },
-            ssl=ssl.create_default_context(),
-            ping_interval=None,
-            open_timeout=8,
-            close_timeout=2,
-            max_size=1024 * 1024,
-        ) as ws:
-            return await inspect_socket(ws)
-    except (OSError, TimeoutError, WebSocketException, ssl.SSLError) as exc:
-        print(f"Normal DNS/connection failed: {type(exc).__name__}: {exc}", flush=True)
-
-    ips = await asyncio.to_thread(resolve_via_doh, host)
-    if not ips:
-        print(f"No A records returned by public DNS-over-HTTPS for {host}.", flush=True)
-        return False
-    for ip in ips:
-        print(f"Retrying {host} via DNS-over-HTTPS IP {ip} (TLS hostname remains {host})", flush=True)
-        try:
-            async with websockets.connect(
-                url,
-                host=ip,
-                port=443,
-                additional_headers={
-                    "Origin": ORIGIN,
-                    "User-Agent": "Mozilla/5.0 AADI-Bot-Endpoint-Probe",
-                    "Cache-Control": "no-cache",
-                    "Pragma": "no-cache",
-                },
-                ssl=ssl.create_default_context(),
-                ping_interval=None,
-                open_timeout=8,
-                close_timeout=2,
-                max_size=1024 * 1024,
-            ) as ws:
-                if await inspect_socket(ws):
-                    return True
-        except (OSError, TimeoutError, WebSocketException, ssl.SSLError) as exc:
-            print(f"IP connection failed: {type(exc).__name__}: {exc}", flush=True)
-    return False
 
 
 async def inspect_socket(ws) -> bool:
@@ -93,13 +41,13 @@ async def inspect_socket(ws) -> bool:
     if isinstance(first, bytes):
         first = first.decode("utf-8", "replace")
     if not str(first).startswith("0"):
-        print(f"TCP/TLS/WebSocket opened but unexpected Engine.IO response: {first!r}", flush=True)
+        print(f"Unexpected Engine.IO response: {first!r}", flush=True)
         return False
     try:
         details = json.loads(str(first)[1:])
         print(f"Engine.IO handshake: OK (sid present: {bool(details.get('sid'))})", flush=True)
     except (ValueError, AttributeError):
-        print("Engine.IO handshake: OK (handshake body not JSON)", flush=True)
+        print("Engine.IO handshake: OK", flush=True)
     await ws.send("40")
     deadline = asyncio.get_running_loop().time() + 8
     while asyncio.get_running_loop().time() < deadline:
@@ -113,22 +61,68 @@ async def inspect_socket(ws) -> bool:
         if message == "2":
             await ws.send("3")
         elif message == "40" or message.startswith("40{"):
-            print("Socket.IO namespace acknowledgement: OK", flush=True)
-            print("Transport connection verified; authentication and market ticks are NOT tested.", flush=True)
+            print("SUCCESS: Quotex Socket.IO namespace acknowledgement received.", flush=True)
+            print("Only transport/namespace checked; authentication and ticks not tested.", flush=True)
             return True
         elif message == "41":
-            print("WebSocket transport opened, but Socket.IO namespace was rejected.", flush=True)
+            print("Transport connected; Socket.IO namespace rejected.", flush=True)
             return False
-    print("WebSocket transport opened, but no namespace acknowledgement arrived.", flush=True)
+    print("Transport connected, but no namespace acknowledgement.", flush=True)
+    return False
+
+
+async def probe(host: str, origin: str) -> bool:
+    url = "wss://" + host + PATH
+    print(f"Trying host={host}, origin={origin}", flush=True)
+    try:
+        async with websockets.connect(
+            url,
+            additional_headers={"Origin": origin, "User-Agent": USER_AGENT, "Cache-Control": "no-cache", "Pragma": "no-cache"},
+            ssl=ssl.create_default_context(),
+            ping_interval=None,
+            open_timeout=7,
+            close_timeout=2,
+            max_size=1024 * 1024,
+        ) as ws:
+            if await inspect_socket(ws):
+                return True
+    except (OSError, TimeoutError, WebSocketException, ssl.SSLError) as exc:
+        print(f"Normal connection failed: {type(exc).__name__}: {exc}", flush=True)
+
+    ips = await asyncio.to_thread(resolve_via_doh, host)
+    for ip in ips:
+        print(f"Retrying {host} via DoH IP {ip}", flush=True)
+        try:
+            async with websockets.connect(
+                url, host=ip, port=443,
+                additional_headers={"Origin": origin, "User-Agent": USER_AGENT, "Cache-Control": "no-cache", "Pragma": "no-cache"},
+                ssl=ssl.create_default_context(), ping_interval=None,
+                open_timeout=7, close_timeout=2, max_size=1024 * 1024,
+            ) as ws:
+                if await inspect_socket(ws):
+                    return True
+        except (OSError, TimeoutError, WebSocketException, ssl.SSLError) as exc:
+            print(f"DoH-IP connection failed: {type(exc).__name__}: {exc}", flush=True)
+    if not ips:
+        print(f"No public A record for {host}.", flush=True)
     return False
 
 
 async def main() -> None:
-    print("Quotex endpoint probe (no SSID, no login, no trades)", flush=True)
-    for host in (os.getenv("AADI_WS_HOST", "").strip(), *HOSTS):
-        if host and await probe(host):
-            return
-    raise SystemExit("No candidate completed the Socket.IO handshake.")
+    print("Quotex endpoint probe: no SSID, no login, no trade requests.", flush=True)
+    custom_host = os.getenv("AADI_WS_HOST", "").strip()
+    custom_origin = os.getenv("AADI_WS_ORIGIN", "").strip()
+    hosts = ([custom_host] if custom_host else []) + list(HOSTS)
+    origins = ([custom_origin] if custom_origin else []) + list(ORIGINS)
+    seen: set[tuple[str, str]] = set()
+    for host in hosts:
+        for origin in origins:
+            if (host, origin) in seen:
+                continue
+            seen.add((host, origin))
+            if await probe(host, origin):
+                return
+    raise SystemExit("No tested Quotex host completed the Socket.IO handshake.")
 
 
 if __name__ == "__main__":
