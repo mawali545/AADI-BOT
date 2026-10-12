@@ -10,7 +10,8 @@ import asyncio
 import json
 import os
 
-from curl_cffi.requests import AsyncSession, CurlWsFlag
+from curl_cffi import CurlWsFlag
+from curl_cffi.requests import AsyncSession
 
 HOST = os.getenv("AADI_PROBE_HOST", "ws2.quotex.com")
 ORIGIN = os.getenv("AADI_WS_ORIGIN", "https://quotex.com")
