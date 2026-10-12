@@ -6,7 +6,7 @@ A phone-first, read-only trading scanner with a dark mobile dashboard. It calcul
 
 The default provider is **OTCharts**, an independent third-party service that claims to relay Quotex market data. It is **not official or endorsed by Quotex**. It uses its own API key and does not require your Quotex password or session token.
 
-**Important before paying:** the current OTCharts API documentation says its free API tier does not include live streaming; live streams require a paid data plan. Do not pay yet. First use the free tier to check whether its latest Quotex candles match the Quotex app for the same symbol and timeframe. If they do not match, do not use it for signals. Check current limits/prices directly at https://otcharts.com/quotex-api and https://otcharts.com/api.
+**Important before paying:** OTCharts' own pages currently disagree about whether its free API key includes a live stream (the API reference says no; its PyPI package page says one stream). Do not pay yet. Use the free key to fetch candles and compare the latest timestamp/OHLC with the Quotex app; then check the account's actual stream entitlement. If the feed cannot be verified or the quotes do not match, do not use it for signals. Check current terms and limits directly at https://otcharts.com/quotex-api, https://otcharts.com/api, and https://pypi.org/project/otcharts/0.6.1/.
 
 ### Termux setup — OTCharts mode
 
