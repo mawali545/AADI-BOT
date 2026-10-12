@@ -52,7 +52,7 @@ class QuotexSocket:
 
     async def connect(self):
         if AsyncSession is None or CurlWsFlag is None:
-            raise RuntimeError("Direct Quotex WebSocket mode needs curl_cffi; install requirements-quotex-ws.txt or use AADI_FEED_PROVIDER=otcharts.")
+            raise RuntimeError("Direct Quotex WebSocket mode needs curl_cffi. Install it from requirements.txt; Android/Termux compatibility still needs on-device verification.")
         if not SSID:
             raise RuntimeError("AADI_QUOTEX_SSID is missing; provide a live Quotex SSID.")
         if "EIO=3" not in WSS_URL or "ws2." not in WSS_URL:
@@ -65,8 +65,8 @@ class QuotexSocket:
             "Accept-Language": "en-US,en;q=0.9",
         }
 
-        # Use curl_cffi's documented WebSocket API without TLS fingerprint
-        # impersonation. Certificate verification stays enabled.
+        # Reuse the transport configuration that previously received a public
+        # namespace ACK. Certificate verification stays enabled.
         self._session = AsyncSession(impersonate="chrome", timeout=15)
         self.ws = await self._session.ws_connect(WSS_URL, headers=headers)
         handshake = await self._recv_text()
