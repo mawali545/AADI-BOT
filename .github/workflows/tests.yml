@@ -17,3 +17,14 @@ jobs:
       - run: python -m pip install -r requirements.txt
       - run: python -m unittest discover -s tests -v
       - run: python -m py_compile app.py config.py indicators.py quotex_ws.py scanner.py
+  quotex-endpoint-probe:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -r requirements.txt
+      - name: Test Quotex WebSocket handshake only (no login or trades)
+        run: python tools/probe_quotex_endpoint.py
