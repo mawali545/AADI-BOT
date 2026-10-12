@@ -6,8 +6,7 @@ import logging
 import time
 from collections.abc import Awaitable, Callable
 
-from curl_cffi import CurlWsFlag
-from curl_cffi.requests import AsyncSession
+from curl_cffi.requests import AsyncSession, CurlWsFlag
 
 from config import ASSET, HISTORY_CANDLES, SSID, TIMEFRAME, WS_ORIGIN, WSS_URL
 
