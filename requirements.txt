@@ -1,1 +1,1 @@
-curl_cffi>=0.13.0
+otcharts>=0.7.0
