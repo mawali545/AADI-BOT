@@ -220,6 +220,11 @@ class QuotexSocket:
             except Exception as exc:
                 self.connected = False
                 self.authenticated = False
+                if self.ws is not None:
+                    try:
+                        await self.ws.close()
+                    except Exception:
+                        pass
                 log.warning("Live Quotex connection lost: %s", exc)
                 if self._session is not None:
                     try:
