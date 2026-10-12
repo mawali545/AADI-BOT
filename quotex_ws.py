@@ -168,16 +168,27 @@ class QuotexSocket:
                 )
 
     async def _handle_binary(self, raw: bytes):
-        text = raw.decode("utf-8", "replace")
-        if text.startswith("\x04"):
-            text = text[1:]
-        try:
-            payload = json.loads(text)
-        except (TypeError, ValueError):
-            return
-
         event = self._pending_binary_event
         self._pending_binary_event = None
+        data = raw[1:] if raw.startswith(bytes([4])) else raw
+        try:
+            payload = json.loads(data.decode("utf-8"))
+        except (UnicodeDecodeError, ValueError):
+            # Historical candle replies can use fixed-width little-endian
+            # records: int32 timestamp + four float64 OHLC values (36 bytes).
+            if event in {"history/load", "history/list/v2"} and len(data) >= 36:
+                import struct
+                usable = len(data) - (len(data) % 36)
+                candles = []
+                for offset in range(0, usable, 36):
+                    try:
+                        ts, op, hi, lo, cl = struct.unpack("<idddd", data[offset:offset + 36])
+                    except struct.error:
+                        break
+                    candles.append({"time": int(ts), "open": op, "high": hi, "low": lo, "close": cl})
+                if candles:
+                    await self._dispatch(event, {"candles": candles})
+            return
 
         if event:
             await self._dispatch(event, payload)
