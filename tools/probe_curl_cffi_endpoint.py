@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Check whether a public Quotex Socket.IO session emits market ticks.
 
-This probe uses no credentials, browser fingerprint impersonation, cookies,
-account actions, or trades. A namespace ACK is not counted as live data.
+This probe uses no credentials, cookies, account actions, or trades. It checks a public namespace and whether recognizable market-data events arrive; an ACK alone is not live data.
 """
 from __future__ import annotations
 
@@ -29,17 +28,17 @@ async def main() -> int:
         "Accept-Language": "en-US,en;q=0.9",
     }
 
-    async with AsyncSession(timeout=12) as session:
+    async with AsyncSession(impersonate="chrome", timeout=12) as session:
         try:
             async with session.ws_connect(url, headers=headers) as ws:
-                first = await asyncio.wait_for(ws.recv_str(), timeout=10)
+                first, _flags = await asyncio.wait_for(ws.recv(), timeout=10)
                 print(f"first_frame={first[:200]!r}")
                 if not first.startswith("0"):
                     print("NO_ENGINE_IO_HANDSHAKE")
                     return 1
 
-                await ws.send_str("40")
-                ack = await asyncio.wait_for(ws.recv_str(), timeout=8)
+                await ws.send("40", flags=CurlWsFlag.TEXT)
+                ack, _flags = await asyncio.wait_for(ws.recv(), timeout=8)
                 print(f"namespace_reply={ack[:200]!r}")
                 if not (ack == "40" or ack.startswith("40{")):
                     print("NO_PUBLIC_NAMESPACE")
@@ -48,12 +47,12 @@ async def main() -> int:
                 # Public, unauthenticated subscription attempts only. If the
                 # server requires authorization, this probe stops without trying
                 # to evade that requirement.
-                await ws.send_str("42" + json.dumps(["tick"], separators=(",", ":")))
-                await ws.send_str(
+                await ws.send("42" + json.dumps(["tick"], separators=(",", ":")), flags=CurlWsFlag.TEXT)
+                await ws.send(
                     "42" + json.dumps(
                         ["instruments/update", {"asset": ASSET, "period": TIMEFRAME}],
                         separators=(",", ":"),
-                    )
+                    ), flags=CurlWsFlag.TEXT,
                 )
 
                 deadline = asyncio.get_running_loop().time() + 15
@@ -63,6 +62,9 @@ async def main() -> int:
                         raw, flags = await asyncio.wait_for(ws.recv(), timeout=remaining)
                     except asyncio.TimeoutError:
                         break
+                    if flags & CurlWsFlag.BINARY:
+                        print(f"BINARY_FRAME: {len(raw)} bytes; not yet decoded as a verified tick")
+                        continue
                     message = raw.decode("utf-8", "replace") if isinstance(raw, bytes) else str(raw)
                     print(f"frame={message[:500]!r}")
                     if message.startswith("42"):
@@ -75,9 +77,7 @@ async def main() -> int:
                         if event in {"quotes/stream", "tick", "candle-generated", "candle"} and payload:
                             print("LIVE_DATA_CANDIDATE: received market-data event; inspect payload before production use")
                             return 0
-                    elif flags & CurlWsFlag.BINARY:
-                        print("BINARY_FRAME: received binary payload; not yet decoded as a verified tick")
-                print("NO_TICK: public namespace opened but no recognizable live tick arrived without authorization")
+                                    print("NO_TICK: public namespace opened but no recognizable live tick arrived without authorization")
                 return 2
         except Exception as exc:
             print(f"PUBLIC_STREAM_FAILED: {type(exc).__name__}: {str(exc)[:250]}")
