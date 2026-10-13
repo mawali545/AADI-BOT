@@ -8,6 +8,7 @@ from typing import Any
 from config import (
     ASSET,
     FEED_PROVIDER,
+    HISTORY_CANDLES,
     OTCHARTS_API_KEY,
     EMA_FAST,
     EMA_SLOW,
