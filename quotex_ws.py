@@ -130,7 +130,7 @@ class QuotexSocket:
 
         # Socket.IO binary event packet: 45<n>- followed by JSON with
         # placeholders, then exactly n binary attachment frames.
-        match = re.match(r"^45(\\d+)-", raw)
+        match = re.match(r"^45(\d+)-", raw)
         if match:
             try:
                 header = json.loads(raw[match.end():])
