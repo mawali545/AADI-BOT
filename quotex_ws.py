@@ -131,6 +131,10 @@ class QuotexSocket:
         # Socket.IO binary event packet: 45<n>- followed by JSON with
         # placeholders, then exactly n binary attachment frames.
         match = re.match(r"^45(\d+)-", raw)
+        if raw.startswith("45") and not match:
+            self._reset_binary_state()
+            log.warning("Malformed Socket.IO binary event header")
+            return
         if match:
             try:
                 header = json.loads(raw[match.end():])
