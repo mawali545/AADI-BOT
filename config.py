@@ -1,10 +1,13 @@
 import os
 
+FEED_PROVIDER = os.getenv("AADI_FEED_PROVIDER", "quotex").strip().lower()
+OTCHARTS_API_KEY = os.getenv("AADI_OTCHARTS_API_KEY", "")
+
 WSS_URL = os.getenv(
     "AADI_WSS_URL",
-    "wss://ws2.qxbroker.com/socket.io/?EIO=3&transport=websocket",
+    "wss://ws2.quotex.com/socket.io/?EIO=3&transport=websocket",
 )
-WS_ORIGIN = os.getenv("AADI_WS_ORIGIN", "https://qxbroker.com")
+WS_ORIGIN = os.getenv("AADI_WS_ORIGIN", "https://quotex.com")
 SSID = os.getenv("AADI_QUOTEX_SSID", "")
 ASSET = os.getenv("AADI_ASSET", "EURUSD_otc")
 TIMEFRAME = int(os.getenv("AADI_TIMEFRAME", "60"))
