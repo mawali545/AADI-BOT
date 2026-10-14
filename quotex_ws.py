@@ -182,7 +182,7 @@ class QuotexSocket:
                 self._pending_binary_payload = data[1] if len(data) > 1 else {}
                 self._pending_binary_count = count
                 self._pending_binary_attachments = []
-                log.debug("Socket.IO binary event header: event=%s attachments=%d",
+                log.info("Socket.IO binary event header received: event=%s attachments=%d",
                           self._pending_binary_event, count)
             except (TypeError, ValueError):
                 self._clear_binary_state()
@@ -222,7 +222,7 @@ class QuotexSocket:
         # Some server events arrive as raw JSON in a binary WebSocket frame.
         payload = _json_from_bytes(raw)
         if payload is None:
-            log.debug("Ignored unclassified binary frame: %d bytes; prefix=%s",
+            log.warning("Unclassified binary frame: %d bytes; prefix=%s",
                       len(raw), raw[:8].hex())
             return
         if isinstance(payload, dict):
