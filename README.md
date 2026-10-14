@@ -43,3 +43,14 @@ The dashboard can start without a session, but it will show a disconnected state
 Keep your session value private. Session tokens may grant account access. Never publish them or commit them to Git.
 
 Signals are technical indicators, not a guarantee of profit. No orders are placed by this program.
+
+
+## Binary packet diagnostics
+
+The WebSocket client now handles Socket.IO binary-event headers by reading the declared attachment count, collecting attachments, and replacing valid JSON attachments in the event payload. Unknown binary frames are not converted into guessed prices; Termux logs show the frame size and a short byte prefix so protocol changes can be diagnosed without dumping a full account/session payload.
+
+Run the decoder unit tests from the repository root with:
+
+`python -m unittest discover -s tests -v`
+
+If the live feed changes to a non-JSON binary encoding, the scanner will report an unclassified frame and continue without inventing market data. That frame still needs a protocol-specific decoder based on the actual observed bytes.
