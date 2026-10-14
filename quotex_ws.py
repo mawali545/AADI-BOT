@@ -6,12 +6,40 @@ import logging
 import ssl
 import time
 from collections.abc import Awaitable, Callable
+from typing import Any
 
 import websockets
 
 from config import ASSET, HISTORY_CANDLES, SSID, TIMEFRAME, WS_ORIGIN, WSS_URL
 
 log = logging.getLogger("aadi.quotex")
+
+
+def _json_from_bytes(raw: bytes) -> Any | None:
+    """Decode JSON attachments without treating arbitrary binary as text data."""
+    candidates = [raw]
+    if raw.startswith(b"\x04"):
+        candidates.insert(0, raw[1:])
+    for candidate in candidates:
+        try:
+            return json.loads(candidate.decode("utf-8"))
+        except (UnicodeDecodeError, ValueError):
+            continue
+    return None
+
+
+def _replace_binary_placeholders(value: Any, attachments: list[Any]) -> Any:
+    """Replace Socket.IO binary placeholder objects with decoded attachments."""
+    if isinstance(value, dict):
+        if value.get("_placeholder") is True:
+            index = value.get("num")
+            if isinstance(index, int) and 0 <= index < len(attachments):
+                return attachments[index]
+            return value
+        return {key: _replace_binary_placeholders(item, attachments) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_replace_binary_placeholders(item, attachments) for item in value]
+    return value
 
 
 class QuotexSocket:
@@ -24,6 +52,9 @@ class QuotexSocket:
         self.authenticated = False
         self.last_message_at = 0.0
         self._pending_binary_event: str | None = None
+        self._pending_binary_payload: Any = None
+        self._pending_binary_count = 0
+        self._pending_binary_attachments: list[Any] = []
 
     async def send_event(self, name: str, payload: object | None = None):
         if not self.ws:
@@ -47,12 +78,7 @@ class QuotexSocket:
             "Pragma": "no-cache",
             "Accept-Language": "en-US,en;q=0.9",
         }
-
-        # Keep certificate verification enabled by default. If a local Python
-        # environment has a broken CA bundle, the connection error is surfaced
-        # instead of silently weakening TLS security.
         ssl_context = ssl.create_default_context()
-
         self.ws = await websockets.connect(
             WSS_URL,
             additional_headers=headers,
@@ -64,15 +90,11 @@ class QuotexSocket:
 
         handshake = await self.ws.recv()
         self.last_message_at = time.monotonic()
-
         if isinstance(handshake, bytes):
             handshake = handshake.decode("utf-8", "replace")
         if not str(handshake).startswith("0"):
             raise RuntimeError(f"Unexpected Engine.IO handshake: {handshake!r}")
 
-        # Engine.IO opened; now wait for the Socket.IO namespace ACK before
-        # sending any application event. Community clients commonly require
-        # this separate "40" acknowledgement from the server.
         await self.ws.send("40")
         deadline = time.monotonic() + 12
         while time.monotonic() < deadline:
@@ -97,12 +119,10 @@ class QuotexSocket:
                 break
             if packet == "41":
                 raise ConnectionError("Quotex rejected/disconnected the Socket.IO namespace")
-            if packet.startswith("42"):
+            if packet.startswith(("42", "45")):
                 await self._handle_text(packet)
         else:
-            raise TimeoutError(
-                "Timed out waiting for Quotex Socket.IO namespace acknowledgement."
-            )
+            raise TimeoutError("Timed out waiting for Quotex Socket.IO namespace acknowledgement.")
 
         await self.send_event(
             "authorization",
@@ -114,10 +134,7 @@ class QuotexSocket:
         await self.send_event("indicator/list")
         await self.send_event("drawing/load")
         await self.send_event("pending/list")
-        await self.send_event(
-            "instruments/update",
-            {"asset": ASSET, "period": TIMEFRAME},
-        )
+        await self.send_event("instruments/update", {"asset": ASSET, "period": TIMEFRAME})
         await self.send_event("depth/follow", ASSET)
         await self.send_event("chart_notification/get")
         await self.send_event(
@@ -137,6 +154,12 @@ class QuotexSocket:
             await self.subscribe()
         await self.on_event(event, payload)
 
+    def _clear_binary_state(self):
+        self._pending_binary_event = None
+        self._pending_binary_payload = None
+        self._pending_binary_count = 0
+        self._pending_binary_attachments = []
+
     async def _handle_text(self, raw: str):
         if raw == "2":
             if self.ws:
@@ -147,12 +170,22 @@ class QuotexSocket:
         if raw == "41":
             raise ConnectionError("Quotex Socket.IO server disconnected")
 
-        if raw.startswith("451-"):
+        # Socket.IO binary-event header: 45<count>-<JSON packet>.
+        if raw.startswith("45") and "-" in raw:
             try:
-                data = json.loads(raw[4:])
-                if isinstance(data, list) and data:
-                    self._pending_binary_event = str(data[0])
+                prefix, encoded = raw.split("-", 1)
+                count = int(prefix[2:])
+                data = json.loads(encoded)
+                if count < 1 or not isinstance(data, list) or not data:
+                    raise ValueError("unexpected binary event header shape")
+                self._pending_binary_event = str(data[0])
+                self._pending_binary_payload = data[1] if len(data) > 1 else {}
+                self._pending_binary_count = count
+                self._pending_binary_attachments = []
+                log.debug("Socket.IO binary event header: event=%s attachments=%d",
+                          self._pending_binary_event, count)
             except (TypeError, ValueError):
+                self._clear_binary_state()
                 log.warning("Invalid Socket.IO binary event header")
             return
 
@@ -160,29 +193,40 @@ class QuotexSocket:
             try:
                 data = json.loads(raw[2:])
             except (TypeError, ValueError):
+                log.debug("Ignored malformed Socket.IO event packet")
                 return
             if isinstance(data, list) and data:
-                await self._dispatch(
-                    str(data[0]),
-                    data[1] if len(data) > 1 else {},
-                )
+                await self._dispatch(str(data[0]), data[1] if len(data) > 1 else {})
 
     async def _handle_binary(self, raw: bytes):
-        text = raw.decode("utf-8", "replace")
-        if text.startswith("\x04"):
-            text = text[1:]
-        try:
-            payload = json.loads(text)
-        except (TypeError, ValueError):
+        # If a binary event header arrived first, collect its declared attachments.
+        if self._pending_binary_event is not None:
+            decoded = _json_from_bytes(raw)
+            self._pending_binary_attachments.append(decoded if decoded is not None else raw)
+            if len(self._pending_binary_attachments) < self._pending_binary_count:
+                return
+            event = self._pending_binary_event
+            payload = _replace_binary_placeholders(
+                self._pending_binary_payload, self._pending_binary_attachments
+            )
+            self._clear_binary_state()
+            if any(isinstance(item, bytes) for item in self._pending_binary_attachments):
+                log.warning(
+                    "Received non-JSON binary attachment for event=%s (%d bytes); "
+                    "kept raw bytes instead of fabricating decoded market data",
+                    event, len(raw),
+                )
+            await self._dispatch(event, payload)
             return
 
-        event = self._pending_binary_event
-        self._pending_binary_event = None
-
-        if event:
-            await self._dispatch(event, payload)
-        elif isinstance(payload, dict):
-            if "candles" in payload or "history" in payload:
+        # Some server events arrive as raw JSON in a binary WebSocket frame.
+        payload = _json_from_bytes(raw)
+        if payload is None:
+            log.debug("Ignored unclassified binary frame: %d bytes; prefix=%s",
+                      len(raw), raw[:8].hex())
+            return
+        if isinstance(payload, dict):
+            if any(key in payload for key in ("candles", "history", "data")):
                 await self._dispatch("history/list/v2", payload)
         elif isinstance(payload, list):
             await self._dispatch("quotes/stream", payload)
@@ -193,6 +237,7 @@ class QuotexSocket:
             try:
                 self.connected = False
                 self.authenticated = False
+                self._clear_binary_state()
                 await self.connect()
                 self.connected = True
                 backoff = 2
@@ -209,6 +254,7 @@ class QuotexSocket:
             except Exception as exc:
                 self.connected = False
                 self.authenticated = False
+                self._clear_binary_state()
                 log.warning("Live Quotex connection lost: %s", exc)
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2, 30)
