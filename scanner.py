@@ -35,7 +35,9 @@ class Scanner:
             "timestamp": None,
             "data_age": None,
             "candle_count": 0,
+            "event_count": 0,
         }
+        self.event_counts: dict[str, int] = {}
         self.socket = QuotexSocket(self.handle_event)
 
     @staticmethod
@@ -135,6 +137,8 @@ class Scanner:
 
     async def handle_event(self, event: str, payload: object):
         self.latest["last_event"] = event
+        self.latest["event_count"] = int(self.latest.get("event_count", 0)) + 1
+        self.event_counts[event] = self.event_counts.get(event, 0) + 1
 
         if event in {"history/list/v2", "history/list", "history/load", "candles"}:
             self._load_history(payload)
@@ -169,6 +173,10 @@ class Scanner:
         age = None if not self.last_tick_at else time.monotonic() - self.last_tick_at
         out["data_age"] = age
         out["candle_count"] = len(self.closes)
+        out["closed_candles"] = list(self.closes)[-100:]
+        out["current_candle"] = dict(self.current_candle) if self.current_candle else None
+        out["event_counts"] = dict(self.event_counts)
+        out["packet_diagnostics"] = dict(self.socket.packet_stats)
 
         if not self.socket.connected:
             out["market_status"] = "DISCONNECTED"
