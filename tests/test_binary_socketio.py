@@ -29,6 +29,16 @@ class BinarySocketIOTests(unittest.TestCase):
         self.assertEqual(socket._pending_binary_count, 0)
         self.assertIsNone(socket._pending_binary_header)
 
+    def test_unknown_binary_frame_does_not_create_market_data(self):
+        received = []
+
+        async def on_event(event, payload):
+            received.append((event, payload))
+
+        socket = QuotexSocket(on_event)
+        asyncio.run(socket._handle_binary(b"\\x00\\xff\\x10\\x80"))
+        self.assertEqual(received, [])
+
     def test_malformed_header_does_not_leave_stale_attachment_state(self):
         async def on_event(event, payload):
             raise AssertionError("unexpected event")
