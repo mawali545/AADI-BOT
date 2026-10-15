@@ -55,6 +55,11 @@ class QuotexSocket:
         self._pending_binary_payload: Any = None
         self._pending_binary_count = 0
         self._pending_binary_attachments: list[Any] = []
+        self.packet_stats = {
+            "text_frames": 0, "binary_frames": 0, "binary_json_decoded": 0,
+            "binary_unclassified": 0, "binary_event_headers": 0,
+            "last_binary_size": None, "last_binary_prefix": None,
+        }
 
     async def send_event(self, name: str, payload: object | None = None):
         if not self.ws:
@@ -182,6 +187,7 @@ class QuotexSocket:
                 self._pending_binary_payload = data[1] if len(data) > 1 else {}
                 self._pending_binary_count = count
                 self._pending_binary_attachments = []
+                self.packet_stats["binary_event_headers"] += 1
                 log.info("Socket.IO binary event header received: event=%s attachments=%d",
                           self._pending_binary_event, count)
             except (TypeError, ValueError):
@@ -199,6 +205,9 @@ class QuotexSocket:
                 await self._dispatch(str(data[0]), data[1] if len(data) > 1 else {})
 
     async def _handle_binary(self, raw: bytes):
+        self.packet_stats["binary_frames"] += 1
+        self.packet_stats["last_binary_size"] = len(raw)
+        self.packet_stats["last_binary_prefix"] = raw[:8].hex()
         # If a binary event header arrived first, collect its declared attachments.
         if self._pending_binary_event is not None:
             decoded = _json_from_bytes(raw)
@@ -222,9 +231,11 @@ class QuotexSocket:
         # Some server events arrive as raw JSON in a binary WebSocket frame.
         payload = _json_from_bytes(raw)
         if payload is None:
+            self.packet_stats["binary_unclassified"] += 1
             log.warning("Unclassified binary frame: %d bytes; prefix=%s",
                       len(raw), raw[:8].hex())
             return
+        self.packet_stats["binary_json_decoded"] += 1
         if isinstance(payload, dict):
             if any(key in payload for key in ("candles", "history", "data")):
                 await self._dispatch("history/list/v2", payload)
@@ -244,6 +255,8 @@ class QuotexSocket:
 
                 async for raw in self.ws:
                     self.last_message_at = time.monotonic()
+                    if not isinstance(raw, bytes):
+                        self.packet_stats["text_frames"] += 1
                     if isinstance(raw, bytes):
                         await self._handle_binary(raw)
                     else:
