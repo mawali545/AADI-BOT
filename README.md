@@ -4,11 +4,12 @@ A phone-first, read-only Quotex scanner with a dark mobile dashboard. It is inte
 
 ## Direct Quotex feed (default)
 
-The default provider is `quotex`. The WebSocket transport uses `curl_cffi` and the `ws2.qxbroker.com` Socket.IO endpoint with `https://qxbroker.com` as Origin. This endpoint was identified in an unofficial community implementation; it is not an official Quotex API, and server behavior can change. A namespace acknowledgement only proves the public transport opened; it does **not** prove account authentication or live market data. The app must remain DISCONNECTED/STALE until actual current ticks arrive.
+The default provider is `quotex`. The WebSocket transport uses `ws2.qxbroker.com` with `https://qxbroker.com` as Origin. It supports the standard `websockets` library for Android/Termux and optionally uses `curl_cffi` if already installed. This endpoint was identified in an unofficial community implementation; it is not an official Quotex API, and server behavior can change. A namespace acknowledgement only proves the public transport opened; it does **not** prove account authentication or live market data. The app must remain DISCONNECTED/STALE until actual current ticks arrive.
 
 1. Install dependencies:
    ```sh
    python -m pip install -r requirements.txt
+   # Optional: try curl_cffi only if it has a compatible build for your device
    ```
 2. Set your own current Quotex session value locally in Termux. Never send it in chat, screenshots, or GitHub:
    ```sh
@@ -20,7 +21,7 @@ The default provider is `quotex`. The WebSocket transport uses `curl_cffi` and t
    ```
 3. Open `http://127.0.0.1:8000` in your phone browser. Do not use signals unless the dashboard shows LIVE and the displayed price/time match the same instrument in Quotex.
 
-**Android compatibility is not yet verified:** `curl_cffi` can be difficult to install on Termux because its bundled native TLS library may not provide an Android wheel. The GitHub runner can test the transport, but that alone does not prove it installs or connects on your phone. Do not remove working packages or overwrite your backup until this is verified on-device.
+**Android compatibility is not yet verified:** the standard `websockets` transport avoids requiring `curl_cffi` native wheels, but the Quotex endpoint may still reject a plain WebSocket client. A successful connection must be confirmed on the phone with a valid current session and actual ticks. Do not remove working packages or overwrite your backup until this is verified on-device.
 
 ## Public endpoint probe (no login)
 
