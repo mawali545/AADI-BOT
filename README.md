@@ -53,4 +53,6 @@ Run the decoder unit tests from the repository root with:
 
 `python -m unittest discover -s tests -v`
 
-If the live feed changes to a non-JSON binary encoding, the scanner will report an unclassified frame and continue without inventing market data. That frame still needs a protocol-specific decoder based on the actual observed bytes.
+If the live feed changes to a non-JSON binary encoding, the scanner will report an unclassified frame and continue without inventing market data. The dashboard now shows event counts, binary frame counts, decoded JSON counts, unclassified frame counts, last frame size, a short byte prefix, and the current candle assembled from received ticks. That frame still needs a protocol-specific decoder based on the actual observed bytes.
+
+GitHub Actions runs the decoder unit tests on pushes and pull requests.
