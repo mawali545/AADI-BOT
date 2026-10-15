@@ -4,7 +4,7 @@ A phone-first, read-only Quotex scanner with a dark mobile dashboard. It is inte
 
 ## Direct Quotex feed (default)
 
-The default provider is `quotex`. The WebSocket transport uses `curl_cffi` with the same Chromium-impersonated TLS client that previously received a public Socket.IO namespace acknowledgement from `ws2.quotex.com`. A namespace acknowledgement only proves the public transport opened; it does **not** prove account authentication or live market data. The app must remain DISCONNECTED/STALE until actual current ticks arrive.
+The default provider is `quotex`. The WebSocket transport uses `curl_cffi` and the `ws2.qxbroker.com` Socket.IO endpoint with `https://qxbroker.com` as Origin. This endpoint was identified in an unofficial community implementation; it is not an official Quotex API, and server behavior can change. A namespace acknowledgement only proves the public transport opened; it does **not** prove account authentication or live market data. The app must remain DISCONNECTED/STALE until actual current ticks arrive.
 
 1. Install dependencies:
    ```sh
@@ -28,7 +28,7 @@ To check only the unauthenticated handshake and see whether any public market-da
 ```sh
 python tools/probe_curl_cffi_endpoint.py
 ```
-The probe sends no credentials and makes no trades. A successful namespace ACK is not counted as live ticks. If the server requires authentication, the public probe stops without trying to evade that requirement.
+The probe sends no credentials and makes no trades. It tests the public namespace only and cannot confirm account authentication. A successful namespace ACK is not counted as live ticks. If the server requires authentication, the public probe stops without trying to evade that requirement.
 
 ## Optional third-party feed
 
