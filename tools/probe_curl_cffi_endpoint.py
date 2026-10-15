@@ -13,8 +13,8 @@ from pathlib import Path
 from curl_cffi import CurlWsFlag
 from curl_cffi.requests import AsyncSession
 
-HOST = os.getenv("AADI_PROBE_HOST", "ws2.quotex.com")
-ORIGIN = os.getenv("AADI_WS_ORIGIN", "https://quotex.com")
+HOST = os.getenv("AADI_PROBE_HOST", "ws2.qxbroker.com")
+ORIGIN = os.getenv("AADI_WS_ORIGIN", "https://qxbroker.com")
 ASSET = os.getenv("AADI_ASSET", "EURUSD_otc")
 TIMEFRAME = int(os.getenv("AADI_TIMEFRAME", "60"))
 
