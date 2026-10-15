@@ -32,7 +32,9 @@ HTML = """<!doctype html>
 <div class="card"><div class="muted">EMA Slow</div><div id="es" class="v">—</div></div>
 <div class="card"><div class="muted">RSI</div><div id="rsi" class="v">—</div></div>
 <div class="card"><div class="muted">Momentum</div><div id="mom" class="v">—</div></div>
-</div><div class="muted">Signals are analysis only, not guarantees. Verify live data before trading.</div>
+</div><div class="card"><h3>Current candle (real ticks)</h3><div id="candle" class="muted">Waiting for received ticks…</div></div>
+<div class="card"><h3>Packet diagnostics</h3><div id="packets" class="muted">No packets yet</div><pre id="events" style="white-space:pre-wrap;overflow-wrap:anywhere;color:#aab5c8"></pre></div>
+<div class="muted">Signals are analysis only, not guarantees. Verify live data before trading.</div>
 <script>
 const $=id=>document.getElementById(id);
 function n(v,d=6){return typeof v==='number'?v.toFixed(d):'—'}
@@ -45,6 +47,9 @@ async function tick(){try{
  $('asset').textContent=x.asset||'—'; $('price').textContent=x.price??'—';
  $('ef').textContent=n(x.ema_fast); $('es').textContent=n(x.ema_slow);
  $('rsi').textContent=n(x.rsi,2); $('mom').textContent=n(x.momentum);
+ const c=x.current_candle; $('candle').textContent=c?('O '+n(c.open)+'  H '+n(c.high)+'  L '+n(c.low)+'  C '+n(c.close)+'  • '+new Date(c.time*1000).toLocaleTimeString()):'Waiting for received ticks…';
+ const p=x.packet_diagnostics||{}; $('packets').textContent='Text frames '+(p.text_frames||0)+' • Binary frames '+(p.binary_frames||0)+' • JSON decoded '+(p.binary_json_decoded||0)+' • Unclassified '+(p.binary_unclassified||0)+' • Binary headers '+(p.binary_event_headers||0)+' • Last frame '+(p.last_binary_size??'—')+' bytes';
+ $('events').textContent='Event counts: '+JSON.stringify(x.event_counts||{},null,2)+'\\nLast binary prefix: '+(p.last_binary_prefix||'—');
 }catch(e){$('status').textContent='SERVER ERROR'}}
 setInterval(tick,1000);tick();
 </script></body></html>"""
