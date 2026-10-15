@@ -10,9 +10,14 @@ from collections.abc import Awaitable, Callable
 try:
     from curl_cffi import CurlWsFlag
     from curl_cffi.requests import AsyncSession
-except ImportError:  # Optional legacy direct-WebSocket mode.
+except ImportError:  # Optional; the plain websockets transport is Termux-friendly.
     CurlWsFlag = None
     AsyncSession = None
+
+try:
+    import websockets
+except ImportError:
+    websockets = None
 
 from config import ASSET, HISTORY_CANDLES, SSID, TIMEFRAME, WS_ORIGIN, WSS_URL
 
@@ -26,6 +31,7 @@ class QuotexSocket:
         self.on_event = on_event
         self.ws = None
         self._session = None
+        self._transport = None
         self.connected = False
         self.authenticated = False
         self.last_message_at = 0.0
@@ -36,15 +42,24 @@ class QuotexSocket:
     async def _send_text(self, text: str):
         if not self.ws:
             raise RuntimeError("WebSocket is not connected")
-        await self.ws.send(text, flags=CurlWsFlag.TEXT)
+        if self._transport == "curl_cffi":
+            await self.ws.send(text, flags=CurlWsFlag.TEXT)
+        else:
+            await self.ws.send(text)
 
     async def _recv_text(self) -> str:
         if not self.ws:
             raise RuntimeError("WebSocket is not connected")
-        payload, flags = await self.ws.recv()
-        if flags & CurlWsFlag.BINARY:
-            await self._handle_binary(bytes(payload))
-            return ""
+        if self._transport == "curl_cffi":
+            payload, flags = await self.ws.recv()
+            if flags & CurlWsFlag.BINARY:
+                await self._handle_binary(bytes(payload))
+                return ""
+        else:
+            payload = await self.ws.recv()
+            if isinstance(payload, bytes):
+                await self._handle_binary(payload)
+                return ""
         return payload.decode("utf-8", "replace") if isinstance(payload, bytes) else str(payload)
 
     async def send_event(self, name: str, payload: object | None = None):
@@ -54,8 +69,8 @@ class QuotexSocket:
         await self._send_text("42" + json.dumps(packet, separators=(",", ":")))
 
     async def connect(self):
-        if AsyncSession is None or CurlWsFlag is None:
-            raise RuntimeError("Direct Quotex WebSocket mode needs curl_cffi. Install it from requirements.txt; Android/Termux compatibility still needs on-device verification.")
+        if AsyncSession is None and websockets is None:
+            raise RuntimeError("Install websockets with: python -m pip install websockets")
         if not SSID:
             raise RuntimeError("AADI_QUOTEX_SSID is missing; provide a live Quotex session.")
         if "EIO=3" not in WSS_URL or "ws2." not in WSS_URL:
@@ -67,8 +82,25 @@ class QuotexSocket:
             "Pragma": "no-cache",
             "Accept-Language": "en-US,en;q=0.9",
         }
-        self._session = AsyncSession(impersonate="chrome", timeout=15)
-        self.ws = await self._session.ws_connect(WSS_URL, headers=headers)
+        if AsyncSession is not None and CurlWsFlag is not None:
+            self._transport = "curl_cffi"
+            self._session = AsyncSession(impersonate="chrome", timeout=15)
+            self.ws = await self._session.ws_connect(WSS_URL, headers=headers)
+        else:
+            self._transport = "websockets"
+            self.ws = await websockets.connect(
+                WSS_URL,
+                origin=WS_ORIGIN,
+                additional_headers={
+                    "User-Agent": "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 Chrome/125.0.0.0 Mobile Safari/537.36",
+                    "Cache-Control": "no-cache",
+                    "Pragma": "no-cache",
+                    "Accept-Language": "en-US,en;q=0.9",
+                },
+                ping_interval=None,
+                open_timeout=15,
+                close_timeout=5,
+            )
         handshake = await self._recv_text()
         self.last_message_at = time.monotonic()
         if not str(handshake).startswith("0"):
@@ -285,5 +317,6 @@ class QuotexSocket:
                         pass
                     self._session = None
                 self.ws = None
+                self._transport = None
                 await asyncio.sleep(backoff)
                 backoff = min(backoff * 2, 30)
