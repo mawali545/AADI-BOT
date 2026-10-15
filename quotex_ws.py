@@ -59,7 +59,7 @@ class QuotexSocket:
         if not SSID:
             raise RuntimeError("AADI_QUOTEX_SSID is missing; provide a live Quotex session.")
         if "EIO=3" not in WSS_URL or "ws2." not in WSS_URL:
-            raise RuntimeError("Configured endpoint is not the expected live Quotex EIO=3 ws2 endpoint.")
+            raise RuntimeError("Configured endpoint is not the expected Quotex EIO=3 WebSocket endpoint.")
 
         headers = {
             "Origin": WS_ORIGIN,
@@ -113,6 +113,9 @@ class QuotexSocket:
         })
 
     async def _dispatch(self, event: str, payload: object):
+        if event in {"authorization/reject", "authorization/rejected"}:
+            self.authenticated = False
+            raise PermissionError("Quotex rejected the supplied session; check that it is current and belongs to the logged-in account.")
         if event == "s_authorization":
             self.authenticated = True
             await self.subscribe()
@@ -254,7 +257,12 @@ class QuotexSocket:
                 self.connected = True
                 backoff = 2
                 while True:
-                    raw = await self._recv_text()
+                    try:
+                        raw = await asyncio.wait_for(self._recv_text(), timeout=15)
+                    except asyncio.TimeoutError:
+                        # Quotex expects periodic tick keepalives on this Socket.IO endpoint.
+                        await self._send_text('42["tick"]')
+                        continue
                     self.last_message_at = time.monotonic()
                     if raw:
                         await self._handle_text(raw)
