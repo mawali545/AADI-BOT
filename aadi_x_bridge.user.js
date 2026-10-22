@@ -10,6 +10,7 @@
 // @match        https://quotex.com/*
 // @match        https://*.quotex.com/*
 // @grant        GM_xmlhttpRequest
+// @grant        unsafeWindow
 // @connect      127.0.0.1
 // @connect      localhost
 // @run-at       document-start
@@ -34,7 +35,8 @@
         onload:()=>{forwarded++},onerror:()=>{}});
     }
   }
-  const NativeWS=window.WebSocket;
+  const page=(typeof unsafeWindow!=='undefined')?unsafeWindow:window;
+  const NativeWS=page.WebSocket;
   function WrappedWebSocket(...args){
     const ws=new NativeWS(...args); socketCount++;
     ws.addEventListener('message',ev=>{
@@ -51,7 +53,7 @@
   WrappedWebSocket.prototype=NativeWS.prototype;
   Object.setPrototypeOf(WrappedWebSocket,NativeWS);
   for(const k of ['CONNECTING','OPEN','CLOSING','CLOSED']) WrappedWebSocket[k]=NativeWS[k];
-  try { window.WebSocket=WrappedWebSocket; } catch(_){}
+  try { page.WebSocket=WrappedWebSocket; } catch(_){}
   // Lightweight page-side diagnostic; contains no credentials or message payloads.
   setInterval(()=>{try{document.documentElement.dataset.aadiXBridge='installed';document.documentElement.dataset.aadiXSocketCount=String(socketCount);document.documentElement.dataset.aadiXForwarded=String(forwarded)}catch(_){}},2000);
 })();
