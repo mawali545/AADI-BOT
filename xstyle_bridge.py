@@ -118,8 +118,8 @@ class Handler(BaseHTTPRequestHandler):
                     else:
                         c["high"]=max(c["high"],parsed["price"]);c["low"]=min(c["low"],parsed["price"]);c["close"]=parsed["price"];c["count"]+=1
                     state["candle"]=c
-                    vals=[q["close"] for q in state["candles"]]
-                    if not vals or vals[-1].get("bucket")!=c["bucket"]:
+                    candle_rows=list(state["candles"])
+                    if not candle_rows or candle_rows[-1].get("bucket")!=c["bucket"]:
                         state["candles"].append(dict(c))
                     else: state["candles"][-1]=dict(c)
                     closes=[q["close"] for q in state["candles"]]
