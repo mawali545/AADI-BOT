@@ -51,8 +51,17 @@ def numeric(v):
 def inspect_payload(obj):
     """Conservative parsing: only count prices in messages that look like market data."""
     if isinstance(obj, str):
-        try: obj = json.loads(obj)
-        except Exception: return None
+        raw = obj.strip()
+        # Strip common Engine.IO / Socket.IO text packet prefixes before JSON parsing.
+        candidate = raw
+        if len(candidate) > 2 and candidate[:2] in ("42", "43") and candidate[2] in "[{":
+            candidate = candidate[2:]
+        elif len(candidate) > 1 and candidate[0] in "0123456789" and candidate[1] in "[{":
+            candidate = candidate[1:]
+        try:
+            obj = json.loads(candidate)
+        except Exception:
+            return None
     text = json.dumps(obj, ensure_ascii=False)[:12000].lower()
     if not any(k in text for k in ("quote", "tick", "candle", "price", "asset", "history", "ohlc", "market", "stream")):
         return None
