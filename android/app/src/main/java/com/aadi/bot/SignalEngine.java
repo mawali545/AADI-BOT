@@ -140,9 +140,14 @@ public final class SignalEngine {
     }
 
     private Result calculate() {
+        // Use closed candles plus the currently forming live candle.
+        // This lets the signal update on each genuine tick instead of waiting
+        // for the next 10-second candle to close.
         List<Candle> cs=new ArrayList<>(candles);
-        if (cs.size()<MIN_CANDLES)
-            return snapshot("WAIT","Need "+MIN_CANDLES+" closed real 10-second candles");
+        if (candleTime >= 0 && close > 0)
+            cs.add(new Candle(candleTime, open, high, low, close));
+        if (candles.size()<MIN_CANDLES || cs.size()<MIN_CANDLES+1)
+            return snapshot("WAIT","Building "+MIN_CANDLES+" closed real candles before live analysis");
 
         List<Double> values=new ArrayList<>();
         for(Candle c:cs) values.add(c.close);
@@ -186,6 +191,14 @@ public final class SignalEngine {
         boolean trendDown=minusDi>plusDi;
         boolean strongTrend=adx>=16.0;
         double diGap=Math.abs(plusDi-minusDi);
+        boolean emaUp=fast>slow;
+        boolean emaDown=fast<slow;
+        boolean rsiUp=rsi>=51.0 && rsi<=73.0;
+        boolean rsiDown=rsi<=49.0 && rsi>=27.0;
+        boolean momentumUp=momentum>0;
+        boolean momentumDown=momentum<0;
+        boolean blockedAtTop=nearResistance && trendUp;
+        boolean blockedAtBottom=nearSupport && trendDown;
         int score=(int)Math.round(plusDi-minusDi);
         String sig="WAIT";
         String why="WAIT: DMI trend strength is not confirmed";
@@ -193,12 +206,20 @@ public final class SignalEngine {
         else if(flat) why="WAIT: sideways price movement";
         else if(!strongTrend) why="WAIT: ADX below strength threshold";
         else if(diGap<4.0) why="WAIT: buyers and sellers are too close";
+        else if(trendUp && blockedAtTop) why="WAIT: price is too close to resistance";
+        else if(trendDown && blockedAtBottom) why="WAIT: price is too close to support";
+        else if(trendUp && !emaUp) why="WAIT: EMA trend does not confirm UP";
+        else if(trendDown && !emaDown) why="WAIT: EMA trend does not confirm DOWN";
+        else if(trendUp && !rsiUp) why="WAIT: RSI does not confirm bullish momentum";
+        else if(trendDown && !rsiDown) why="WAIT: RSI does not confirm bearish momentum";
+        else if(trendUp && !momentumUp) why="WAIT: momentum is not rising";
+        else if(trendDown && !momentumDown) why="WAIT: momentum is not falling";
         else if(trendUp && last.body()>0 && cleanBody) {
-            sig="CALL"; why="UP bias: +DI leads -DI and ADX confirms trend strength";
+            sig="CALL"; why="CALL: live candle + DMI/ADX + EMA + RSI agree";
         } else if(trendDown && last.body()<0 && cleanBody) {
-            sig="PUT"; why="DOWN bias: -DI leads +DI and ADX confirms trend strength";
-        } else if(trendUp) why="WAIT: UP bias, waiting for bullish candle confirmation";
-        else if(trendDown) why="WAIT: DOWN bias, waiting for bearish candle confirmation";
+            sig="PUT"; why="PUT: live candle + DMI/ADX + EMA + RSI agree";
+        } else if(trendUp) why="WAIT: bullish trend; waiting for live candle confirmation";
+        else if(trendDown) why="WAIT: bearish trend; waiting for live candle confirmation";
 
         return new Result(asset,sig,why,lastPrice,fast,slow,rsi,momentum,score,totalClosed);
     }
