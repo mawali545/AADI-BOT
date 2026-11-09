@@ -5,7 +5,7 @@ import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
 
-/** Builds 60-second candles from received real page ticks and computes EMA/RSI/momentum confluence. */
+/** Builds 10-second candles from received real page ticks and computes EMA/RSI/momentum confluence. */
 public final class SignalEngine {
     public static final class Result {
         public final String asset, signal, reason;
@@ -20,7 +20,7 @@ public final class SignalEngine {
 
     private static final int FAST=9, SLOW=21, RSI_PERIOD=14, MOMENTUM=5;
     private static final int MIN_CONFLUENCE=3;
-    private static final long FRAME_SECONDS=60;
+    private static final long FRAME_SECONDS=10;
     private final Deque<Double> closes = new ArrayDeque<>();
     private String asset;
     private long candleTime=-1;
@@ -61,7 +61,7 @@ public final class SignalEngine {
     private Result calculate() {
         List<Double> values=new ArrayList<>(closes);
         if (values.size()<Math.max(SLOW,RSI_PERIOD+1)+1)
-            return snapshot("WAIT","Need at least 22 closed real candles");
+            return snapshot("WAIT","Need at least 22 closed real 10-second candles");
         double fast=ema(values,FAST), slow=ema(values,SLOW), rsi=rsi(values,RSI_PERIOD);
         double momentum=values.get(values.size()-1)-values.get(values.size()-1-MOMENTUM);
         int score=0;
@@ -69,7 +69,7 @@ public final class SignalEngine {
         if(rsi>=55) score++; else if(rsi<=45) score--;
         if(momentum>0) score++; else if(momentum<0) score--;
         String sig=score>=MIN_CONFLUENCE?"CALL":score<=-MIN_CONFLUENCE?"PUT":"WAIT";
-        return new Result(asset,sig,"EMA 9/21 + RSI 14 + 5-candle momentum",
+        return new Result(asset,sig,"NEXT 10s candle: EMA 9/21 + RSI 14 + 5-candle momentum",
             lastPrice,fast,slow,rsi,momentum,score,totalClosed);
     }
 
