@@ -107,7 +107,26 @@ public class MainActivity extends Activity {
         signalView.setText("SIGNAL: WAIT • Waiting for real candles");
         root.addView(status);
         root.addView(lastTick);
-        root.addView(signalView);\n\n        diagnosticView = new TextView(this);\n        diagnosticView.setTextColor(Color.rgb(190, 200, 215));\n        diagnosticView.setTextSize(10);\n        diagnosticView.setPadding(14, 4, 14, 4);\n        diagnosticView.setMaxLines(8);\n        diagnosticView.setText("SAFE DIAGNOSTICS: waiting for Market-QX packet shapes");\n        root.addView(diagnosticView);\n\n        Button copyDiagnostics = new Button(this);\n        copyDiagnostics.setText("COPY SAFE DIAGNOSTICS");\n        copyDiagnostics.setTextSize(11);\n        copyDiagnostics.setOnClickListener(v -> {\n            android.content.ClipboardManager cb = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);\n            cb.setPrimaryClip(android.content.ClipData.newPlainText("AADI safe diagnostics", diagnosticView.getText()));\n            android.widget.Toast.makeText(this, "Diagnostics copied", android.widget.Toast.LENGTH_SHORT).show();\n        });\n        root.addView(copyDiagnostics, new LinearLayout.LayoutParams(\n                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        root.addView(signalView);
+
+        diagnosticView = new TextView(this);
+        diagnosticView.setTextColor(Color.rgb(190, 200, 215));
+        diagnosticView.setTextSize(10);
+        diagnosticView.setPadding(14, 4, 14, 4);
+        diagnosticView.setMaxLines(8);
+        diagnosticView.setText("SAFE DIAGNOSTICS: waiting for Market-QX packet shapes");
+        root.addView(diagnosticView);
+
+        Button copyDiagnostics = new Button(this);
+        copyDiagnostics.setText("COPY SAFE DIAGNOSTICS");
+        copyDiagnostics.setTextSize(11);
+        copyDiagnostics.setOnClickListener(v -> {
+            android.content.ClipboardManager cb = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            cb.setPrimaryClip(android.content.ClipData.newPlainText("AADI safe diagnostics", diagnosticView.getText()));
+            android.widget.Toast.makeText(this, "Diagnostics copied", android.widget.Toast.LENGTH_SHORT).show();
+        });
+        root.addView(copyDiagnostics, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         analyzeButton = new Button(this);
         analyzeButton.setText("ANALYZE MARKET");
@@ -152,7 +171,15 @@ public class MainActivity extends Activity {
             runOnUiThread(() -> status.setText("AADI • " + message));
         }
 
-        @JavascriptInterface public void onDiagnostic(String message) {\n            runOnUiThread(() -> {\n                String old = diagnosticView.getText().toString();\n                diagnosticView.setText((old + "\\n\\n" + message).length() > 5000\n                        ? message : old + "\\n\\n" + message);\n            });\n        }\n\n        @JavascriptInterface public void onTick(String json) {
+        @JavascriptInterface public void onDiagnostic(String message) {
+            runOnUiThread(() -> {
+                String old = diagnosticView.getText().toString();
+                diagnosticView.setText((old + "\n\n" + message).length() > 5000
+                        ? message : old + "\n\n" + message);
+            });
+        }
+
+        @JavascriptInterface public void onTick(String json) {
             try {
                 JSONObject o = new JSONObject(json);
                 String asset = o.optString("asset", "");
