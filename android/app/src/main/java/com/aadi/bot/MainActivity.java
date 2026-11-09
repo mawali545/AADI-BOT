@@ -8,6 +8,7 @@ import android.webkit.WebResourceRequest;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.LinearLayout;
+import android.widget.Button;
 import android.widget.TextView;
 import android.graphics.Color;
 import android.view.ViewGroup;
@@ -17,6 +18,7 @@ import org.json.JSONObject;
 
 public class MainActivity extends Activity {
     private TextView status, lastTick, signalView;
+    private Button analyzeButton;
     private final SignalEngine engine = new SignalEngine();
     private WebView web;
     private long receivedTicks = 0;
@@ -85,6 +87,17 @@ public class MainActivity extends Activity {
         root.addView(status);
         root.addView(lastTick);
         root.addView(signalView);
+
+        analyzeButton = new Button(this);
+        analyzeButton.setText("ANALYZE MARKET");
+        analyzeButton.setTextSize(14);
+        analyzeButton.setOnClickListener(v -> {
+            SignalEngine.Result result = engine.analyzeNow();
+            signalView.setText("ANALYSIS: " + result.signal + "  |  Score: " + result.score +
+                    "\n" + result.reason + "  |  Closed candles: " + result.closedCandles);
+        });
+        root.addView(analyzeButton, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         web = new WebView(this);
         web.getSettings().setJavaScriptEnabled(true);
