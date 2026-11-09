@@ -188,13 +188,13 @@ public class MainActivity extends Activity {
                 if (!botActive) return;
                 SignalEngine.Result result = engine.onTick(asset, price, ts);
                 long count = ++receivedTicks;
-                String line = asset + "  " + price + "  • REAL PAGE TICK #" + count;
+                String line = asset + "  " + price + "  • TICK #" + count + "  |  REAL FEED";
 runOnUiThread(() -> {
                     lastTick.setText(line);
-                    signalView.setText(result.signal);
+                    signalView.setText(result.signal + "  •  SCORE " + result.score + "/100\\n" + result.reason + "  |  Candles: " + result.closedCandles);
                     signalView.setTextColor(result.signal.equals("CALL") ? Color.rgb(40, 230, 130)
                             : result.signal.equals("PUT") ? Color.rgb(255, 75, 85) : Color.WHITE);
-status.setText("AADI • ACTIVE — receiving Market-QX ticks");
+status.setText("AADI • LIVE  |  Candles: " + result.closedCandles + "  |  Score: " + result.score + "/100");
                 });
             } catch (Exception e) {
                 runOnUiThread(() -> status.setText("AADI • Tick parse error"));
