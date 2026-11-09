@@ -72,9 +72,14 @@ public class MainActivity extends Activity {
         @JavascriptInterface public void onTick(String json) {
             try {
                 JSONObject o = new JSONObject(json);
-                final String line = o.optString("asset","?") + "  " + o.optDouble("price") +
-                    "  • real page tick";
-                runOnUiThread(() -> lastTick.setText(line));
+                final String asset = o.optString("asset","?");
+                final double price = o.optDouble("price", Double.NaN);
+                final double ts = o.optDouble("timestamp", System.currentTimeMillis()/1000.0);
+                final SignalEngine.Result result = engine.onTick(asset, price, ts);
+                final String line = asset + "  " + price + "  • received from Market-QX";
+                final String signal = "SIGNAL: " + result.signal + "  |  Score: " + result.score +
+                    "\n" + result.reason + "  |  Closed candles: " + result.closedCandles;
+                runOnUiThread(() -> { lastTick.setText(line); signalView.setText(signal); });
             } catch (Exception ignored) { }
         }
     }
