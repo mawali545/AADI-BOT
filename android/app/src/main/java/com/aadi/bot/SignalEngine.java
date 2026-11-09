@@ -142,7 +142,7 @@ public final class SignalEngine {
     private Result calculate() {
         List<Candle> cs=new ArrayList<>(candles);
         if (cs.size()<MIN_CANDLES)
-            return snapshot("WAIT","Need 30 closed real 10-second candles");
+            return snapshot("WAIT","Need "+MIN_CANDLES+" closed real 10-second candles");
 
         List<Double> values=new ArrayList<>();
         for(Candle c:cs) values.add(c.close);
@@ -193,9 +193,9 @@ public final class SignalEngine {
         else if(flat) why="WAIT: sideways price movement";
         else if(!strongTrend) why="WAIT: ADX below strength threshold";
         else if(diGap<4.0) why="WAIT: buyers and sellers are too close";
-        else if(trendUp && lastUp && cleanBody) {
+        else if(trendUp && last.body()>0 && cleanBody) {
             sig="CALL"; why="UP bias: +DI leads -DI and ADX confirms trend strength";
-        } else if(trendDown && lastDown && cleanBody) {
+        } else if(trendDown && last.body()<0 && cleanBody) {
             sig="PUT"; why="DOWN bias: -DI leads +DI and ADX confirms trend strength";
         } else if(trendUp) why="WAIT: UP bias, waiting for bullish candle confirmation";
         else if(trendDown) why="WAIT: DOWN bias, waiting for bearish candle confirmation";
