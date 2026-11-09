@@ -15,7 +15,7 @@ import androidx.webkit.WebViewFeature;
 import org.json.JSONObject;
 
 public class MainActivity extends Activity {
-    private TextView status, lastTick;
+    private TextView status, lastTick, signalView;\n    private final SignalEngine engine = new SignalEngine();
     private WebView web;
 
     private static final String MARKET_URL = "https://market-qx.trade/en/trade";
@@ -44,7 +44,7 @@ public class MainActivity extends Activity {
         status.setPadding(14,12,14,6); status.setText("AADI • Starting Market-QX hook…");
         lastTick = new TextView(this); lastTick.setTextColor(Color.rgb(80,220,150)); lastTick.setTextSize(12);
         lastTick.setPadding(14,4,14,10); lastTick.setText("Waiting for real market ticks");
-        root.addView(status); root.addView(lastTick);
+        signalView = new TextView(this); signalView.setTextColor(Color.WHITE); signalView.setTextSize(16);\n        signalView.setPadding(14,4,14,10); signalView.setText("SIGNAL: WAIT • Waiting for real candles");\n        root.addView(status); root.addView(lastTick); root.addView(signalView);
         web = new WebView(this);
         web.getSettings().setJavaScriptEnabled(true);
         web.getSettings().setDomStorageEnabled(true);
