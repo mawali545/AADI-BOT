@@ -17,7 +17,7 @@ import androidx.webkit.WebViewFeature;
 import org.json.JSONObject;
 
 public class MainActivity extends Activity {
-    private TextView status, lastTick, signalView;
+    private TextView status, lastTick, signalView, diagnosticView;
     private Button analyzeButton;
     private final SignalEngine engine = new SignalEngine();
     private WebView web;
@@ -27,10 +27,33 @@ public class MainActivity extends Activity {
     private static final String HOOK =
         "(function(){'use strict';" +
         "if(window.__AADI_HOOKED__)return;window.__AADI_HOOKED__=true;" +
-        "const NativeWS=window.WebSocket;" +
+        "const NativeWS=window.WebSocket;const seen=new Set();let diagCount=0;" +
         "function emit(price,asset,time){" +
         "price=Number(price);if(!Number.isFinite(price)||price<=0||!asset)return;" +
         "try{AadiNative.onTick(JSON.stringify({price:price,asset:String(asset),timestamp:Number(time)||Date.now()/1000}));}catch(e){}" +
+        "}" +
+        "function safeShape(root){" +
+        "const out=[];function walk(x,p,d){" +
+        "if(d>7||x==null||out.length>=12)return;" +
+        "if(Array.isArray(x)){" +
+        "if(x.length&&typeof x[0]==='object'&&x[0]!==null&&!Array.isArray(x[0])){" +
+        "const k=Object.keys(x[0]).slice(0,24);const low=k.map(z=>z.toLowerCase());" +
+        "if(low.some(z=>['open','o'].includes(z))&&low.some(z=>['high','h'].includes(z))&&low.some(z=>['low','l'].includes(z))&&low.some(z=>['close','c'].includes(z)))out.push(p+': object-candle-array len='+x.length+' fields='+k.join(','));" +
+        "}" +
+        "else if(x.length&&Array.isArray(x[0])){const n=x[0].length;const types=x[0].slice(0,8).map(v=>typeof v).join(',');if(n>=4)out.push(p+': nested-array len='+x.length+' rowLen='+n+' firstTypes='+types);}" +
+        "for(let i=0;i<Math.min(x.length,4)&&out.length<12;i++)if(x[i]&&typeof x[i]==='object')walk(x[i],p+'['+i+']',d+1);return;" +
+        "}" +
+        "if(typeof x!=='object')return;const keys=Object.keys(x).slice(0,30);const low=keys.map(z=>z.toLowerCase());" +
+        "if(low.some(z=>['open','o'].includes(z))&&low.some(z=>['high','h'].includes(z))&&low.some(z=>['low','l'].includes(z))&&low.some(z=>['close','c'].includes(z)))out.push(p+': OHLC-object fields='+keys.join(','));" +
+        "if(keys.length)out.push(p+': object fields='+keys.join(','));" +
+        "for(const k of keys){const v=x[k];if(v&&typeof v==='object'&&out.length<12)walk(v,p+'.'+k,d+1);}" +
+        "}" +
+        "walk(root,'$',0);return out.slice(0,12).join('\\n');" +
+        "}" +
+        "function diagnostic(o){" +
+        "if(diagCount>=20)return;const s=safeShape(o);if(!s)return;" +
+        "const sig=s.split('\\n').join('|');if(seen.has(sig))return;seen.add(sig);diagCount++;" +
+        "try{AadiNative.onDiagnostic('Packet '+diagCount+'\\n'+s);}catch(e){}" +
         "}" +
         "function walk(x,d){" +
         "if(d>10||x==null)return;" +
@@ -47,9 +70,8 @@ public class MainActivity extends Activity {
         "}" +
         "function parse(s){" +
         "try{let q=String(s).trim();if(q.startsWith('42')&&(q[2]==='['||q[2]==='{'))q=q.slice(2);else if(q.charCodeAt(0)===4)q=q.slice(1);" +
-        "const o=JSON.parse(q);if(Array.isArray(o)&&typeof o[0]==='string')walk(o[1],0);else walk(o,0);" +
-        "}catch(e){}" +
-        "}" +
+        "const o=JSON.parse(q);diagnostic(o);if(Array.isArray(o)&&typeof o[0]==='string')walk(o[1],0);else walk(o,0);" +
+        "}catch(e){}}" +
         "window.WebSocket=new Proxy(NativeWS,{construct:function(T,args){" +
         "const ws=Reflect.construct(T,args,T);" +
         "try{AadiNative.onSocket('Market-QX WebSocket opened');}catch(e){}" +
@@ -59,9 +81,8 @@ public class MainActivity extends Activity {
         "else if(ev.data instanceof ArrayBuffer){try{parse(new TextDecoder().decode(ev.data));}catch(e){}}" +
         "});" +
         "ws.addEventListener('close',function(){try{AadiNative.onSocket('Market WebSocket closed');}catch(e){}});" +
-        "return ws;" +
-        "}});" +
-        "try{AadiNative.onSocket('Market-QX WebSocket hook installed');}catch(e){}" +
+        "return ws;}});" +
+        "try{AadiNative.onSocket('Safe packet diagnostics enabled');}catch(e){}" +
         "})();";
 
     @Override public void onCreate(Bundle state) {
@@ -86,7 +107,7 @@ public class MainActivity extends Activity {
         signalView.setText("SIGNAL: WAIT • Waiting for real candles");
         root.addView(status);
         root.addView(lastTick);
-        root.addView(signalView);
+        root.addView(signalView);\n\n        diagnosticView = new TextView(this);\n        diagnosticView.setTextColor(Color.rgb(190, 200, 215));\n        diagnosticView.setTextSize(10);\n        diagnosticView.setPadding(14, 4, 14, 4);\n        diagnosticView.setMaxLines(8);\n        diagnosticView.setText("SAFE DIAGNOSTICS: waiting for Market-QX packet shapes");\n        root.addView(diagnosticView);\n\n        Button copyDiagnostics = new Button(this);\n        copyDiagnostics.setText("COPY SAFE DIAGNOSTICS");\n        copyDiagnostics.setTextSize(11);\n        copyDiagnostics.setOnClickListener(v -> {\n            android.content.ClipboardManager cb = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);\n            cb.setPrimaryClip(android.content.ClipData.newPlainText("AADI safe diagnostics", diagnosticView.getText()));\n            android.widget.Toast.makeText(this, "Diagnostics copied", android.widget.Toast.LENGTH_SHORT).show();\n        });\n        root.addView(copyDiagnostics, new LinearLayout.LayoutParams(\n                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         analyzeButton = new Button(this);
         analyzeButton.setText("ANALYZE MARKET");
@@ -131,7 +152,7 @@ public class MainActivity extends Activity {
             runOnUiThread(() -> status.setText("AADI • " + message));
         }
 
-        @JavascriptInterface public void onTick(String json) {
+        @JavascriptInterface public void onDiagnostic(String message) {\n            runOnUiThread(() -> {\n                String old = diagnosticView.getText().toString();\n                diagnosticView.setText((old + "\\n\\n" + message).length() > 5000\n                        ? message : old + "\\n\\n" + message);\n            });\n        }\n\n        @JavascriptInterface public void onTick(String json) {
             try {
                 JSONObject o = new JSONObject(json);
                 String asset = o.optString("asset", "");
