@@ -32,62 +32,49 @@ public class MainActivity extends Activity {
     private static final String HOOK =
         "(function(){'use strict';" +
         "if(window.__AADI_HOOKED__)return;window.__AADI_HOOKED__=true;" +
-        "const NativeWS=window.WebSocket;const seen=new Set();let diagCount=0;" +
+        "const NativeWS=window.WebSocket;const seen=new Set();let diagCount=0,historySent=0;" +
         "function emit(price,asset,time){" +
         "price=Number(price);if(!Number.isFinite(price)||price<=0||!asset)return;" +
         "try{AadiNative.onTick(JSON.stringify({price:price,asset:String(asset),timestamp:Number(time)||Date.now()/1000}));}catch(e){}" +
         "}" +
+        "function key(o,names){for(const n of names){if(o[n]!==undefined&&o[n]!==null)return o[n];}return null;}" +
+        "function normTime(v){let n=Number(v);if(!Number.isFinite(n)||n<=0)return 0;if(n>1e12)n/=1000;return n;}" +
+        "function findHistory(root,assetHint){" +
+        "const found=[];const visited=new Set();" +
+        "function walk(x,asset,d){if(!x||typeof x!=='object'||d>9||found.length>=700||visited.has(x))return;visited.add(x);" +
+        "if(Array.isArray(x)){if(x.length&&x[0]&&typeof x[0]==='object'&&!Array.isArray(x[0])){" +
+        "const rows=[];for(const r of x){if(!r||typeof r!=='object'||Array.isArray(r))continue;" +
+        "const o=key(r,['open','o']),h=key(r,['high','h']),l=key(r,['low','l']),c=key(r,['close','c']);" +
+        "const t=normTime(key(r,['timestamp','time','ts','date','at']));" +
+        "if(t&&[o,h,l,c].every(v=>v!==null&&Number.isFinite(Number(v))))rows.push({timestamp:t,open:Number(o),high:Number(h),low:Number(l),close:Number(c)});" +
+        "}if(rows.length>=30){const sig=rows.slice(0,3).map(z=>z.timestamp).join(',')+'|'+rows.length;if(!seen.has('hist:'+sig)){seen.add('hist:'+sig);found.push({asset:asset||assetHint||'UNKNOWN',candles:rows});}}}" +
+        "for(const v of x)if(v&&typeof v==='object')walk(v,asset,d+1);return;}" +
+        "const a=key(x,['asset','symbol','pair','instrument','assetName','ticker'])||asset;" +
+        "for(const v of Object.values(x))if(v&&typeof v==='object')walk(v,a,d+1);" +
+        "}walk(root,assetHint,0);return found;}" +
+        "function process(o){" +
+        "try{const packets=findHistory(o,null);for(const p of packets){if(p.asset==='UNKNOWN')continue;historySent++;try{AadiNative.onHistory(JSON.stringify(p));}catch(e){}}" +
+        "}catch(e){}" +
+        "}" +
         "function safeShape(root){" +
-        "const out=[];function walk(x,p,d){" +
-        "if(d>7||x==null||out.length>=12)return;" +
-        "if(Array.isArray(x)){" +
-        "if(x.length&&typeof x[0]==='object'&&x[0]!==null&&!Array.isArray(x[0])){" +
-        "const k=Object.keys(x[0]).slice(0,24);const low=k.map(z=>z.toLowerCase());" +
-        "if(low.some(z=>['open','o'].includes(z))&&low.some(z=>['high','h'].includes(z))&&low.some(z=>['low','l'].includes(z))&&low.some(z=>['close','c'].includes(z)))out.push(p+': object-candle-array len='+x.length+' fields='+k.join(','));" +
-        "}" +
+        "const out=[];function walk(x,p,d){if(d>7||x==null||out.length>=12)return;" +
+        "if(Array.isArray(x)){if(x.length&&typeof x[0]==='object'&&x[0]!==null&&!Array.isArray(x[0])){const k=Object.keys(x[0]).slice(0,24);const low=k.map(z=>z.toLowerCase());if(low.some(z=>['open','o'].includes(z))&&low.some(z=>['high','h'].includes(z))&&low.some(z=>['low','l'].includes(z))&&low.some(z=>['close','c'].includes(z)))out.push(p+': object-candle-array len='+x.length+' fields='+k.join(','));}" +
         "else if(x.length&&Array.isArray(x[0])){const n=x[0].length;const types=x[0].slice(0,8).map(v=>typeof v).join(',');if(n>=4)out.push(p+': nested-array len='+x.length+' rowLen='+n+' firstTypes='+types);}" +
-        "for(let i=0;i<Math.min(x.length,4)&&out.length<12;i++)if(x[i]&&typeof x[i]==='object')walk(x[i],p+'['+i+']',d+1);return;" +
-        "}" +
+        "for(let i=0;i<Math.min(x.length,4)&&out.length<12;i++)if(x[i]&&typeof x[i]==='object')walk(x[i],p+'['+i+']',d+1);return;}" +
         "if(typeof x!=='object')return;const keys=Object.keys(x).slice(0,30);const low=keys.map(z=>z.toLowerCase());" +
         "if(low.some(z=>['open','o'].includes(z))&&low.some(z=>['high','h'].includes(z))&&low.some(z=>['low','l'].includes(z))&&low.some(z=>['close','c'].includes(z)))out.push(p+': OHLC-object fields='+keys.join(','));" +
-        "if(keys.length)out.push(p+': object fields='+keys.join(','));" +
-        "for(const k of keys){const v=x[k];if(v&&typeof v==='object'&&out.length<12)walk(v,p+'.'+k,d+1);}" +
-        "}" +
-        "walk(root,'$',0);return out.slice(0,12).join('\\n');" +
-        "}" +
-        "function diagnostic(o){" +
-        "if(diagCount>=20)return;const s=safeShape(o);if(!s)return;" +
-        "const sig=s.split('\\n').join('|');if(seen.has(sig))return;seen.add(sig);diagCount++;" +
-        "try{AadiNative.onDiagnostic('Packet '+diagCount+'\\n'+s);}catch(e){}" +
-        "}" +
-        "function walk(x,d){" +
-        "if(d>10||x==null)return;" +
-        "if(Array.isArray(x)){" +
-        "if(x.length>=3&&typeof x[0]==='string'&&Number.isFinite(Number(x[1]))&&Number(x[1])>1000000000&&Number.isFinite(Number(x[2]))&&Number(x[2])>0){emit(x[2],x[0],x[1]);return;}" +
-        "for(const v of x)walk(v,d+1);return;}" +
-        "if(typeof x!=='object')return;" +
-        "const asset=x.asset||x.symbol||x.pair||x.instrument||x.assetName||x.ticker||x.active;" +
-        "const time=x.timestamp||x.time||x.ts||x.created_at;" +
-        "for(const [k,v] of Object.entries(x)){" +
-        "if(/^(price|currentprice|lastprice|closeprice|rate|quote)$/i.test(k)&&asset&&(typeof v==='number'||typeof v==='string')&&Number(v)>0){emit(v,asset,time);return;}" +
-        "}" +
-        "for(const v of Object.values(x))if(v&&typeof v==='object')walk(v,d+1);" +
-        "}" +
-        "function parse(s){" +
-        "try{let q=String(s).trim();if(q.startsWith('42')&&(q[2]==='['||q[2]==='{'))q=q.slice(2);else if(q.charCodeAt(0)===4)q=q.slice(1);" +
-        "const o=JSON.parse(q);diagnostic(o);if(Array.isArray(o)&&typeof o[0]==='string')walk(o[1],0);else walk(o,0);" +
-        "}catch(e){}}" +
-        "window.WebSocket=new Proxy(NativeWS,{construct:function(T,args){" +
-        "const ws=Reflect.construct(T,args,T);" +
-        "try{AadiNative.onSocket('Market-QX WebSocket opened');}catch(e){}" +
-        "ws.addEventListener('message',function(ev){" +
-        "if(typeof ev.data==='string')parse(ev.data);" +
-        "else if(ev.data instanceof Blob)ev.data.text().then(parse).catch(function(){});" +
-        "else if(ev.data instanceof ArrayBuffer){try{parse(new TextDecoder().decode(ev.data));}catch(e){}}" +
-        "});" +
-        "ws.addEventListener('close',function(){try{AadiNative.onSocket('Market WebSocket closed');}catch(e){}});" +
-        "return ws;}});" +
-        "try{AadiNative.onSocket('Safe packet diagnostics enabled');}catch(e){}" +
+        "if(keys.length)out.push(p+': object fields='+keys.join(','));for(const k of keys){const v=x[k];if(v&&typeof v==='object'&&out.length<12)walk(v,p+'.'+k,d+1);}}" +
+        "walk(root,'$',0);return out.slice(0,12).join('\\n');}" +
+        "function diagnostic(o){if(diagCount>=20)return;const s=safeShape(o);if(!s)return;const sig=s.split('\\n').join('|');if(seen.has(sig))return;seen.add(sig);diagCount++;try{AadiNative.onDiagnostic('Packet '+diagCount+'\\n'+s);}catch(e){}}" +
+        "function walkTicks(x,d){if(d>10||x==null)return;if(Array.isArray(x)){if(x.length>=3&&typeof x[0]==='string'&&Number.isFinite(Number(x[1]))&&Number(x[1])>1000000000&&Number.isFinite(Number(x[2]))&&Number(x[2])>0){emit(x[2],x[0],x[1]);return;}for(const v of x)walkTicks(v,d+1);return;}" +
+        "if(typeof x!=='object')return;const asset=x.asset||x.symbol||x.pair||x.instrument||x.assetName||x.ticker||x.active;const time=x.timestamp||x.time||x.ts||x.created_at;" +
+        "for(const [k,v] of Object.entries(x)){if(/^(price|currentprice|lastprice|closeprice|rate|quote)$/i.test(k)&&asset&&(typeof v==='number'||typeof v==='string')&&Number(v)>0){emit(v,asset,time);return;}}" +
+        "for(const v of Object.values(x))if(v&&typeof v==='object')walkTicks(v,d+1);}" +
+        "function parse(s){try{let q=String(s).trim();if(q.startsWith('42')&&(q[2]==='['||q[2]==='{'))q=q.slice(2);else if(q.charCodeAt(0)===4)q=q.slice(1);const o=JSON.parse(q);diagnostic(o);process(o);if(Array.isArray(o)&&typeof o[0]==='string'){walkTicks(o[1],0);process(o[1]);}else walkTicks(o,0);}catch(e){}}" +
+        "window.WebSocket=new Proxy(NativeWS,{construct:function(T,args){const ws=Reflect.construct(T,args,T);try{AadiNative.onSocket('Market-QX WebSocket opened');}catch(e){}ws.addEventListener('message',function(ev){if(typeof ev.data==='string')parse(ev.data);else if(ev.data instanceof Blob)ev.data.text().then(parse).catch(function(){});else if(ev.data instanceof ArrayBuffer){try{parse(new TextDecoder().decode(ev.data));}catch(e){}}});ws.addEventListener('close',function(){try{AadiNative.onSocket('Market WebSocket closed');}catch(e){}});return ws;}});" +
+        "const of=window.fetch;window.fetch=function(){return of.apply(this,arguments).then(function(res){try{const copy=res.clone();copy.text().then(function(t){if(t&&t.length<4000000)parse(t);}).catch(function(){});}catch(e){}return res;});};" +
+        "const xo=XMLHttpRequest.prototype.open,xs=XMLHttpRequest.prototype.send;XMLHttpRequest.prototype.open=function(){this.addEventListener('load',function(){try{const t=this.responseText;if(t&&t.length<4000000)parse(t);}catch(e){};});return xo.apply(this,arguments);};XMLHttpRequest.prototype.send=function(){return xs.apply(this,arguments);};" +
+        "try{AadiNative.onSocket('WebSocket + history response scanner enabled');}catch(e){}" +
         "})();";
 
     @Override public void onCreate(Bundle state) {
@@ -273,6 +260,25 @@ public class MainActivity extends Activity {
                 diagnosticView.setText((old + "\n\n" + message).length() > 5000
                         ? message : old + "\n\n" + message);
             });
+        }
+
+        @JavascriptInterface public void onHistory(String json) {
+            try {
+                JSONObject packet = new JSONObject(json);
+                String asset = packet.optString("asset", "");
+                org.json.JSONArray rows = packet.optJSONArray("candles");
+                if (asset.isEmpty() || rows == null || !botActive) return;
+                int imported = engine.importHistoricalCandles(asset, rows);
+                if (imported > 0) {
+                    runOnUiThread(() -> {
+                        lastTick.setText(asset + " • IMPORTED " + imported + " VERIFIED HISTORICAL 10s CANDLES");
+                        signalView.setText("SIGNAL: WAIT • History loaded; waiting for live ticks");
+                        signalBubble.setText("WAIT");
+                    });
+                }
+            } catch (Exception e) {
+                runOnUiThread(() -> status.setText("AADI • Historical candle parse error"));
+            }
         }
 
         @JavascriptInterface public void onTick(String json) {
