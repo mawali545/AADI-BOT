@@ -25,7 +25,7 @@ public final class SignalEngine {
     }
 
     private static final int FAST=9, SLOW=21, RSI_PERIOD=14, MOMENTUM=5;
-    private static final int MIN_CANDLES=30;
+    private static final int MIN_CANDLES=28;
     private static final long FRAME_SECONDS=10;
 
     private static final class Candle {
@@ -149,14 +149,8 @@ public final class SignalEngine {
         double fast=ema(values,FAST), slow=ema(values,SLOW);
         double rsi=rsiWilder(values,RSI_PERIOD);
         double momentum=values.get(values.size()-1)-values.get(values.size()-1-MOMENTUM);
-        double oldSlow=ema(values.subList(0,values.size()-5),SLOW);
-        double slope=slow-oldSlow;
-        double macd=ema(values,12)-ema(values,26);
-        List<Double> macdSeries=new ArrayList<>();
-        for(int i=25;i<values.size();i++)
-            macdSeries.add(ema(values.subList(0,i+1),12)-ema(values.subList(0,i+1),26));
-        double macdSignal=macdSeries.isEmpty()?0:ema(macdSeries,9);
-        double macdHist=macd-macdSignal;
+        double[] dmi=calculateDmi(cs,14);
+        double plusDi=dmi[0], minusDi=dmi[1], adx=dmi[2];
 
         int up=0, down=0;
         for(int i=cs.size()-4;i<cs.size();i++) {
@@ -188,35 +182,53 @@ public final class SignalEngine {
         boolean flat=avgRange<=0 || efficiency<0.20 || Math.abs(momentum)<avgRange*0.35;
         boolean cleanBody=last.range()>0 && Math.abs(last.body())>=last.range()*0.30;
 
-        boolean trendUp=fast>slow && slope>0;
-        boolean trendDown=fast<slow && slope<0;
-        boolean bullMomentum=momentum>0 && macdHist>0;
-        boolean bearMomentum=momentum<0 && macdHist<0;
-        boolean bullRsi=rsi>=52 && rsi<=68;
-        boolean bearRsi=rsi<=48 && rsi>=32;
-        boolean lastUp=last.body()>0;
-        boolean lastDown=last.body()<0;
-
-        int score=0;
-        if(trendUp) score++; else if(trendDown) score--;
-        if(bullMomentum) score++; else if(bearMomentum) score--;
-        if(bullRsi) score++; else if(bearRsi) score--;
-        if(up>=3) score++; else if(down>=3) score--;
-        if(lastUp) score++; else if(lastDown) score--;
-
+        boolean trendUp=plusDi>minusDi;
+        boolean trendDown=minusDi>plusDi;
+        boolean strongTrend=adx>=16.0;
+        double diGap=Math.abs(plusDi-minusDi);
+        int score=(int)Math.round(plusDi-minusDi);
         String sig="WAIT";
-        String why="WAIT: confirmations are not aligned";
+        String why="WAIT: DMI trend strength is not confirmed";
         if(spike) why="WAIT: abnormal volatility spike";
-        else if(flat) why="WAIT: choppy or sideways market";
-        else if(!cleanBody) why="WAIT: weak candle body";
-        else if(trendUp && bullMomentum && bullRsi && up>=3 && lastUp && !nearResistance && score>=4) {
-            sig="CALL"; why="Bullish trend, MACD/momentum, RSI and candle structure agree; resistance clear";
-        } else if(trendDown && bearMomentum && bearRsi && down>=3 && lastDown && !nearSupport && score<=-4) {
-            sig="PUT"; why="Bearish trend, MACD/momentum, RSI and candle structure agree; support clear";
-        } else if(nearResistance && trendUp) why="WAIT: price is too close to resistance";
-        else if(nearSupport && trendDown) why="WAIT: price is too close to support";
+        else if(flat) why="WAIT: sideways price movement";
+        else if(!strongTrend) why="WAIT: ADX below strength threshold";
+        else if(diGap<4.0) why="WAIT: buyers and sellers are too close";
+        else if(trendUp && lastUp && cleanBody) {
+            sig="CALL"; why="UP bias: +DI leads -DI and ADX confirms trend strength";
+        } else if(trendDown && lastDown && cleanBody) {
+            sig="PUT"; why="DOWN bias: -DI leads +DI and ADX confirms trend strength";
+        } else if(trendUp) why="WAIT: UP bias, waiting for bullish candle confirmation";
+        else if(trendDown) why="WAIT: DOWN bias, waiting for bearish candle confirmation";
 
         return new Result(asset,sig,why,lastPrice,fast,slow,rsi,momentum,score,totalClosed);
+    }
+
+    private double[] calculateDmi(List<Candle> cs,int period) {
+        List<Double> dxValues=new ArrayList<>();
+        double lastPlus=0,lastMinus=0;
+        for(int end=period;end<cs.size();end++) {
+            double trSum=0,plusSum=0,minusSum=0;
+            int start=end-period+1;
+            for(int i=start;i<=end;i++) {
+                Candle cur=cs.get(i), prev=cs.get(i-1);
+                double up=cur.high-prev.high, down=prev.low-cur.low;
+                double plus=up>down && up>0 ? up : 0;
+                double minus=down>up && down>0 ? down : 0;
+                double tr=Math.max(cur.high-cur.low,
+                        Math.max(Math.abs(cur.high-prev.close),Math.abs(cur.low-prev.close)));
+                trSum+=tr; plusSum+=plus; minusSum+=minus;
+            }
+            if(trSum<=0) continue;
+            lastPlus=100.0*plusSum/trSum;
+            lastMinus=100.0*minusSum/trSum;
+            double sum=lastPlus+lastMinus;
+            if(sum>0) dxValues.add(100.0*Math.abs(lastPlus-lastMinus)/sum);
+        }
+        if(dxValues.isEmpty()) return new double[]{lastPlus,lastMinus,0};
+        int from=Math.max(0,dxValues.size()-period);
+        double total=0;
+        for(int i=from;i<dxValues.size();i++) total+=dxValues.get(i);
+        return new double[]{lastPlus,lastMinus,total/(dxValues.size()-from)};
     }
 
     private double ema(List<Double> v,int period) {
