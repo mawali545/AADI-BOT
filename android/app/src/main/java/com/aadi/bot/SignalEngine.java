@@ -203,6 +203,7 @@ public final class SignalEngine {
             List<Double> part=values.subList(0,i+1);
             line.add(ema(part,12)-ema(part,26));
         }
+        if(line.isEmpty()) return macdNow;
         double signal=ema(line,9);
         return macdNow-signal;
     }
