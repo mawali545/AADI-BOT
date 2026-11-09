@@ -135,12 +135,12 @@ public class MainActivity extends Activity {
 
         signalBubble = new TextView(this);
         signalBubble.setText("WAIT");
-        signalBubble.setTextColor(Color.WHITE);
+        signalBubble.setTextColor(Color.LTGRAY);
         signalBubble.setTextSize(12);
         signalBubble.setTypeface(null, android.graphics.Typeface.BOLD);
         signalBubble.setGravity(Gravity.CENTER);
         signalBubble.setPadding(dp(14), dp(11), dp(14), dp(11));
-        signalBubble.setBackground(makeBubbleBackground(Color.rgb(75, 85, 99)));
+        signalBubble.setBackground(makeBubbleBackground(Color.rgb(24, 30, 40)));
 
         web = new WebView(this);
         web.getSettings().setJavaScriptEnabled(true);
@@ -291,6 +291,9 @@ public class MainActivity extends Activity {
                 runOnUiThread(() -> {
                     lastTick.setText(line);
                     signalView.setText(signal);
+                    signalBubble.setText(result.signal.equals("CALL") ? "CALL" : result.signal.equals("PUT") ? "PUT" : "WAIT");
+                    signalBubble.setTextColor(result.signal.equals("CALL") ? Color.rgb(40, 230, 130) : result.signal.equals("PUT") ? Color.rgb(255, 75, 85) : Color.LTGRAY);
+                    signalBubble.setBackground(makeBubbleBackground(Color.rgb(24, 30, 40)));
                     status.setText("AADI • ACTIVE — receiving Market-QX ticks");
                 });
             } catch (Exception e) {
