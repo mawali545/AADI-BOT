@@ -12,18 +12,14 @@ import android.widget.Button;
 import android.widget.TextView;
 import android.graphics.Color;
 import android.view.ViewGroup;
-import android.view.Gravity;
-import android.view.MotionEvent;
-import android.widget.FrameLayout;
 import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
 import org.json.JSONObject;
 
 public class MainActivity extends Activity {
     private TextView status, lastTick, signalView, diagnosticView;
-    private TextView signalBubble, activateBubble;
+    private Button activateButton;
     private boolean botActive = false;
-    private FrameLayout stage;
     private SignalEngine engine = new SignalEngine();
     private WebView web;
     private long receivedTicks = 0;
@@ -100,6 +96,34 @@ public class MainActivity extends Activity {
         root.addView(status);
         root.addView(lastTick);
         root.addView(signalView);
+        signalView.setText("WAIT");
+        signalView.setTextColor(Color.WHITE);
+
+        activateButton = new Button(this);
+        activateButton.setText("▶  START ANALYSIS");
+        activateButton.setTextSize(13);
+        activateButton.setBackgroundTintList(android.content.res.ColorStateList.valueOf(Color.rgb(75, 85, 99)));
+        activateButton.setOnClickListener(v -> {
+            botActive = !botActive;
+            if (botActive) {
+                engine = new SignalEngine();
+                receivedTicks = 0;
+                activateButton.setText("Ⅱ  PAUSE ANALYSIS");
+                activateButton.setBackgroundTintList(android.content.res.ColorStateList.valueOf(Color.rgb(16, 145, 92)));
+                status.setText("AADI • ACTIVE — collecting real ticks");
+                lastTick.setText("Collecting from current chart position");
+                signalView.setText("WAIT");
+                signalView.setTextColor(Color.WHITE);
+            } else {
+                activateButton.setText("▶  START ANALYSIS");
+                activateButton.setBackgroundTintList(android.content.res.ColorStateList.valueOf(Color.rgb(75, 85, 99)));
+                status.setText("AADI • PAUSED");
+                signalView.setText("WAIT");
+                signalView.setTextColor(Color.WHITE);
+            }
+        });
+        root.addView(activateButton, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         diagnosticView = new TextView(this);
         diagnosticView.setTextColor(Color.rgb(190, 200, 215));
@@ -120,15 +144,6 @@ public class MainActivity extends Activity {
         root.addView(copyDiagnostics, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        signalBubble = new TextView(this);
-        signalBubble.setText("WAIT");
-        signalBubble.setTextColor(Color.LTGRAY);
-        signalBubble.setTextSize(12);
-        signalBubble.setTypeface(null, android.graphics.Typeface.BOLD);
-        signalBubble.setGravity(Gravity.CENTER);
-        signalBubble.setPadding(dp(14), dp(11), dp(14), dp(11));
-        signalBubble.setBackground(makeBubbleBackground(Color.rgb(24, 30, 40)));
-
         web = new WebView(this);
         web.getSettings().setJavaScriptEnabled(true);
         web.getSettings().setDomStorageEnabled(true);
@@ -144,48 +159,7 @@ public class MainActivity extends Activity {
         });
         root.addView(web, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
-        stage = new FrameLayout(this);
-        stage.addView(root, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-        FrameLayout.LayoutParams bubbleParams = new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
-                Gravity.BOTTOM | Gravity.END);
-        bubbleParams.setMargins(0, 0, dp(16), dp(90));
-        stage.addView(signalBubble, bubbleParams);
-
-        activateBubble = new TextView(this);
-        activateBubble.setText("▶");
-        activateBubble.setTextColor(Color.WHITE);
-        activateBubble.setTextSize(17);
-        activateBubble.setTypeface(null, android.graphics.Typeface.BOLD);
-        activateBubble.setGravity(Gravity.CENTER);
-        activateBubble.setBackground(makeBubbleBackground(Color.rgb(75, 85, 99)));
-        activateBubble.setElevation(dp(12));
-        FrameLayout.LayoutParams activateParams = new FrameLayout.LayoutParams(
-                dp(48), dp(48), Gravity.BOTTOM | Gravity.START);
-        activateParams.setMargins(dp(16), 0, 0, dp(90));
-        stage.addView(activateBubble, activateParams);
-        activateBubble.setOnClickListener(v -> {
-            botActive = !botActive;
-            if (botActive) {
-                engine = new SignalEngine();
-                receivedTicks = 0;
-                signalBubble.setText("WAIT");
-                signalBubble.setBackground(makeBubbleBackground(Color.rgb(75, 85, 99)));
-                activateBubble.setText("Ⅱ");
-                activateBubble.setBackground(makeBubbleBackground(Color.rgb(16, 145, 92)));
-                status.setText("AADI • ACTIVE — collecting real ticks");
-                lastTick.setText("Collecting from current chart position");
-                signalView.setText("SIGNAL: WAIT • Need 30 closed real 10-second candles");
-            } else {
-                activateBubble.setText("▶");
-                activateBubble.setBackground(makeBubbleBackground(Color.rgb(75, 85, 99)));
-                status.setText("AADI • PAUSED — tap green button to activate");
-                signalView.setText("SIGNAL: PAUSED");
-            }
-        });
-        attachMovableBubble();
-        setContentView(stage);
+        setContentView(root);
 
         if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
             WebViewCompat.addDocumentStartJavaScript(web, HOOK,
@@ -197,57 +171,6 @@ public class MainActivity extends Activity {
         web.loadUrl(MARKET_URL);
     }
 
-
-    private int dp(float value) {
-        return (int) (value * getResources().getDisplayMetrics().density + 0.5f);
-    }
-
-    private android.graphics.drawable.GradientDrawable makeBubbleBackground(int color) {
-        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
-        bg.setColor(color);
-        bg.setCornerRadius(dp(24));
-        bg.setStroke(dp(1), Color.WHITE);
-        return bg;
-    }
-
-    private void attachMovableBubble() {
-        signalBubble.setElevation(dp(12));
-        signalBubble.setOnTouchListener(new android.view.View.OnTouchListener() {
-            float downRawX, downRawY, startX, startY;
-            boolean dragging = false;
-
-            @Override public boolean onTouch(android.view.View view, MotionEvent event) {
-                FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) view.getLayoutParams();
-                if (event.getAction() == MotionEvent.ACTION_DOWN) {
-                    downRawX = event.getRawX();
-                    downRawY = event.getRawY();
-                    startX = view.getX();
-                    startY = view.getY();
-                    dragging = false;
-                    return true;
-                }
-                if (event.getAction() == MotionEvent.ACTION_MOVE) {
-                    float dx = event.getRawX() - downRawX;
-                    float dy = event.getRawY() - downRawY;
-                    if (Math.abs(dx) + Math.abs(dy) > dp(4)) dragging = true;
-                    if (dragging) {
-                        int maxX = Math.max(0, stage.getWidth() - view.getWidth());
-                        int maxY = Math.max(0, stage.getHeight() - view.getHeight());
-                        lp.gravity = Gravity.TOP | Gravity.LEFT;
-                        lp.leftMargin = Math.max(0, Math.min(maxX, Math.round(startX + dx)));
-                        lp.topMargin = Math.max(0, Math.min(maxY, Math.round(startY + dy)));
-                        lp.rightMargin = 0;
-                        lp.bottomMargin = 0;
-                        view.setLayoutParams(lp);
-                    }
-                    return true;
-                }
-                if (event.getAction() == MotionEvent.ACTION_UP ||
-                        event.getAction() == MotionEvent.ACTION_CANCEL) return true;
-                return true;
-            }
-        });
-    }
 
     private class Bridge {
         @JavascriptInterface public void onSocket(String message) {
@@ -272,8 +195,8 @@ public class MainActivity extends Activity {
                 if (imported > 0) {
                     runOnUiThread(() -> {
                         lastTick.setText(asset + " • IMPORTED " + imported + " VERIFIED HISTORICAL 10s CANDLES");
-                        signalView.setText("SIGNAL: WAIT • History loaded; waiting for live ticks");
-                        signalBubble.setText("WAIT");
+                        signalView.setText("WAIT");
+                        signalView.setTextColor(Color.WHITE);
                     });
                 }
             } catch (Exception e) {
@@ -292,15 +215,12 @@ public class MainActivity extends Activity {
                 SignalEngine.Result result = engine.onTick(asset, price, ts);
                 long count = ++receivedTicks;
                 String line = asset + "  " + price + "  • REAL PAGE TICK #" + count;
-                String signal = "SIGNAL: " + result.signal + "  |  Score: " + result.score +
-                        "\n" + result.reason + "  |  Closed candles: " + result.closedCandles;
-                runOnUiThread(() -> {
+runOnUiThread(() -> {
                     lastTick.setText(line);
-                    signalView.setText(signal);
-                    signalBubble.setText(result.signal.equals("CALL") ? "CALL" : result.signal.equals("PUT") ? "PUT" : "WAIT");
-                    signalBubble.setTextColor(result.signal.equals("CALL") ? Color.rgb(40, 230, 130) : result.signal.equals("PUT") ? Color.rgb(255, 75, 85) : Color.LTGRAY);
-                    signalBubble.setBackground(makeBubbleBackground(Color.rgb(24, 30, 40)));
-                    status.setText("AADI • ACTIVE — receiving Market-QX ticks");
+                    signalView.setText(result.signal);
+                    signalView.setTextColor(result.signal.equals("CALL") ? Color.rgb(40, 230, 130)
+                            : result.signal.equals("PUT") ? Color.rgb(255, 75, 85) : Color.WHITE);
+status.setText("AADI • ACTIVE — receiving Market-QX ticks");
                 });
             } catch (Exception e) {
                 runOnUiThread(() -> status.setText("AADI • Tick parse error"));
