@@ -71,6 +71,7 @@ public class MainActivity extends Activity {
         "const of=window.fetch;window.fetch=function(){return of.apply(this,arguments).then(function(res){try{const copy=res.clone();copy.text().then(function(t){if(t&&t.length<4000000)parse(t);}).catch(function(){});}catch(e){}return res;});};" +
         "const xo=XMLHttpRequest.prototype.open,xs=XMLHttpRequest.prototype.send;XMLHttpRequest.prototype.open=function(){this.addEventListener('load',function(){try{const t=this.responseText;if(t&&t.length<4000000)parse(t);}catch(e){};});return xo.apply(this,arguments);};XMLHttpRequest.prototype.send=function(){return xs.apply(this,arguments);};" +
         "try{AadiNative.onSocket('WebSocket + history response scanner enabled');}catch(e){}" +
+        "let loginState=null;function checkLogin(){try{const hasPassword=!!document.querySelector('input[type=password]');const hasLoginText=Array.from(document.querySelectorAll('button,[role=button],input[type=submit]')).some(e=>/^(log in|login|sign in)$/i.test((e.innerText||e.value||'').trim()));const hasChart=!!document.querySelector('canvas,[class*=chart i],[id*=chart i]');const logged=hasChart&&!hasPassword&&!hasLoginText&&document.readyState==='complete';if(logged!==loginState){loginState=logged;try{AadiNative.onLoginState(logged);}catch(e){}}}catch(e){}}setInterval(checkLogin,2000);" +
         "})();";
 
     @Override public void onCreate(Bundle state) {
@@ -98,51 +99,6 @@ public class MainActivity extends Activity {
         root.addView(signalView);
         signalView.setText("WAIT");
         signalView.setTextColor(Color.WHITE);
-
-        activateButton = new Button(this);
-        activateButton.setText("▶  START ANALYSIS");
-        activateButton.setTextSize(13);
-        activateButton.setBackgroundTintList(android.content.res.ColorStateList.valueOf(Color.rgb(75, 85, 99)));
-        activateButton.setOnClickListener(v -> {
-            botActive = !botActive;
-            if (botActive) {
-                engine = new SignalEngine();
-                receivedTicks = 0;
-                activateButton.setText("Ⅱ  PAUSE ANALYSIS");
-                activateButton.setBackgroundTintList(android.content.res.ColorStateList.valueOf(Color.rgb(16, 145, 92)));
-                status.setText("AADI • ACTIVE — collecting real ticks");
-                lastTick.setText("Collecting from current chart position");
-                signalView.setText("WAIT");
-                signalView.setTextColor(Color.WHITE);
-            } else {
-                activateButton.setText("▶  START ANALYSIS");
-                activateButton.setBackgroundTintList(android.content.res.ColorStateList.valueOf(Color.rgb(75, 85, 99)));
-                status.setText("AADI • PAUSED");
-                signalView.setText("WAIT");
-                signalView.setTextColor(Color.WHITE);
-            }
-        });
-        root.addView(activateButton, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-
-        diagnosticView = new TextView(this);
-        diagnosticView.setTextColor(Color.rgb(190, 200, 215));
-        diagnosticView.setTextSize(10);
-        diagnosticView.setPadding(14, 4, 14, 4);
-        diagnosticView.setMaxLines(8);
-        diagnosticView.setText("SAFE DIAGNOSTICS: waiting for Market-QX packet shapes");
-        root.addView(diagnosticView);
-
-        Button copyDiagnostics = new Button(this);
-        copyDiagnostics.setText("COPY SAFE DIAGNOSTICS");
-        copyDiagnostics.setTextSize(11);
-        copyDiagnostics.setOnClickListener(v -> {
-            android.content.ClipboardManager cb = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-            cb.setPrimaryClip(android.content.ClipData.newPlainText("AADI safe diagnostics", diagnosticView.getText()));
-            android.widget.Toast.makeText(this, "Diagnostics copied", android.widget.Toast.LENGTH_SHORT).show();
-        });
-        root.addView(copyDiagnostics, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         web = new WebView(this);
         web.getSettings().setJavaScriptEnabled(true);
@@ -172,17 +128,35 @@ public class MainActivity extends Activity {
     }
 
 
+    private boolean marketLoginDetected = false;
+
+    private void setAutoAnalysis(boolean enabled) {
+        if (enabled == botActive) return;
+        botActive = enabled;
+        if (enabled) {
+            engine = new SignalEngine();
+            receivedTicks = 0;
+            status.setText("AADI • LOGIN DETECTED — AUTO ANALYSIS ACTIVE");
+            lastTick.setText("Collecting real ticks from logged-in chart");
+            signalView.setText("WAIT");
+            signalView.setTextColor(Color.WHITE);
+        } else {
+            status.setText("AADI • Logged out — analysis paused");
+            signalView.setText("WAIT");
+            signalView.setTextColor(Color.WHITE);
+        }
+    }
+
     private class Bridge {
-        @JavascriptInterface public void onSocket(String message) {
-            runOnUiThread(() -> status.setText("AADI • " + message));
+        @JavascriptInterface public void onLoginState(boolean loggedIn) {
+            runOnUiThread(() -> {
+                marketLoginDetected = loggedIn;
+                setAutoAnalysis(loggedIn);
+            });
         }
 
-        @JavascriptInterface public void onDiagnostic(String message) {
-            runOnUiThread(() -> {
-                String old = diagnosticView.getText().toString();
-                diagnosticView.setText((old + "\n\n" + message).length() > 5000
-                        ? message : old + "\n\n" + message);
-            });
+        @JavascriptInterface public void onSocket(String message) {
+            runOnUiThread(() -> status.setText("AADI • " + message));
         }
 
         @JavascriptInterface public void onHistory(String json) {
