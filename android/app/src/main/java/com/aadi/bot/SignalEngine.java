@@ -5,7 +5,10 @@ import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
 
-/** Builds 10-second candles from received real page ticks and computes EMA/RSI/momentum confluence. */
+/**
+ * Conservative 10-second candle scanner. It prioritizes avoiding weak entries;
+ * it does not claim or guarantee predictive accuracy.
+ */
 public final class SignalEngine {
     public static final class Result {
         public final String asset, signal, reason;
@@ -19,9 +22,20 @@ public final class SignalEngine {
     }
 
     private static final int FAST=9, SLOW=21, RSI_PERIOD=14, MOMENTUM=5;
-    private static final int MIN_CONFLUENCE=3;
+    private static final int MIN_CANDLES=30;
+    private static final int MIN_SCORE=4;
     private static final long FRAME_SECONDS=10;
-    private final Deque<Double> closes = new ArrayDeque<>();
+
+    private static final class Candle {
+        final double open, high, low, close;
+        Candle(double o,double h,double l,double c) {
+            open=o; high=h; low=l; close=c;
+        }
+        double range() { return Math.max(0, high-low); }
+        double body() { return close-open; }
+    }
+
+    private final Deque<Candle> candles = new ArrayDeque<>();
     private String asset;
     private long candleTime=-1;
     private double open, high, low, close, lastPrice;
@@ -34,23 +48,25 @@ public final class SignalEngine {
         long ts=(long)timestamp;
         if (ts <= 0) ts=System.currentTimeMillis()/1000L;
         if (asset == null || !asset.equals(symbol)) {
-            asset=symbol; closes.clear(); candleTime=-1; totalClosed=0;
+            asset=symbol; candles.clear(); candleTime=-1; totalClosed=0;
         }
         lastPrice=price;
         long bucket=(ts/FRAME_SECONDS)*FRAME_SECONDS;
         if (candleTime < 0) {
             startCandle(bucket, price);
-            return snapshot("WAIT", "Collecting real candles");
+            return snapshot("WAIT", "Collecting real 10-second candles");
         }
         if (bucket < candleTime) return snapshot("WAIT", "Out-of-order tick ignored");
         if (bucket > candleTime) {
-            closes.addLast(close);
-            while (closes.size()>500) closes.removeFirst();
+            candles.addLast(new Candle(open,high,low,close));
+            while (candles.size()>500) candles.removeFirst();
             totalClosed++;
             startCandle(bucket, price);
-        } else {
-            high=Math.max(high,price); low=Math.min(low,price); close=price;
+            return calculate();
         }
+        high=Math.max(high,price);
+        low=Math.min(low,price);
+        close=price;
         return calculate();
     }
 
@@ -59,22 +75,65 @@ public final class SignalEngine {
     }
 
     private Result calculate() {
-        List<Double> values=new ArrayList<>(closes);
-        if (values.size()<Math.max(SLOW,RSI_PERIOD+1)+1)
-            return snapshot("WAIT","Need at least 22 closed real 10-second candles");
-        double fast=ema(values,FAST), slow=ema(values,SLOW), rsi=rsi(values,RSI_PERIOD);
+        List<Candle> cs=new ArrayList<>(candles);
+        if (cs.size()<MIN_CANDLES)
+            return snapshot("WAIT","Need 30 closed real 10-second candles");
+        List<Double> values=new ArrayList<>();
+        for(Candle c:cs) values.add(c.close);
+
+        double fast=ema(values,FAST);
+        double slow=ema(values,SLOW);
+        double rsi=rsi(values,RSI_PERIOD);
         double momentum=values.get(values.size()-1)-values.get(values.size()-1-MOMENTUM);
+        double oldSlow=ema(values.subList(0,values.size()-5),SLOW);
+        double slope=slow-oldSlow;
+
+        int up=0, down=0;
+        for(int i=cs.size()-4;i<cs.size();i++) {
+            double body=cs.get(i).body();
+            if(body>0) up++;
+            else if(body<0) down++;
+        }
+        Candle last=cs.get(cs.size()-1);
+
+        double avgRange=0;
+        for(int i=cs.size()-14;i<cs.size();i++) avgRange+=cs.get(i).range();
+        avgRange/=14.0;
+        boolean spike=avgRange>0 && last.range()>avgRange*2.3;
+        boolean flat=avgRange<=0 || Math.abs(momentum)<avgRange*0.35;
+        boolean cleanBody=last.range()>0 && Math.abs(last.body())>=last.range()*0.25;
+
         int score=0;
-        if(fast>slow) score++; else if(fast<slow) score--;
-        if(rsi>=55) score++; else if(rsi<=45) score--;
+        boolean trendUp=fast>slow && slope>0;
+        boolean trendDown=fast<slow && slope<0;
+        if(trendUp) score++; else if(trendDown) score--;
+        if(rsi>=52 && rsi<=68) score++;
+        else if(rsi<=48 && rsi>=32) score--;
         if(momentum>0) score++; else if(momentum<0) score--;
-        String sig=score>=MIN_CONFLUENCE?"CALL":score<=-MIN_CONFLUENCE?"PUT":"WAIT";
-        return new Result(asset,sig,"NEXT 10s candle: EMA 9/21 + RSI 14 + 5-candle momentum",
-            lastPrice,fast,slow,rsi,momentum,score,totalClosed);
+        if(up>=3) score++; else if(down>=3) score--;
+
+        boolean lastUp=last.body()>0;
+        boolean lastDown=last.body()<0;
+        if(lastUp) score++; else if(lastDown) score--;
+
+        String sig="WAIT";
+        String why="Filters not aligned";
+        if(spike) why="WAIT: abnormal volatility spike";
+        else if(flat) why="WAIT: insufficient movement / sideways market";
+        else if(!cleanBody) why="WAIT: weak or indecisive last candle";
+        else if(score>=MIN_SCORE && trendUp && up>=3 && lastUp && rsi>=52 && rsi<=68) {
+            sig="CALL"; why="Confirmed bullish trend + momentum + candle structure";
+        } else if(score<=-MIN_SCORE && trendDown && down>=3 && lastDown && rsi<=48 && rsi>=32) {
+            sig="PUT"; why="Confirmed bearish trend + momentum + candle structure";
+        }
+        return new Result(asset,sig,why,lastPrice,fast,slow,rsi,momentum,score,totalClosed);
     }
 
     private double ema(List<Double> v,int period) {
-        double e=0; for(int i=0;i<period;i++) e+=v.get(i); e/=period;
+        if(v.size()<period) return v.get(v.size()-1);
+        double e=0;
+        for(int i=0;i<period;i++) e+=v.get(i);
+        e/=period;
         double k=2.0/(period+1);
         for(int i=period;i<v.size();i++) e=v.get(i)*k+e*(1-k);
         return e;
