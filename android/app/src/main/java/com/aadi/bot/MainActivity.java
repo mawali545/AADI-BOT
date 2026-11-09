@@ -21,10 +21,10 @@ import org.json.JSONObject;
 
 public class MainActivity extends Activity {
     private TextView status, lastTick, signalView, diagnosticView;
-    private Button analyzeButton;
-    private TextView signalBubble;
+    private TextView signalBubble, activateBubble;
+    private boolean botActive = false;
     private FrameLayout stage;
-    private final SignalEngine engine = new SignalEngine();
+    private SignalEngine engine = new SignalEngine();
     private WebView web;
     private long receivedTicks = 0;
 
@@ -134,29 +134,13 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         signalBubble = new TextView(this);
-        signalBubble.setText("WAIT • TAP ANALYZE");
+        signalBubble.setText("WAIT");
         signalBubble.setTextColor(Color.WHITE);
         signalBubble.setTextSize(12);
         signalBubble.setTypeface(null, android.graphics.Typeface.BOLD);
         signalBubble.setGravity(Gravity.CENTER);
         signalBubble.setPadding(dp(14), dp(11), dp(14), dp(11));
         signalBubble.setBackground(makeBubbleBackground(Color.rgb(75, 85, 99)));
-
-        analyzeButton = new Button(this);
-        analyzeButton.setText("ANALYZE MARKET");
-        analyzeButton.setTextSize(14);
-        analyzeButton.setOnClickListener(v -> {
-            SignalEngine.Result result = engine.analyzeNow();
-            signalView.setText("ANALYSIS: " + result.signal + "  |  Score: " + result.score +
-                    "\n" + result.reason + "  |  Closed candles: " + result.closedCandles);
-            signalBubble.setText(result.signal.equals("CALL") ? "CALL • UP" :
-                    result.signal.equals("PUT") ? "PUT • DOWN" : "WAIT");
-            signalBubble.setBackground(makeBubbleBackground(result.signal.equals("CALL") ?
-                    Color.rgb(16, 145, 92) : result.signal.equals("PUT") ?
-                    Color.rgb(190, 55, 65) : Color.rgb(75, 85, 99)));
-        });
-        root.addView(analyzeButton, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         web = new WebView(this);
         web.getSettings().setJavaScriptEnabled(true);
@@ -181,6 +165,38 @@ public class MainActivity extends Activity {
                 Gravity.BOTTOM | Gravity.END);
         bubbleParams.setMargins(0, 0, dp(16), dp(90));
         stage.addView(signalBubble, bubbleParams);
+
+        activateBubble = new TextView(this);
+        activateBubble.setText("▶");
+        activateBubble.setTextColor(Color.WHITE);
+        activateBubble.setTextSize(17);
+        activateBubble.setTypeface(null, android.graphics.Typeface.BOLD);
+        activateBubble.setGravity(Gravity.CENTER);
+        activateBubble.setBackground(makeBubbleBackground(Color.rgb(75, 85, 99)));
+        activateBubble.setElevation(dp(12));
+        FrameLayout.LayoutParams activateParams = new FrameLayout.LayoutParams(
+                dp(48), dp(48), Gravity.BOTTOM | Gravity.START);
+        activateParams.setMargins(dp(16), 0, 0, dp(90));
+        stage.addView(activateBubble, activateParams);
+        activateBubble.setOnClickListener(v -> {
+            botActive = !botActive;
+            if (botActive) {
+                engine = new SignalEngine();
+                receivedTicks = 0;
+                signalBubble.setText("WAIT");
+                signalBubble.setBackground(makeBubbleBackground(Color.rgb(75, 85, 99)));
+                activateBubble.setText("Ⅱ");
+                activateBubble.setBackground(makeBubbleBackground(Color.rgb(16, 145, 92)));
+                status.setText("AADI • ACTIVE — collecting real ticks");
+                lastTick.setText("Collecting from current chart position");
+                signalView.setText("SIGNAL: WAIT • Need 30 closed real 10-second candles");
+            } else {
+                activateBubble.setText("▶");
+                activateBubble.setBackground(makeBubbleBackground(Color.rgb(75, 85, 99)));
+                status.setText("AADI • PAUSED — tap green button to activate");
+                signalView.setText("SIGNAL: PAUSED");
+            }
+        });
         attachMovableBubble();
         setContentView(stage);
 
@@ -266,6 +282,7 @@ public class MainActivity extends Activity {
                 double price = o.optDouble("price", Double.NaN);
                 double ts = o.optDouble("timestamp", System.currentTimeMillis() / 1000.0);
                 if (asset.trim().isEmpty() || !Double.isFinite(price) || price <= 0) return;
+                if (!botActive) return;
                 SignalEngine.Result result = engine.onTick(asset, price, ts);
                 long count = ++receivedTicks;
                 String line = asset + "  " + price + "  • REAL PAGE TICK #" + count;
@@ -274,7 +291,7 @@ public class MainActivity extends Activity {
                 runOnUiThread(() -> {
                     lastTick.setText(line);
                     signalView.setText(signal);
-                    status.setText("AADI • Receiving Market-QX page data");
+                    status.setText("AADI • ACTIVE — receiving Market-QX ticks");
                 });
             } catch (Exception e) {
                 runOnUiThread(() -> status.setText("AADI • Tick parse error"));
