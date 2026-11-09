@@ -12,6 +12,9 @@ import android.widget.Button;
 import android.widget.TextView;
 import android.graphics.Color;
 import android.view.ViewGroup;
+import android.view.Gravity;
+import android.view.MotionEvent;
+import android.widget.FrameLayout;
 import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
 import org.json.JSONObject;
@@ -19,6 +22,8 @@ import org.json.JSONObject;
 public class MainActivity extends Activity {
     private TextView status, lastTick, signalView, diagnosticView;
     private Button analyzeButton;
+    private TextView signalBubble;
+    private FrameLayout stage;
     private final SignalEngine engine = new SignalEngine();
     private WebView web;
     private long receivedTicks = 0;
@@ -128,6 +133,15 @@ public class MainActivity extends Activity {
         root.addView(copyDiagnostics, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
+        signalBubble = new TextView(this);
+        signalBubble.setText("WAIT • TAP ANALYZE");
+        signalBubble.setTextColor(Color.WHITE);
+        signalBubble.setTextSize(12);
+        signalBubble.setTypeface(null, android.graphics.Typeface.BOLD);
+        signalBubble.setGravity(Gravity.CENTER);
+        signalBubble.setPadding(dp(14), dp(11), dp(14), dp(11));
+        signalBubble.setBackground(makeBubbleBackground(Color.rgb(75, 85, 99)));
+
         analyzeButton = new Button(this);
         analyzeButton.setText("ANALYZE MARKET");
         analyzeButton.setTextSize(14);
@@ -135,6 +149,11 @@ public class MainActivity extends Activity {
             SignalEngine.Result result = engine.analyzeNow();
             signalView.setText("ANALYSIS: " + result.signal + "  |  Score: " + result.score +
                     "\n" + result.reason + "  |  Closed candles: " + result.closedCandles);
+            signalBubble.setText(result.signal.equals("CALL") ? "CALL • UP" :
+                    result.signal.equals("PUT") ? "PUT • DOWN" : "WAIT");
+            signalBubble.setBackground(makeBubbleBackground(result.signal.equals("CALL") ?
+                    Color.rgb(16, 145, 92) : result.signal.equals("PUT") ?
+                    Color.rgb(190, 55, 65) : Color.rgb(75, 85, 99)));
         });
         root.addView(analyzeButton, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -154,7 +173,16 @@ public class MainActivity extends Activity {
         });
         root.addView(web, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
-        setContentView(root);
+        stage = new FrameLayout(this);
+        stage.addView(root, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        FrameLayout.LayoutParams bubbleParams = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM | Gravity.END);
+        bubbleParams.setMargins(0, 0, dp(16), dp(90));
+        stage.addView(signalBubble, bubbleParams);
+        attachMovableBubble();
+        setContentView(stage);
 
         if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
             WebViewCompat.addDocumentStartJavaScript(web, HOOK,
@@ -164,6 +192,58 @@ public class MainActivity extends Activity {
             status.setText("AADI • Update Android System WebView; early hook unsupported");
         }
         web.loadUrl(MARKET_URL);
+    }
+
+
+    private int dp(float value) {
+        return (int) (value * getResources().getDisplayMetrics().density + 0.5f);
+    }
+
+    private android.graphics.drawable.GradientDrawable makeBubbleBackground(int color) {
+        android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+        bg.setColor(color);
+        bg.setCornerRadius(dp(24));
+        bg.setStroke(dp(1), Color.WHITE);
+        return bg;
+    }
+
+    private void attachMovableBubble() {
+        signalBubble.setElevation(dp(12));
+        signalBubble.setOnTouchListener(new android.view.View.OnTouchListener() {
+            float downRawX, downRawY, startX, startY;
+            boolean dragging = false;
+
+            @Override public boolean onTouch(android.view.View view, MotionEvent event) {
+                FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) view.getLayoutParams();
+                if (event.getAction() == MotionEvent.ACTION_DOWN) {
+                    downRawX = event.getRawX();
+                    downRawY = event.getRawY();
+                    startX = view.getX();
+                    startY = view.getY();
+                    dragging = false;
+                    return true;
+                }
+                if (event.getAction() == MotionEvent.ACTION_MOVE) {
+                    float dx = event.getRawX() - downRawX;
+                    float dy = event.getRawY() - downRawY;
+                    if (Math.abs(dx) + Math.abs(dy) > dp(4)) dragging = true;
+                    if (dragging) {
+                        int maxX = Math.max(0, stage.getWidth() - view.getWidth());
+                        int maxY = Math.max(0, stage.getHeight() - view.getHeight());
+                        lp.gravity = Gravity.TOP | Gravity.LEFT;
+                        lp.leftMargin = Math.max(0, Math.min(maxX, Math.round(startX + dx)));
+                        lp.topMargin = Math.max(0, Math.min(maxY, Math.round(startY + dy)));
+                        lp.rightMargin = 0;
+                        lp.bottomMargin = 0;
+                        view.setLayoutParams(lp);
+                    }
+                    return true;
+                }
+                if (event.getAction() == MotionEvent.ACTION_UP ||
+                        event.getAction() == MotionEvent.ACTION_CANCEL) return true;
+                return true;
+            }
+        });
     }
 
     private class Bridge {
