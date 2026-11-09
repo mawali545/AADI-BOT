@@ -4,6 +4,9 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
+import java.util.TreeMap;
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 /**
  * Conservative real-tick 10-second market scanner.
@@ -26,9 +29,10 @@ public final class SignalEngine {
     private static final long FRAME_SECONDS=10;
 
     private static final class Candle {
+        final long time;
         final double open, high, low, close;
-        Candle(double o,double h,double l,double c) {
-            open=o; high=h; low=l; close=c;
+        Candle(long t,double o,double h,double l,double c) {
+            time=t; open=o; high=h; low=l; close=c;
         }
         double range() { return Math.max(0, high-low); }
         double body() { return close-open; }
@@ -39,6 +43,7 @@ public final class SignalEngine {
     private long candleTime=-1;
     private double open, high, low, close, lastPrice;
     private int totalClosed=0;
+    private boolean awaitingLiveCandle=false;
 
     public synchronized Result onTick(String symbol, double price, double timestamp) {
         if (symbol == null || symbol.trim().isEmpty() || !Double.isFinite(price) || price <= 0)
@@ -47,17 +52,23 @@ public final class SignalEngine {
         long ts=(long)timestamp;
         if (ts <= 0) ts=System.currentTimeMillis()/1000L;
         if (asset == null || !asset.equals(symbol)) {
-            asset=symbol; candles.clear(); candleTime=-1; totalClosed=0;
+            asset=symbol; candles.clear(); candleTime=-1; totalClosed=0; awaitingLiveCandle=false;
         }
         lastPrice=price;
         long bucket=(ts/FRAME_SECONDS)*FRAME_SECONDS;
+        if (awaitingLiveCandle) {
+            if (bucket <= candleTime) return snapshot("WAIT", "Historical candles loaded; waiting for current live candle");
+            startCandle(bucket, price);
+            awaitingLiveCandle=false;
+            return calculate();
+        }
         if (candleTime < 0) {
             startCandle(bucket, price);
             return snapshot("WAIT", "Collecting genuine Market-QX ticks");
         }
         if (bucket < candleTime) return snapshot("WAIT", "Out-of-order tick ignored");
         if (bucket > candleTime) {
-            candles.addLast(new Candle(open,high,low,close));
+            candles.addLast(new Candle(candleTime,open,high,low,close));
             while (candles.size()>600) candles.removeFirst();
             totalClosed++;
             startCandle(bucket, price);
@@ -69,11 +80,59 @@ public final class SignalEngine {
         return calculate();
     }
 
-    /** Called by the Analyze button; uses the latest genuine closed candles. */
-    public synchronized Result analyzeNow() {
-        if (candles.size()<MIN_CANDLES)
-            return snapshot("WAIT","Need 30 closed real 10-second candles before analysis");
-        return calculate();
+    /**
+     * Imports verified OHLC objects received from Market-QX history responses.
+     * Only timestamped 10-second candles are accepted; malformed or other intervals are ignored.
+     * Expected fields: timestamp,time, or ts; open/high/low/close (or o/h/l/c).
+     */
+    public synchronized int importHistoricalCandles(String symbol, JSONArray rows) {
+        if (symbol == null || symbol.trim().isEmpty() || rows == null) return 0;
+        TreeMap<Long,Candle> sorted = new TreeMap<>();
+        for (int i=0; i<rows.length(); i++) {
+            JSONObject row=rows.optJSONObject(i);
+            if (row==null) continue;
+            long t=(long)row.optDouble("timestamp",row.optDouble("time",row.optDouble("ts",0)));
+            if (t>10000000000L) t/=1000L;
+            if (t<=0) continue;
+            double o=number(row,"open","o"), h=number(row,"high","h");
+            double l=number(row,"low","l"), c=number(row,"close","c");
+            if (!Double.isFinite(o)||!Double.isFinite(h)||!Double.isFinite(l)||!Double.isFinite(c)
+                    || o<=0||h<=0||l<=0||c<=0||h<Math.max(o,c)||l>Math.min(o,c)||h<l) continue;
+            long bucket=(t/FRAME_SECONDS)*FRAME_SECONDS;
+            sorted.put(bucket,new Candle(bucket,o,h,l,c));
+        }
+        if (sorted.size()<MIN_CANDLES) return 0;
+        Long previous=null;
+        for(Long t:sorted.keySet()) {
+            if(previous!=null && t-previous!=FRAME_SECONDS) return 0;
+            previous=t;
+        }
+        long now=System.currentTimeMillis()/1000L;
+        while(!sorted.isEmpty() && sorted.lastKey() >= (now/FRAME_SECONDS)*FRAME_SECONDS)
+            sorted.pollLastEntry();
+        if(sorted.size()<MIN_CANDLES) return 0;
+        if(asset!=null && !asset.equals(symbol)) {
+            candles.clear(); totalClosed=0;
+        } else if(asset!=null && !candles.isEmpty()) {
+            // Keep an existing live history rather than replacing it with a duplicate response.
+            return 0;
+        }
+        asset=symbol;
+        candles.clear();
+        for(Candle candle:sorted.values()) {
+            candles.addLast(candle);
+            while(candles.size()>600) candles.removeFirst();
+        }
+        totalClosed=candles.size();
+        candleTime=sorted.lastKey();
+        lastPrice=sorted.lastEntry().getValue().close;
+        awaitingLiveCandle=true;
+        return candles.size();
+    }
+
+    private double number(JSONObject row,String longKey,String shortKey) {
+        double v=row.has(longKey)?row.optDouble(longKey,Double.NaN):row.optDouble(shortKey,Double.NaN);
+        return v;
     }
 
     private void startCandle(long time,double p) {
