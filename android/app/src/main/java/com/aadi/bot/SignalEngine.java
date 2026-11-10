@@ -113,6 +113,11 @@ public final class SignalEngine {
             if (liveBucket!=Long.MAX_VALUE && bucket>=liveBucket) continue;
             incoming.put(bucket,new Candle(bucket,o,h,l,c));
         }
+        if (liveBucket==Long.MAX_VALUE && !incoming.isEmpty()) {
+            // Without a trustworthy exchange timestamp, treat the newest
+            // returned chart candle as still forming and do not evaluate it.
+            incoming.pollLastEntry();
+        }
         if (incoming.isEmpty()) return 0;
         TreeMap<Long,Candle> merged=new TreeMap<>();
         for(Candle old:candles) merged.put(old.time,old);
