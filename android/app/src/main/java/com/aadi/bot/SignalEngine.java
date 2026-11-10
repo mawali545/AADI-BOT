@@ -284,10 +284,24 @@ public final class SignalEngine {
         }
         if("CHOPPY".equals(regime)) bias+=clamp(pressure*6.0,-5,5);
 
-        // Do not force a direction when the tape is balanced or contradictory.
-        // This does not wait for another candle: it decides at this same close.
-        if(Math.abs(bias)<6.8) {
-            return new Result(asset,"WAIT","WAIT: mixed short-term flow • no clean edge",
+        // Adaptive signal edge: 6.8 remains the maximum strictness, but
+        // aligned short-term evidence can lower the edge slightly so the bot
+        // does not sit in WAIT for several candles. This is still decided at
+        // the current completed-candle boundary; it never waits an extra bar.
+        int alignedEvidence=0;
+        double biasSide=Math.signum(bias);
+        if(biasSide!=0 && biasSide==Math.signum(microFlow) && Math.abs(microFlow)>=0.55)
+            alignedEvidence++;
+        if(biasSide!=0 && biasSide==Math.signum(shapeBias) && Math.abs(shapeBias)>=0.65)
+            alignedEvidence++;
+        if(biasSide!=0 && biasSide==Math.signum(turnBias) && Math.abs(turnBias)>=0.55)
+            alignedEvidence++;
+        if(biasSide>0 && (liquiditySweep>0 || failedBreak>0)
+                || biasSide<0 && (liquiditySweep<0 || failedBreak<0))
+            alignedEvidence++;
+        double requiredEdge=alignedEvidence>=2?5.8:alignedEvidence==1?6.3:6.8;
+        if(Math.abs(bias)<requiredEdge) {
+            return new Result(asset,"WAIT","WAIT: mixed short-term flow • next-candle edge not clear",
                     last.close,fast,slow,rsi,momentum,0,totalClosed);
         }
         String sig=bias>0?"CALL":"PUT";
