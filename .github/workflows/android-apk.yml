@@ -21,6 +21,24 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: 8.9
+      - name: Restore stable development signing key
+        uses: actions/cache@v4
+        with:
+          path: android/.android-signing
+          key: aadi-bot-stable-debug-signing-v1
+      - name: Prepare stable development signing key
+        working-directory: android
+        run: |
+          mkdir -p .android-signing
+          if [ ! -f .android-signing/aadi-debug.keystore ]; then
+            keytool -genkeypair -v \
+              -keystore .android-signing/aadi-debug.keystore \
+              -storepass aadi-debug-store \
+              -keypass aadi-debug-key \
+              -alias aadi-debug \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=AADI Bot Development, OU=Debug, O=AADI, L=NA, S=NA, C=PK"
+          fi
       - name: Install Android SDK packages
         run: |
           SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | head -n 1)"
