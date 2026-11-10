@@ -45,6 +45,7 @@ public final class SignalEngine {
     private double open, high, low, close, lastPrice;
     private int totalClosed=0;
     private boolean awaitingLiveCandle=false;
+    private long previewedCandleTime=-1;
     // One prediction is calculated at candle close and held for the entire next candle.
     private Result lockedNextCandleResult=null;
 
@@ -77,6 +78,7 @@ public final class SignalEngine {
         if (bucket < candleTime) return lockedNextCandleResult != null
                 ? lockedNextCandleResult : snapshot("WAIT", "Out-of-order tick ignored");
         if (bucket > candleTime) {
+            previewedCandleTime=-1;
             // The previous candle is now final. Use only its closed OHLC data
             // to predict the candle that has just started.
             candles.addLast(new Candle(candleTime,open,high,low,close));
@@ -89,7 +91,16 @@ public final class SignalEngine {
         high=Math.max(high,price);
         low=Math.min(low,price);
         close=price;
-        // Never recalculate from a forming candle: keep the prediction locked.
+        // One early preview in the final second (second 9 of each 10s candle).
+        // It reads the live forming OHLC plus the full closed-candle context,
+        // then the official next-candle result is recalculated at the boundary.
+        if (ts % FRAME_SECONDS == FRAME_SECONDS-1 && previewedCandleTime != candleTime) {
+            previewedCandleTime=candleTime;
+            List<Candle> preview=new ArrayList<>(candles);
+            preview.add(new Candle(candleTime,open,high,low,close));
+            return calculateFromCandles(preview);
+        }
+        // Outside the final-second preview window, keep the next-candle signal locked.
         return lockedNextCandleResult != null ? lockedNextCandleResult
                 : snapshot("WAIT", "Waiting for candle close");
     }
@@ -155,9 +166,12 @@ public final class SignalEngine {
     }
 
     private Result calculateClosedCandles() {
-        // Keep the exact existing 10-second decision boundary. All analysis below
-        // uses already-closed real candles; no extra candle wait is introduced.
-        List<Candle> cs=new ArrayList<>(candles);
+        return calculateFromCandles(new ArrayList<>(candles));
+    }
+
+    private Result calculateFromCandles(List<Candle> cs) {
+        // Same 10-second decision boundary; final-second preview uses
+        // the current OHLC once, while normal decisions use completed candles.
         if(cs.size()<MIN_CANDLES)
             return snapshot("WAIT","Collecting genuine closed-candle history");
         int consecutive=1;
@@ -197,6 +211,7 @@ public final class SignalEngine {
         double shapeBias=multiScaleShapeBias(cs,atr);
         double stairBias=stairStepBias(cs,7);
         double turnBias=turningPointBias(cs,atr);
+        double candlePatternBias=candlestickPatternBias(cs,atr);
         double microFlow=shortTermFlowBias(cs,atr);
         double alternatingBias=alternatingProgressBias(cs,6,atr);
         int liquiditySweep=liquiditySweepDirection(cs,12,atr);
@@ -244,12 +259,21 @@ public final class SignalEngine {
         bias+=clamp(shapeBias*5.0,-9,9);
         bias+=clamp(stairBias*6.0,-6,6);
         bias+=clamp(turnBias*6.0,-8,8);
+        // Context-aware candle reading; wick rejection and formations matter,
+        // while a lone candle colour/body is deliberately weak.
+        bias+=clamp(candlePatternBias*7.0,-8,8);
         // Short-horizon flow can veto a misleading 1-3 candle chase.
         bias+=clamp(microFlow*8.5,-10,10);
         bias+=clamp(alternatingBias*4.0,-5,5);
         bias+=liquiditySweep*7.0;
         bias+=failedBreak*7.0;
-        if(bodyRatio>=0.45) bias+=last.body()>0?2.0:last.body()<0?-2.0:0;
+        if(bodyRatio>=0.45) bias+=last.body()>0?1.0:last.body()<0?-1.0:0;
+        // Avoid chasing a large impulse when the move is stretched and rejected.
+        double recentMove=last.close-cs.get(Math.max(0,n-4)).open;
+        if(Math.abs(last.body())>atr*0.85 && Math.abs(recentMove)>atr*1.15) {
+            if(last.body()>0 && upperWick>last.bodyAbs()*0.42 && closePos<0.72) bias-=3.5;
+            if(last.body()<0 && lowerWick>last.bodyAbs()*0.42 && closePos>0.28) bias+=3.5;
+        }
         if(closePos>=0.72) bias+=1.5;
         else if(closePos<=0.28) bias-=1.5;
         if(bullBreak) bias+=10;
@@ -298,11 +322,79 @@ public final class SignalEngine {
         else if(bearReject) pattern="resistance rejection";
         else if(structure>0) pattern="higher-high / higher-low structure";
         else if(structure<0) pattern="lower-high / lower-low structure";
+        else if(candlePatternBias>0.25) pattern="bullish candle pattern / rejection";
+        else if(candlePatternBias< -0.25) pattern="bearish candle pattern / rejection";
         else if(pressure>0.18) pattern="buying pressure";
         else if(pressure< -0.18) pattern="selling pressure";
         else pattern="short-term directional pressure";
         String why=sig+": "+regime+" • "+pattern+" • "+(bias>=0?"upward":"downward")+" bias";
         return new Result(asset,sig,why,last.close,fast,slow,rsi,momentum,score,totalClosed);
+    }
+
+    /**
+     * Context-aware candlestick pattern engine. Long wicks are interpreted as
+     * rejection only near a meaningful swing/extension; body colour alone is
+     * deliberately weak. Multi-candle engulfing and inside-bar context add
+     * evidence without becoming a hard delay/confirmation gate.
+     */
+    private double candlestickPatternBias(List<Candle> cs,double atr) {
+        int n=cs.size();
+        if(n<4||atr<=0) return 0;
+        Candle a=cs.get(n-4), b=cs.get(n-3), p=cs.get(n-2), c=cs.get(n-1);
+        double range=Math.max(c.range(),1e-12);
+        double body=Math.max(c.bodyAbs(),atr*0.015);
+        double upper=c.high-Math.max(c.open,c.close);
+        double lower=Math.min(c.open,c.close)-c.low;
+        double upperRatio=upper/range, lowerRatio=lower/range;
+        double bodyRatio=c.bodyAbs()/range;
+        double closePos=(c.close-c.low)/range;
+        double priorMove=c.close-cs.get(Math.max(0,n-5)).open;
+        double vote=0;
+
+        boolean hammer=lower>=Math.max(body*1.8,atr*0.16)
+                && closePos>=0.62 && upper<=Math.max(body*0.9,atr*0.10);
+        if(hammer && (priorMove< -atr*0.25 || c.low<=Math.min(p.low,b.low)+atr*0.12))
+            vote+=0.78;
+
+        boolean star=upper>=Math.max(body*1.8,atr*0.16)
+                && closePos<=0.38 && lower<=Math.max(body*0.9,atr*0.10);
+        if(star && (priorMove>atr*0.25 || c.high>=Math.max(p.high,b.high)-atr*0.12))
+            vote-=0.78;
+
+        if(lowerRatio>0.55 && closePos>0.68 && c.low<=Math.min(p.low,b.low)+atr*0.18)
+            vote+=0.48;
+        if(upperRatio>0.55 && closePos<0.32 && c.high>=Math.max(p.high,b.high)-atr*0.18)
+            vote-=0.48;
+
+        boolean bullEngulf=c.close>c.open && p.close<p.open
+                && c.open<=p.close && c.close>=p.open
+                && c.bodyAbs()>p.bodyAbs()*1.05;
+        boolean bearEngulf=c.close<c.open && p.close>p.open
+                && c.open>=p.close && c.close<=p.open
+                && c.bodyAbs()>p.bodyAbs()*1.05;
+        if(bullEngulf) vote+=0.62;
+        if(bearEngulf) vote-=0.62;
+
+        double firstMid=(a.open+a.close)*0.5;
+        boolean morning=a.close<a.open && p.bodyAbs()<a.bodyAbs()*0.55
+                && c.close>c.open && c.close>firstMid;
+        boolean evening=a.close>a.open && p.bodyAbs()<a.bodyAbs()*0.55
+                && c.close<c.open && c.close<firstMid;
+        if(morning) vote+=0.48;
+        if(evening) vote-=0.48;
+
+        // Doji/spinning top is indecision, not an automatic reversal.
+        boolean indecision=bodyRatio<0.18 && upper>atr*0.08 && lower>atr*0.08;
+        if(indecision) vote*=0.35;
+
+        boolean fullBody=bodyRatio>0.82 && upper<range*0.10 && lower<range*0.10;
+        if(fullBody && Math.abs(priorMove)<atr*1.0)
+            vote+=c.body()>0?0.18:c.body()<0?-0.18:0;
+
+        boolean inside=p.high<b.high && p.low>b.low;
+        if(inside && c.close>b.high) vote+=0.24;
+        if(inside && c.close<b.low) vote-=0.24;
+        return clamp(vote,-1.5,1.5);
     }
 
     private double clamp(double value,double low,double high) {
