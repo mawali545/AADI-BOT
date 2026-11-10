@@ -372,14 +372,50 @@ public final class SignalEngine {
     /** Measures repeated higher-high/higher-low or lower-high/lower-low steps. */
     private double stairStepBias(List<Candle> cs,int steps) {
         if(cs.size()<steps+1) return 0;
-        int up=0,down=0;
-        int start=cs.size()-steps;
-        for(int i=start+1;i<cs.size();i++) {
-            Candle a=cs.get(i-1),b=cs.get(i);
-            if(b.high>a.high&&b.low>a.low) up++;
-            else if(b.high<a.high&&b.low<a.low) down++;
+        // A stair trend is a sequence of advances separated by modest
+        // counter-moves; it is not required that every candle be the same colour.
+        int n=cs.size();
+        int[] windows={12,24,45,75};
+        double total=0,weightTotal=0;
+        for(int w:windows) {
+            if(n<w) continue;
+            int from=n-w;
+            List<Double> highs=new ArrayList<>(),lows=new ArrayList<>();
+            // Confirmed local pivots: one candle on each side. This avoids
+            // treating a still-forming swing as a completed step.
+            for(int i=from+1;i<n-1;i++) {
+                Candle p=cs.get(i),a=cs.get(i-1),b=cs.get(i+1);
+                if(p.high>=a.high&&p.high>b.high) highs.add(p.high);
+                if(p.low<=a.low&&p.low<b.low) lows.add(p.low);
+            }
+            double swingVote=0;
+            if(highs.size()>=3&&lows.size()>=3) {
+                int h=highs.size(),l=lows.size();
+                int upH=0,downH=0,upL=0,downL=0;
+                for(int i=Math.max(1,h-3);i<h;i++) {
+                    if(highs.get(i)>highs.get(i-1)) upH++;
+                    else if(highs.get(i)<highs.get(i-1)) downH++;
+                }
+                for(int i=Math.max(1,l-3);i<l;i++) {
+                    if(lows.get(i)>lows.get(i-1)) upL++;
+                    else if(lows.get(i)<lows.get(i-1)) downL++;
+                }
+                swingVote=(upH+upL-downH-downL)/6.0;
+            }
+            double first=cs.get(from).close,last=cs.get(n-1).close;
+            double progress=last-first;
+            double path=0;
+            for(int i=from+1;i<n;i++) path+=Math.abs(cs.get(i).close-cs.get(i-1).close);
+            double efficiency=path>0?Math.abs(progress)/path:0;
+            double netVote=Math.signum(progress)*efficiency;
+            // Higher/lower swing structure carries more weight than candle colour;
+            // net progress confirms that the staircase is actually advancing.
+            double score=0.7*swingVote+0.3*netVote;
+            double weight=w==12?0.6:w==24?0.85:w==45?1.0:1.15;
+            total+=score*weight;
+            weightTotal+=weight;
         }
-        return (up-down)/(double)steps;
+        return weightTotal>0?clamp(total/weightTotal,-1,1):0;
     }
 
     /**
