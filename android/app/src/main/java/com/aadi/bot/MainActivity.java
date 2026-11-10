@@ -104,7 +104,7 @@ public class MainActivity extends Activity {
 "                  if(t&&[o,h,l,cl].every(Number.isFinite)&&o>0&&h>=Math.max(o,cl)&&l<=Math.min(o,cl)&&l>0&&h>=l)rows.push({timestamp:t,open:o,high:h,low:l,close:cl});\n" +
 "                }\n" +
 "              }\n" +
-""              // Aggregate genuine Market-QX history ticks into 10-second OHLC bars.\n" +
+"              // Aggregate genuine Market-QX history ticks into 10-second OHLC bars.\n" +
 "              // Derived only from received exchange prices; never demo data.\n" +
 "              if(rows.length===0 && name==='data'){\n" +
 "                const buckets=new Map();\n" +
@@ -119,7 +119,7 @@ public class MainActivity extends Activity {
 "                }\n" +
 "                for(const bar of buckets.values())rows.push(bar);\n" +
 "              }\n" +
-              if(rows.length)out.push({asset:a||assetHint||activeAsset||'UNKNOWN',candles:rows});\n" +
+"              if(rows.length)out.push({asset:a||assetHint||activeAsset||'UNKNOWN',candles:rows});\n" +
 "            }\n" +
 "            for(const v of Object.values(x))if(v&&typeof v==='object')walk(v,a,d+1);\n" +
 "          }\n" +
