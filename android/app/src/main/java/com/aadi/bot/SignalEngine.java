@@ -180,6 +180,12 @@ public final class SignalEngine {
         // no extra candle wait and does not move the 10-second signal boundary.
         int supertrend=supertrendDirection(cs,7,2.0);
         Candle last=cs.get(cs.size()-1);
+        // Extra direction evidence uses only candles already closed. These
+        // calculations run inside the existing 10-second boundary evaluation.
+        double atr=averageTrueRange(cs,10);
+        double normalizedSlope=normalizedSlope(values,atr,4);
+        int structure=marketStructure(cs);
+        double bodyRatio=last.range()>0?last.bodyAbs()/last.range():0;
 
         int lookback=Math.min(12,cs.size()-1);
         double resistance=Double.NEGATIVE_INFINITY, support=Double.POSITIVE_INFINITY;
@@ -215,30 +221,80 @@ public final class SignalEngine {
         if(rsi>=50&&rsi<=68) bull+=12;
         else if(rsi<=50&&rsi>=32) bear+=12;
         if(closePosition>=0.65) bull+=10; else if(closePosition<=0.35) bear+=10;
+        // Volatility-normalized slope prevents tiny price noise from counting
+        // as a trend; structure checks higher-high/higher-low or lower-high/lower-low.
+        if(normalizedSlope>=0.12) bull+=10;
+        else if(normalizedSlope<=-0.12) bear+=10;
+        if(structure>0) bull+=8; else if(structure<0) bear+=8;
+        if(bodyRatio>=0.55) {
+            if(last.body()>0) bull+=6;
+            else if(last.body()<0) bear+=6;
+        }
+        if(adx>=18) {
+            if(plusDi>minusDi) bull+=6;
+            else if(minusDi>plusDi) bear+=6;
+        }
         if(bullBreak) bull+=16;
         if(bearBreak) bear+=16;
-        // Rejection at a recent extreme is treated as a reversal setup,
-        // not as a continuation signal into resistance/support.
+        // Rejection setups also need direction evidence; a long wick alone
+        // is not enough to call a reversal against an established move.
         if(bullReject) bull+=28;
         if(bearReject) bear+=28;
 
         String sig="WAIT",why="WAIT: no clean 10-second setup";
-        int score=Math.max(bull,bear);
+        int score=Math.min(100,Math.max(bull,bear));
         if(spike) why="WAIT: abnormal volatility; avoid chasing";
         else if(flat) why="WAIT: sideways/weak momentum";
-        else if(bullReject&&bull>=55&&bull>bear+12) {
-            sig="CALL"; why="CALL: support rejection with bullish close";
-        } else if(bearReject&&bear>=55&&bear>bull+12) {
-            sig="PUT"; why="PUT: resistance rejection with bearish close";
-        } else if(bull>=60&&bull>bear+15&&!nearResistance&&fast>slow&&momentum>0&&supertrend>0) {
-            sig="CALL"; why="CALL: bullish trend and momentum aligned";
-        } else if(bear>=60&&bear>bull+15&&!nearSupport&&fast<slow&&momentum<0&&supertrend<0) {
-            sig="PUT"; why="PUT: bearish trend and momentum aligned";
+        else if(bullReject&&bull>=58&&bull>bear+15
+                &&(supertrend>0||structure>0)&&normalizedSlope>-0.35) {
+            sig="CALL"; why="CALL: support rejection + trend/structure confirmation";
+        } else if(bearReject&&bear>=58&&bear>bull+15
+                &&(supertrend<0||structure<0)&&normalizedSlope<0.35) {
+            sig="PUT"; why="PUT: resistance rejection + trend/structure confirmation";
+        } else if(bull>=66&&bull>bear+18&&!nearResistance&&fast>slow&&momentum>0
+                &&supertrend>0&&normalizedSlope>=0.08&&structure>0&&adx>=12) {
+            sig="CALL"; why="CALL: trend + momentum + market structure aligned";
+        } else if(bear>=66&&bear>bull+18&&!nearSupport&&fast<slow&&momentum<0
+                &&supertrend<0&&normalizedSlope<=-0.08&&structure<0&&adx>=12) {
+            sig="PUT"; why="PUT: trend + momentum + market structure aligned";
         } else if(nearResistance&&bull>bear) why="WAIT: bullish entry blocked at resistance";
         else if(nearSupport&&bear>bull) why="WAIT: bearish entry blocked at support";
         else if(bull>bear) why="WAIT: bullish bias, confirmation not strong enough";
         else if(bear>bull) why="WAIT: bearish bias, confirmation not strong enough";
         return new Result(asset,sig,why,last.close,fast,slow,rsi,momentum,score,totalClosed);
+    }
+
+    /** Average true range over the most recent closed candles. */
+    private double averageTrueRange(List<Candle> cs,int period) {
+        if(cs.size()<2) return 0;
+        int start=Math.max(1,cs.size()-period);
+        double total=0;
+        for(int i=start;i<cs.size();i++) {
+            Candle cur=cs.get(i),prev=cs.get(i-1);
+            total+=Math.max(cur.high-cur.low,
+                    Math.max(Math.abs(cur.high-prev.close),Math.abs(cur.low-prev.close)));
+        }
+        return total/Math.max(1,cs.size()-start);
+    }
+
+    /** Difference of recent vs prior close means, normalized by ATR. */
+    private double normalizedSlope(List<Double> values,double atr,int window) {
+        if(values.size()<window*2||atr<=0) return 0;
+        int n=values.size();
+        double recent=0,prior=0;
+        for(int i=n-window;i<n;i++) recent+=values.get(i);
+        for(int i=n-window*2;i<n-window;i++) prior+=values.get(i);
+        return ((recent-prior)/window)/atr;
+    }
+
+    /** +1 higher highs/lows, -1 lower highs/lows, 0 mixed/unclear. */
+    private int marketStructure(List<Candle> cs) {
+        int n=cs.size();
+        if(n<3) return 0;
+        Candle a=cs.get(n-3),b=cs.get(n-2),c=cs.get(n-1);
+        boolean higher=b.high>a.high&&c.high>b.high&&b.low>a.low&&c.low>b.low;
+        boolean lower=b.high<a.high&&c.high<b.high&&b.low<a.low&&c.low<b.low;
+        return higher?1:lower?-1:0;
     }
 
     private double macdHistogram(List<Double> values) {
