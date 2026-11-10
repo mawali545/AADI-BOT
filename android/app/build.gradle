@@ -17,7 +17,7 @@ android {
             storeFile file("${rootProject.projectDir}/.android-signing/aadi-debug.keystore")
             storePassword 'aadi-debug-store'
             keyAlias 'aadi-debug'
-            keyPassword 'aadi-debug-key'
+            keyPassword 'aadi-debug-store'
         }
     }
 
