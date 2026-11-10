@@ -192,6 +192,13 @@ public final class SignalEngine {
         double persistence=directionPersistence(cs,8);
         int trend=dominantTrend(fast,slow,slopeFast,slopeSlow,structure,supertrend);
         int pullback=pullbackContinuation(cs,trend,atr);
+        // Multi-scale price-shape reading: small/large U and V turns, stair
+        // progression through alternating candle colours, and liquidity sweeps.
+        double shapeBias=multiScaleShapeBias(cs,atr);
+        double stairBias=stairStepBias(cs,7);
+        double alternatingBias=alternatingProgressBias(cs,6,atr);
+        int liquiditySweep=liquiditySweepDirection(cs,12,atr);
+        int failedBreak=failedBreakoutDirection(cs,12);
         double closePos=last.range()>0?(last.close-last.low)/last.range():0.5;
         double bodyRatio=last.range()>0?last.bodyAbs()/last.range():0;
         double upperWick=last.high-Math.max(last.open,last.close);
@@ -230,6 +237,13 @@ public final class SignalEngine {
         bias+=supertrend*4.0;
         bias+=structure*8.0;
         bias+=pullback*8.0;
+        // These are additive pattern votes, not extra confirmation gates:
+        // they do not delay or change the existing 10-second signal boundary.
+        bias+=clamp(shapeBias*5.0,-9,9);
+        bias+=clamp(stairBias*6.0,-6,6);
+        bias+=clamp(alternatingBias*4.0,-5,5);
+        bias+=liquiditySweep*7.0;
+        bias+=failedBreak*7.0;
         if(bodyRatio>=0.45) bias+=last.body()>0?4:last.body()<0?-4:0;
         if(closePos>=0.72) bias+=3;
         else if(closePos<=0.28) bias-=3;
@@ -287,6 +301,113 @@ public final class SignalEngine {
 
     private double clamp(double value,double low,double high) {
         return Math.max(low,Math.min(high,value));
+    }
+
+    /**
+     * Reads U/V-shaped turns at several scales. A trough with meaningful
+     * descent then recovery votes CALL; a crest votes PUT. Small and broad
+     * formations are both considered, with ATR normalization to adapt to
+     * each asset's volatility.
+     */
+    private double multiScaleShapeBias(List<Candle> cs,double atr) {
+        if(cs.size()<7||atr<=0) return 0;
+        int[] windows={5,9,15};
+        double total=0,weightTotal=0;
+        for(int w:windows) {
+            if(cs.size()<w) continue;
+            int from=cs.size()-w;
+            int pivot=-1;
+            double min=Double.POSITIVE_INFINITY,max=Double.NEGATIVE_INFINITY;
+            int minAt=-1,maxAt=-1;
+            for(int i=0;i<w;i++) {
+                double p=cs.get(from+i).close;
+                if(p<min){min=p;minAt=i;}
+                if(p>max){max=p;maxAt=i;}
+            }
+            double first=cs.get(from).close,last=cs.get(cs.size()-1).close;
+            double score=0;
+            if(minAt>0&&minAt<w-1) {
+                double down=first-min,up=last-min;
+                double center=1.0-Math.abs((minAt/(double)(w-1))-0.5)*1.4;
+                if(down>atr*0.18&&up>atr*0.18)
+                    score+=Math.min(1.5,Math.min(down,up)/atr)*Math.max(0.25,center);
+            }
+            if(maxAt>0&&maxAt<w-1) {
+                double up=max-first,down=max-last;
+                double center=1.0-Math.abs((maxAt/(double)(w-1))-0.5)*1.4;
+                if(up>atr*0.18&&down>atr*0.18)
+                    score-=Math.min(1.5,Math.min(up,down)/atr)*Math.max(0.25,center);
+            }
+            double weight=w==5?0.7:w==9?1.0:1.2;
+            total+=score*weight;
+            weightTotal+=weight;
+        }
+        return weightTotal>0?clamp(total/weightTotal,-1.5,1.5):0;
+    }
+
+    /** Measures repeated higher-high/higher-low or lower-high/lower-low steps. */
+    private double stairStepBias(List<Candle> cs,int steps) {
+        if(cs.size()<steps+1) return 0;
+        int up=0,down=0;
+        int start=cs.size()-steps;
+        for(int i=start+1;i<cs.size();i++) {
+            Candle a=cs.get(i-1),b=cs.get(i);
+            if(b.high>a.high&&b.low>a.low) up++;
+            else if(b.high<a.high&&b.low<a.low) down++;
+        }
+        return (up-down)/(double)steps;
+    }
+
+    /**
+     * Alternating green/red candles can still trend. Vote from net progress
+     * and close-to-close movement, not the last candle colour alone.
+     */
+    private double alternatingProgressBias(List<Candle> cs,int period,double atr) {
+        if(cs.size()<period||atr<=0) return 0;
+        int from=cs.size()-period,changes=0,previous=0;
+        for(int i=from;i<cs.size();i++) {
+            Candle c=cs.get(i);
+            int dir=c.close>c.open?1:c.close<c.open?-1:0;
+            if(dir!=0&&previous!=0&&dir!=previous) changes++;
+            if(dir!=0) previous=dir;
+        }
+        if(changes<2) return 0;
+        double net=cs.get(cs.size()-1).close-cs.get(from).open;
+        return clamp(net/atr,-1.5,1.5);
+    }
+
+    /** Detects a liquidity sweep: price pierces a prior extreme then closes back inside. */
+    private int liquiditySweepDirection(List<Candle> cs,int lookback,double atr) {
+        if(cs.size()<lookback+1||atr<=0) return 0;
+        int n=cs.size();
+        double priorLow=Double.POSITIVE_INFINITY,priorHigh=Double.NEGATIVE_INFINITY;
+        for(int i=n-lookback-1;i<n-1;i++) {
+            priorLow=Math.min(priorLow,cs.get(i).low);
+            priorHigh=Math.max(priorHigh,cs.get(i).high);
+        }
+        Candle last=cs.get(n-1);
+        boolean sweepLow=last.low<priorLow-atr*0.03&&last.close>priorLow;
+        boolean sweepHigh=last.high>priorHigh+atr*0.03&&last.close<priorHigh;
+        if(sweepLow&&!sweepHigh) return 1;
+        if(sweepHigh&&!sweepLow) return -1;
+        return 0;
+    }
+
+    /** A failed breakout is a trap vote against the side that briefly broke out. */
+    private int failedBreakoutDirection(List<Candle> cs,int lookback) {
+        if(cs.size()<lookback+1) return 0;
+        int n=cs.size();
+        double priorLow=Double.POSITIVE_INFINITY,priorHigh=Double.NEGATIVE_INFINITY;
+        for(int i=n-lookback-1;i<n-1;i++) {
+            priorLow=Math.min(priorLow,cs.get(i).low);
+            priorHigh=Math.max(priorHigh,cs.get(i).high);
+        }
+        Candle last=cs.get(n-1);
+        boolean bullTrap=last.high>priorHigh&&last.close<priorHigh;
+        boolean bearTrap=last.low<priorLow&&last.close>priorLow;
+        if(bullTrap&&!bearTrap) return -1;
+        if(bearTrap&&!bullTrap) return 1;
+        return 0;
     }
 
     /** Detects the last two confirmed swing highs and lows (2 candles either side). */
