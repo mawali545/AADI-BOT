@@ -177,6 +177,13 @@ public class MainActivity extends Activity {
         root.addView(status);
         root.addView(lastTick);
         root.addView(signalView);
+        diagnosticView = new TextView(this);
+        diagnosticView.setTextColor(Color.LTGRAY);
+        diagnosticView.setTextSize(10);
+        diagnosticView.setPadding(14, 2, 14, 6);
+        diagnosticView.setMaxLines(5);
+        diagnosticView.setText("HISTORY DIAGNOSTICS: waiting for Market-QX packets");
+        root.addView(diagnosticView);
         signalView.setText("WAIT");
         signalView.setTextColor(Color.WHITE);
 
@@ -285,6 +292,10 @@ public class MainActivity extends Activity {
             runOnUiThread(() -> status.setText("AADI • " + message));
         }
 
+        @JavascriptInterface public void onDiagnostic(String message) {
+            runOnUiThread(() -> diagnosticView.setText("FEED SHAPE: " + message));
+        }
+
         @JavascriptInterface public void onHistory(String json) {
             try {
                 JSONObject packet = new JSONObject(json);
@@ -292,6 +303,8 @@ public class MainActivity extends Activity {
                 org.json.JSONArray rows = packet.optJSONArray("candles");
                 if (asset.isEmpty() || rows == null || !botActive) return;
                 int imported = engine.importHistoricalCandles(asset, rows);
+                runOnUiThread(() -> diagnosticView.setText("HISTORY PACKET: asset=" + asset
+                        + " | rows=" + rows.length() + " | imported=" + imported));
                 if (imported > 0) {
                     SignalEngine.Result result = engine.currentResult();
                     runOnUiThread(() -> {
