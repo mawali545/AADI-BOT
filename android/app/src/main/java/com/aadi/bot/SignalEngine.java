@@ -49,70 +49,54 @@ public final class SignalEngine {
     // One prediction is calculated at candle close and held for the entire next candle.
     private Result lockedNextCandleResult=null;
 
+    private long latestFeedTime=-1;
+    private Result latestHistoryResult=null;
+
+    /**
+     * Tick packets are used only as a trusted exchange-clock reference.
+     * No synthetic OHLC candles are ever built from ticks.
+     */
     public synchronized Result onTick(String symbol, double price, double timestamp) {
         if (symbol == null || symbol.trim().isEmpty() || !Double.isFinite(price) || price <= 0)
-            return snapshot("WAIT", "Invalid tick ignored");
+            return currentResult();
         if (timestamp > 10000000000.0) timestamp /= 1000.0;
         long ts=(long)timestamp;
-        if (ts <= 0) ts=System.currentTimeMillis()/1000L;
+        if (ts <= 0) return currentResult();
         if (asset == null || !asset.equals(symbol)) {
-            asset=symbol; candles.clear(); candleTime=-1; totalClosed=0;
-            awaitingLiveCandle=false; lockedNextCandleResult=null;
+            asset=symbol;
+            candles.clear();
+            totalClosed=0;
+            latestHistoryResult=null;
+            latestFeedTime=-1;
         }
+        latestFeedTime=Math.max(latestFeedTime,ts);
         lastPrice=price;
-        long bucket=(ts/FRAME_SECONDS)*FRAME_SECONDS;
-        if (awaitingLiveCandle) {
-            if (bucket <= candleTime) return snapshot("WAIT", "Historical candles loaded; waiting for live candle close");
-            startCandle(bucket, price);
-            awaitingLiveCandle=false;
-            // The imported history already contains closed candles. Calculate
-            // immediately at this first live boundary and lock for this candle.
-            lockedNextCandleResult=calculateClosedCandles();
-            return lockedNextCandleResult;
-        }
-        if (candleTime < 0) {
-            startCandle(bucket, price);
-            lockedNextCandleResult=snapshot("WAIT", "Collecting genuine Market-QX ticks");
-            return lockedNextCandleResult;
-        }
-        if (bucket < candleTime) return lockedNextCandleResult != null
-                ? lockedNextCandleResult : snapshot("WAIT", "Out-of-order tick ignored");
-        if (bucket > candleTime) {
-            previewedCandleTime=-1;
-            // The previous candle is now final. Use only its closed OHLC data
-            // to predict the candle that has just started.
-            candles.addLast(new Candle(candleTime,open,high,low,close));
-            while (candles.size()>18000) candles.removeFirst();
-            totalClosed++;
-            startCandle(bucket, price);
-            lockedNextCandleResult=calculateClosedCandles();
-            return lockedNextCandleResult;
-        }
-        high=Math.max(high,price);
-        low=Math.min(low,price);
-        close=price;
-        // One early preview in the final second (second 9 of each 10s candle).
-        // It reads the live forming OHLC plus the full closed-candle context,
-        // then the official next-candle result is recalculated at the boundary.
-        if (ts % FRAME_SECONDS == FRAME_SECONDS-1 && previewedCandleTime != candleTime) {
-            previewedCandleTime=candleTime;
-            List<Candle> preview=new ArrayList<>(candles);
-            preview.add(new Candle(candleTime,open,high,low,close));
-            return calculateFromCandles(preview);
-        }
-        // Outside the final-second preview window, keep the next-candle signal locked.
-        return lockedNextCandleResult != null ? lockedNextCandleResult
-                : snapshot("WAIT", "Waiting for candle close");
+        return currentResult();
+    }
+
+    /** Returns the most recent analysis made from genuine Market-QX OHLC history. */
+    public synchronized Result currentResult() {
+        return latestHistoryResult!=null ? latestHistoryResult
+                : snapshot("WAIT","Waiting for genuine Market-QX 10-second history candles");
     }
 
     /**
-     * Imports verified OHLC objects received from Market-QX history responses.
-     * Only timestamped 10-second candles are accepted; malformed or other intervals are ignored.
-     * Expected fields: timestamp,time, or ts; open/high/low/close (or o/h/l/c).
+     * Imports genuine 10-second OHLC candles from Market-QX history responses.
+     * The live tick timestamp is used only to exclude the still-forming candle;
+     * this engine never aggregates ticks into replacement candles.
      */
     public synchronized int importHistoricalCandles(String symbol, JSONArray rows) {
         if (symbol == null || symbol.trim().isEmpty() || rows == null) return 0;
+        if (asset!=null && !asset.equals(symbol)) {
+            candles.clear();
+            totalClosed=0;
+            latestHistoryResult=null;
+            latestFeedTime=-1;
+        }
+        asset=symbol;
         TreeMap<Long,Candle> incoming = new TreeMap<>();
+        long liveBucket=latestFeedTime>0
+                ? (latestFeedTime/FRAME_SECONDS)*FRAME_SECONDS : Long.MAX_VALUE;
         for (int i=0; i<rows.length(); i++) {
             JSONObject row=rows.optJSONObject(i);
             if (row==null) continue;
@@ -124,36 +108,28 @@ public final class SignalEngine {
             if (!Double.isFinite(o)||!Double.isFinite(h)||!Double.isFinite(l)||!Double.isFinite(c)
                     || o<=0||h<=0||l<=0||c<=0||h<Math.max(o,c)||l>Math.min(o,c)||h<l) continue;
             long bucket=(t/FRAME_SECONDS)*FRAME_SECONDS;
-            // Never import the currently forming 10-second candle as closed history.
-            long now=System.currentTimeMillis()/1000L;
-            if (bucket >= (now/FRAME_SECONDS)*FRAME_SECONDS) continue;
+            // A chart candle is eligible only after the exchange clock has moved
+            // into the next 10-second bucket. Do not compare against phone time.
+            if (liveBucket!=Long.MAX_VALUE && bucket>=liveBucket) continue;
             incoming.put(bucket,new Candle(bucket,o,h,l,c));
         }
         if (incoming.isEmpty()) return 0;
-        if (asset!=null && !asset.equals(symbol)) {
-            candles.clear(); totalClosed=0; candleTime=-1;
-            awaitingLiveCandle=false; lockedNextCandleResult=null;
-        }
-        asset=symbol;
         TreeMap<Long,Candle> merged=new TreeMap<>();
         for(Candle old:candles) merged.put(old.time,old);
-        int added=0;
+        int changed=0;
         for(java.util.Map.Entry<Long,Candle> entry:incoming.entrySet()) {
-            if(!merged.containsKey(entry.getKey())) added++;
-            merged.put(entry.getKey(),entry.getValue());
+            Candle old=merged.get(entry.getKey());
+            Candle fresh=entry.getValue();
+            if(old==null || old.open!=fresh.open || old.high!=fresh.high
+                    || old.low!=fresh.low || old.close!=fresh.close) changed++;
+            merged.put(entry.getKey(),fresh);
         }
-        // Retain up to two days of 10-second history for contextual analysis.
         while(merged.size()>18000) merged.pollFirstEntry();
         candles.clear();
         for(Candle candle:merged.values()) candles.addLast(candle);
         totalClosed=candles.size();
-        if (awaitingLiveCandle || candleTime<0) {
-            candleTime=merged.lastKey();
-            lastPrice=merged.lastEntry().getValue().close;
-            awaitingLiveCandle=true;
-            lockedNextCandleResult=snapshot("WAIT","Historical candles loading; waiting for live candle");
-        }
-        return added;
+        if(changed>0) latestHistoryResult=calculateClosedCandles();
+        return changed;
     }
 
     private double number(JSONObject row,String longKey,String shortKey) {
@@ -305,7 +281,7 @@ public final class SignalEngine {
 
         // Do not force a direction when the tape is balanced or contradictory.
         // This does not wait for another candle: it decides at this same close.
-        if(Math.abs(bias)<3.2) {
+        if(Math.abs(bias)<6.8) {
             return new Result(asset,"WAIT","WAIT: mixed short-term flow • no clean edge",
                     last.close,fast,slow,rsi,momentum,0,totalClosed);
         }
