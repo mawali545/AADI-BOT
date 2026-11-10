@@ -149,7 +149,7 @@ public class MainActivity extends Activity {
 "                if(oldest>historyTarget&&historyPages<64){\n" +
 "                  const nextAnchor=(previousOldest>0&&oldest>=previousOldest)?previousOldest-3600:oldest-1;\n" +
 "                  if(nextAnchor>historyTarget)setTimeout(function(){requestHistory(activeAsset,nextAnchor);},350);\n" +
-"                }\n" +\n" +
+"                }\n" +
 "              }\n" +
 "            }\n" +
 "            const packets=findHistory(o,null);\n" +
