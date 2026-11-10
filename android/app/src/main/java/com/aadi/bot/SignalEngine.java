@@ -157,6 +157,15 @@ public final class SignalEngine {
         List<Candle> cs=new ArrayList<>(candles);
         if(cs.size()<MIN_CANDLES)
             return snapshot("WAIT","Building closed-candle history");
+        // Require 50 consecutive genuine 10-second closes; do not treat sparse
+        // 1-minute/5-minute history as a 10-second signal dataset.
+        int consecutive=1;
+        for(int i=cs.size()-1;i>0&&consecutive<MIN_CANDLES;i--) {
+            if(cs.get(i).time-cs.get(i-1).time!=FRAME_SECONDS) break;
+            consecutive++;
+        }
+        if(consecutive<MIN_CANDLES)
+            return snapshot("WAIT","Need 50 consecutive closed 10-second candles");
 
         List<Double> values=new ArrayList<>();
         for(Candle c:cs) values.add(c.close);
