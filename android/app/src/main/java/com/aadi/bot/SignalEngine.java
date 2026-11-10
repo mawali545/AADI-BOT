@@ -109,7 +109,7 @@ public final class SignalEngine {
             return;
         }
         candles.addLast(completed);
-        while(candles.size()>2160) candles.removeFirst();
+        while(candles.size()>8640) candles.removeFirst();
         totalClosed=candles.size();
     }
 
@@ -178,7 +178,7 @@ public final class SignalEngine {
                     || old.low!=fresh.low || old.close!=fresh.close) changed++;
             merged.put(entry.getKey(),fresh);
         }
-        while(merged.size()>2160) merged.pollFirstEntry();
+        while(merged.size()>8640) merged.pollFirstEntry();
         candles.clear();
         for(Candle candle:merged.values()) candles.addLast(candle);
         totalClosed=candles.size();
