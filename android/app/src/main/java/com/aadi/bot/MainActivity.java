@@ -352,7 +352,7 @@ public class MainActivity extends Activity {
                     JSONObject packet = new JSONObject(json);
                     String asset = packet.optString("asset", "");
                     org.json.JSONArray rows = packet.optJSONArray("candles");
-                    if (asset.isEmpty() || rows == null || !botActive) return;
+                    if (asset.isEmpty() || rows == null) return;
                     if (!asset.equals(pendingHistoryAsset)) {
                         pendingHistoryAsset = asset;
                         pendingHistoryRows = new org.json.JSONArray();
