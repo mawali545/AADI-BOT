@@ -143,14 +143,13 @@ public class MainActivity extends Activity {
 "                try{AadiNative.onHistory(JSON.stringify(p));}catch(e){}\n" +
 "              }\n" +
 "              if(total&&Number.isFinite(oldest)){\n" +
-"                const previousOldest=historyOldest;
-                if(previousOldest===0||oldest<previousOldest)historyOldest=oldest;
-                try{AadiNative.onDiagnostic('HISTORY RESPONSE '+total+' OHLC rows • oldest '+oldest+' • page '+historyPages);}catch(e){}\n" +
-"\n" +
-"                if(oldest>historyTarget&&historyPages<64){
-                  const nextAnchor=(previousOldest>0&&oldest>=previousOldest)?previousOldest-3600:oldest-1;
-                  if(nextAnchor>historyTarget)setTimeout(function(){requestHistory(activeAsset,nextAnchor);},350);
-                }\n" +
+"                const previousOldest=historyOldest;\n" +
+"                if(previousOldest===0||oldest<previousOldest)historyOldest=oldest;\n" +
+"                try{AadiNative.onDiagnostic('HISTORY RESPONSE '+total+' OHLC rows • oldest '+oldest+' • page '+historyPages);}catch(e){}\n" +
+"                if(oldest>historyTarget&&historyPages<64){\n" +
+"                  const nextAnchor=(previousOldest>0&&oldest>=previousOldest)?previousOldest-3600:oldest-1;\n" +
+"                  if(nextAnchor>historyTarget)setTimeout(function(){requestHistory(activeAsset,nextAnchor);},350);\n" +
+"                }\n" +\n" +
 "              }\n" +
 "            }\n" +
 "            const packets=findHistory(o,null);\n" +
