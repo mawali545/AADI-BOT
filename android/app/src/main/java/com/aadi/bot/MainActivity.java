@@ -11,6 +11,11 @@ import android.widget.LinearLayout;
 import android.widget.Button;
 import android.widget.TextView;
 import android.graphics.Color;
+import android.text.SpannableString;
+import android.text.Spanned;
+import android.text.style.ForegroundColorSpan;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.ViewGroup;
 import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
@@ -23,6 +28,8 @@ public class MainActivity extends Activity {
     private SignalEngine engine = new SignalEngine();
     private WebView web;
     private long receivedTicks = 0;
+    private final Handler uiHandler = new Handler(Looper.getMainLooper());
+    private Runnable signalColorReset;
 
     private static final String MARKET_URL = "https://market-qx.trade/en/trade";
     private static final String HOOK =
@@ -205,6 +212,30 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void showSignal(SignalEngine.Result result) {
+        String display=result.signal + "  •  SCORE " + result.score + "/100\n"
+                + result.reason + "  |  Candles: " + result.closedCandles;
+        if(signalColorReset!=null) uiHandler.removeCallbacks(signalColorReset);
+        signalView.setTextColor(Color.WHITE);
+        if("CALL".equals(result.signal) || "PUT".equals(result.signal)) {
+            SpannableString styled=new SpannableString(display);
+            int color="CALL".equals(result.signal)
+                    ? Color.rgb(40,230,130) : Color.rgb(255,75,85);
+            styled.setSpan(new ForegroundColorSpan(color),0,result.signal.length(),
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            signalView.setText(styled);
+            // Only the CALL/PUT word flashes its direction colour briefly.
+            // Score, explanation and candle count remain white at all times.
+            signalColorReset=() -> {
+                signalView.setText(display);
+                signalView.setTextColor(Color.WHITE);
+            };
+            uiHandler.postDelayed(signalColorReset,1500);
+        } else {
+            signalView.setText(display);
+        }
+    }
+
     private class Bridge {
         @JavascriptInterface public void onLoginState(boolean loggedIn) {
             runOnUiThread(() -> {
@@ -249,9 +280,7 @@ public class MainActivity extends Activity {
                 String line = asset + "  " + price + "  • TICK #" + count + "  |  REAL FEED";
 runOnUiThread(() -> {
                     lastTick.setText(line);
-                    signalView.setText(result.signal + "  •  SCORE " + result.score + "/100\\n" + result.reason + "  |  Candles: " + result.closedCandles);
-                    signalView.setTextColor(result.signal.equals("CALL") ? Color.rgb(40, 230, 130)
-                            : result.signal.equals("PUT") ? Color.rgb(255, 75, 85) : Color.WHITE);
+                    showSignal(result);
 status.setText("AADI • LIVE  |  Candles: " + result.closedCandles + "  |  Score: " + result.score + "/100");
                 });
             } catch (Exception e) {
