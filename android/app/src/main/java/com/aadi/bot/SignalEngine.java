@@ -175,7 +175,9 @@ public final class SignalEngine {
         candles.clear();
         for(Candle candle:merged.values()) candles.addLast(candle);
         totalClosed=candles.size();
-        if(changed>0) latestHistoryResult=liveCandle!=null?calculateWithLiveCandle():calculateClosedCandles();
+        // History ingestion only updates the candle context. The next genuine live tick
+        // runs the unchanged signal calculation against the merged history and live candle.
+
         return changed;
     }
 

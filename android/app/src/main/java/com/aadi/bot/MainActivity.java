@@ -17,6 +17,10 @@ import android.text.style.ForegroundColorSpan;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import android.view.ViewGroup;
 import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
@@ -25,8 +29,8 @@ import org.json.JSONObject;
 public class MainActivity extends Activity {
     private TextView status, lastTick, signalView, diagnosticView;
     private Button activateButton;
-    private boolean botActive = false;
-    private SignalEngine engine = new SignalEngine();
+    private volatile boolean botActive = false;
+    private volatile SignalEngine engine = new SignalEngine();
     private WebView web;
     private long receivedTicks = 0;
     private final Handler uiHandler = new Handler(Looper.getMainLooper());
@@ -34,6 +38,16 @@ public class MainActivity extends Activity {
     private long lastSignalFlashBucket = Long.MIN_VALUE;
     private long signalFlashUntil = 0;
     private String lastSignalFlashAsset = "";
+    // History packets are batched off the WebView/UI path; live ticks stay on their existing path.
+    private final ScheduledExecutorService historyExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
+        Thread t = new Thread(r, "AADI-History-Loader");
+        t.setDaemon(true);
+        return t;
+    });
+    private org.json.JSONArray pendingHistoryRows = new org.json.JSONArray();
+    private String pendingHistoryAsset = "";
+    private ScheduledFuture<?> historyFlushTask;
+    private static final long HISTORY_BATCH_DELAY_MS = 1200L;
 
     private static final String MARKET_URL = "https://market-qx.trade/en/trade";
     private static final String HOOK =
@@ -43,7 +57,6 @@ public class MainActivity extends Activity {
         "function emit(price,asset,time){" +
         "price=Number(price);if(!Number.isFinite(price)||price<=0||!asset)return;" +
         "const feedTime=normTime(time);try{AadiNative.onTick(JSON.stringify({price:price,asset:String(asset),timestamp:feedTime||0}));}catch(e){}" +
-        "requestLatestHistory(String(asset),feedTime||Date.now()/1000);" +
         "}" +
         "function key(o,names){for(const n of names){if(o[n]!==undefined&&o[n]!==null)return o[n];}return null;}" +
         "function normTime(v){let n=Number(v);if(!Number.isFinite(n)||n<=0)return 0;if(n>1e12)n/=1000;return n;}" +
@@ -295,6 +308,23 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void flushHistoryBatch(String asset) {
+        if (!botActive || !asset.equals(pendingHistoryAsset)) return;
+        org.json.JSONArray batch = pendingHistoryRows;
+        pendingHistoryRows = new org.json.JSONArray();
+        pendingHistoryAsset = "";
+        historyFlushTask = null;
+        SignalEngine target = engine;
+        int imported = target.importHistoricalCandles(asset, batch);
+        if (imported > 0) {
+            uiHandler.post(() -> {
+                diagnosticView.setText("HISTORY READY: " + asset + " | received="
+                        + batch.length() + " | new/updated=" + imported
+                        + " | live signal continues on real ticks");
+            });
+        }
+    }
+
     private class Bridge {
         @JavascriptInterface public void onLoginState(boolean loggedIn) {
             runOnUiThread(() -> {
@@ -312,25 +342,31 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface public void onHistory(String json) {
-            try {
-                JSONObject packet = new JSONObject(json);
-                String asset = packet.optString("asset", "");
-                org.json.JSONArray rows = packet.optJSONArray("candles");
-                if (asset.isEmpty() || rows == null || !botActive) return;
-                int imported = engine.importHistoricalCandles(asset, rows);
-                runOnUiThread(() -> diagnosticView.setText("HISTORY PACKET: asset=" + asset
-                        + " | rows=" + rows.length() + " | imported=" + imported));
-                if (imported > 0) {
-                    SignalEngine.Result result = engine.currentResult();
-                    runOnUiThread(() -> {
-                        lastTick.setText(asset + " • UPDATED " + imported + " REAL 10s HISTORY CANDLES");
-                        showSignal(result, System.currentTimeMillis() / 1000.0);
-                        status.setText("AADI • HISTORY ANALYSIS  |  Candles: " + result.closedCandles + "  |  Score: " + result.score + "/100");
-                    });
+            if (!botActive || json == null) return;
+            // Parse and queue packets away from the WebView callback. Several history pages
+            // are merged together so the engine performs one short merge instead of recalculating
+            // the signal separately for every page.
+            historyExecutor.execute(() -> {
+                try {
+                    JSONObject packet = new JSONObject(json);
+                    String asset = packet.optString("asset", "");
+                    org.json.JSONArray rows = packet.optJSONArray("candles");
+                    if (asset.isEmpty() || rows == null || !botActive) return;
+                    if (!asset.equals(pendingHistoryAsset)) {
+                        pendingHistoryAsset = asset;
+                        pendingHistoryRows = new org.json.JSONArray();
+                    }
+                    for (int i = 0; i < rows.length(); i++) {
+                        JSONObject row = rows.optJSONObject(i);
+                        if (row != null) pendingHistoryRows.put(row);
+                    }
+                    if (historyFlushTask != null) historyFlushTask.cancel(false);
+                    historyFlushTask = historyExecutor.schedule(() -> flushHistoryBatch(asset),
+                            HISTORY_BATCH_DELAY_MS, TimeUnit.MILLISECONDS);
+                } catch (Exception e) {
+                    runOnUiThread(() -> diagnosticView.setText("HISTORY: packet parse error"));
                 }
-            } catch (Exception e) {
-                runOnUiThread(() -> status.setText("AADI • Historical candle parse error"));
-            }
+            });
         }
 
         @JavascriptInterface public void onTick(String json) {
@@ -361,6 +397,7 @@ status.setText("AADI • LIVE  |  Candles: " + result.closedCandles + "  |  Scor
     }
 
     @Override protected void onDestroy() {
+        historyExecutor.shutdownNow();
         if (web != null) {
             web.removeJavascriptInterface("AadiNative");
             web.destroy();
