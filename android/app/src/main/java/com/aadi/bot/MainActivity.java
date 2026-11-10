@@ -104,7 +104,24 @@ public class MainActivity extends Activity {
 "                  if(t&&[o,h,l,cl].every(Number.isFinite)&&o>0&&h>=Math.max(o,cl)&&l<=Math.min(o,cl)&&l>0&&h>=l)rows.push({timestamp:t,open:o,high:h,low:l,close:cl});\n" +
 "                }\n" +
 "              }\n" +
-"              if(rows.length)out.push({asset:a||assetHint||activeAsset||'UNKNOWN',candles:rows});\n" +
+"              // Market-QX history/load can return genuine historical ticks
+              // (asset,time,price,tick) rather than OHLC. Aggregate actual exchange
+              // prices into 10-second bars; no demo or fabricated prices are used.
+              if(rows.length===0 && name==='data'){
+                const buckets=new Map();
+                for(const r of arr){
+                  if(!r||typeof r!=='object'||Array.isArray(r))continue;
+                  const t=normTime(key(r,['time','timestamp','ts','created_at']));
+                  const p=Number(key(r,['price','rate','quote','value']));
+                  if(!t||!Number.isFinite(p)||p<=0)continue;
+                  const bucket=Math.floor(t/10)*10;
+                  let bar=buckets.get(bucket);
+                  if(!bar){bar={timestamp:bucket,open:p,high:p,low:p,close:p};buckets.set(bucket,bar);}
+                  else{bar.high=Math.max(bar.high,p);bar.low=Math.min(bar.low,p);bar.close=p;}
+                }
+                for(const bar of buckets.values())rows.push(bar);
+              }
+              if(rows.length)out.push({asset:a||assetHint||activeAsset||'UNKNOWN',candles:rows});\n" +
 "            }\n" +
 "            for(const v of Object.values(x))if(v&&typeof v==='object')walk(v,a,d+1);\n" +
 "          }\n" +
