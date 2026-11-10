@@ -44,6 +44,8 @@ public final class SignalEngine {
     private double open, high, low, close, lastPrice;
     private int totalClosed=0;
     private boolean awaitingLiveCandle=false;
+    // One prediction is calculated at candle close and held for the entire next candle.
+    private Result lockedNextCandleResult=null;
 
     public synchronized Result onTick(String symbol, double price, double timestamp) {
         if (symbol == null || symbol.trim().isEmpty() || !Double.isFinite(price) || price <= 0)
@@ -52,32 +54,41 @@ public final class SignalEngine {
         long ts=(long)timestamp;
         if (ts <= 0) ts=System.currentTimeMillis()/1000L;
         if (asset == null || !asset.equals(symbol)) {
-            asset=symbol; candles.clear(); candleTime=-1; totalClosed=0; awaitingLiveCandle=false;
+            asset=symbol; candles.clear(); candleTime=-1; totalClosed=0;
+            awaitingLiveCandle=false; lockedNextCandleResult=null;
         }
         lastPrice=price;
         long bucket=(ts/FRAME_SECONDS)*FRAME_SECONDS;
         if (awaitingLiveCandle) {
-            if (bucket <= candleTime) return snapshot("WAIT", "Historical candles loaded; waiting for current live candle");
+            if (bucket <= candleTime) return snapshot("WAIT", "Historical candles loaded; waiting for live candle close");
             startCandle(bucket, price);
             awaitingLiveCandle=false;
-            return calculate();
+            lockedNextCandleResult=snapshot("WAIT", "Waiting for first live candle to close");
+            return lockedNextCandleResult;
         }
         if (candleTime < 0) {
             startCandle(bucket, price);
-            return snapshot("WAIT", "Collecting genuine Market-QX ticks");
+            lockedNextCandleResult=snapshot("WAIT", "Collecting genuine Market-QX ticks");
+            return lockedNextCandleResult;
         }
-        if (bucket < candleTime) return snapshot("WAIT", "Out-of-order tick ignored");
+        if (bucket < candleTime) return lockedNextCandleResult != null
+                ? lockedNextCandleResult : snapshot("WAIT", "Out-of-order tick ignored");
         if (bucket > candleTime) {
+            // The previous candle is now final. Use only its closed OHLC data
+            // to predict the candle that has just started.
             candles.addLast(new Candle(candleTime,open,high,low,close));
             while (candles.size()>600) candles.removeFirst();
             totalClosed++;
             startCandle(bucket, price);
-            return calculate();
+            lockedNextCandleResult=calculateClosedCandles();
+            return lockedNextCandleResult;
         }
         high=Math.max(high,price);
         low=Math.min(low,price);
         close=price;
-        return calculate();
+        // Never recalculate from a forming candle: keep the prediction locked.
+        return lockedNextCandleResult != null ? lockedNextCandleResult
+                : snapshot("WAIT", "Waiting for candle close");
     }
 
     /**
@@ -127,6 +138,7 @@ public final class SignalEngine {
         candleTime=sorted.lastKey();
         lastPrice=sorted.lastEntry().getValue().close;
         awaitingLiveCandle=true;
+        lockedNextCandleResult=snapshot("WAIT","Historical candles loaded; waiting for live candle close");
         return candles.size();
     }
 
@@ -139,11 +151,12 @@ public final class SignalEngine {
         candleTime=time; open=p; high=p; low=p; close=p;
     }
 
-    private Result calculate() {
+    private Result calculateClosedCandles() {
+        // This method runs only at a 10-second candle boundary. The forming
+        // candle is deliberately excluded from every indicator and decision.
         List<Candle> cs=new ArrayList<>(candles);
-        if(candleTime>=0 && close>0) cs.add(new Candle(candleTime,open,high,low,close));
-        if(candles.size()<MIN_CANDLES || cs.size()<MIN_CANDLES+1)
-            return snapshot("WAIT","Building real candle history");
+        if(cs.size()<MIN_CANDLES)
+            return snapshot("WAIT","Building closed-candle history");
 
         List<Double> values=new ArrayList<>();
         for(Candle c:cs) values.add(c.close);
@@ -193,7 +206,7 @@ public final class SignalEngine {
         else if(bull>bear) why="WAIT: bullish setup forming — waiting for stronger entry";
         else if(bear>bull) why="WAIT: bearish setup forming — waiting for stronger entry";
 
-        return new Result(asset,sig,why,lastPrice,fast,slow,rsi,momentum,score,totalClosed);
+        return new Result(asset,sig,why,last.close,fast,slow,rsi,momentum,score,totalClosed);
     }
 
     private double macdHistogram(List<Double> values) {
