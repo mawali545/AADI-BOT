@@ -42,7 +42,8 @@ public class MainActivity extends Activity {
         "const NativeWS=window.WebSocket;const seen=new Set();let diagCount=0,historySent=0;" +
         "function emit(price,asset,time){" +
         "price=Number(price);if(!Number.isFinite(price)||price<=0||!asset)return;" +
-        "try{AadiNative.onTick(JSON.stringify({price:price,asset:String(asset),timestamp:Number(time)||Date.now()/1000}));}catch(e){}" +
+        "const feedTime=normTime(time);try{AadiNative.onTick(JSON.stringify({price:price,asset:String(asset),timestamp:feedTime||0}));}catch(e){}" +
+        "requestLatestHistory(String(asset),feedTime||Date.now()/1000);" +
         "}" +
         "function key(o,names){for(const n of names){if(o[n]!==undefined&&o[n]!==null)return o[n];}return null;}" +
         "function normTime(v){let n=Number(v);if(!Number.isFinite(n)||n<=0)return 0;if(n>1e12)n/=1000;return n;}" +
@@ -59,11 +60,21 @@ public class MainActivity extends Activity {
         "const a=key(x,['asset','symbol','pair','instrument','assetName','ticker'])||asset;" +
         "for(const v of Object.values(x))if(v&&typeof v==='object')walk(v,a,d+1);" +
         "}walk(root,assetHint,0);return found;}" +
-        "let activeAsset=null,historyWs=null,historyPages=0,historyOldest=0,historyTarget=0;\n" +
+        "let activeAsset=null,historyWs=null,historyPages=0,historyOldest=0,historyTarget=0,lastLiveHistoryBucket=0;\n" +
 "        function requestHistory(asset,anchor){\n" +
 "          if(!asset||!historyWs||historyPages>=64||loginState!==true)return;\n" +
 "          const payload={asset:String(asset),index:Math.floor(Date.now()/10)+historyPages,offset:3600,period:10,time:Math.floor(anchor||Date.now()/1000)};\n" +
 "          try{historyWs.send('42[\"history/load\",'+JSON.stringify(payload)+']');historyPages++;}catch(e){}\n" +
+"        }\n" +
+"        function requestHistory(asset,anchor){\n" +
+"          if(!asset||!historyWs||historyPages>=64||loginState!==true)return;\n" +
+"          const payload={asset:String(asset),index:Math.floor(Date.now()/10)+historyPages,offset:3600,period:10,time:Math.floor(anchor||Date.now()/1000)};\n" +
+"          try{historyWs.send('42[\"history/load\",'+JSON.stringify(payload)+']');historyPages++;}catch(e){}\n" +
+"        }\n" +
+"        function requestLatestHistory(asset,anchor){\n" +
+"          const bucket=Math.floor(Number(anchor||Date.now()/1000)/10);if(!asset||!historyWs||loginState!==true||bucket<=lastLiveHistoryBucket)return;\n" +
+"          lastLiveHistoryBucket=bucket;const payload={asset:String(asset),index:Math.floor(Date.now()/10)+historyPages+bucket,offset:180,time:Math.floor(Number(anchor)||Date.now()/1000),period:10};\n" +
+"          try{historyWs.send('42[\"history/load\",'+JSON.stringify(payload)+']');}catch(e){}\n" +
 "        }\n" +
 "        function collectHistory(root,assetHint){\n" +
 "          const out=[],visited=new Set();\n" +
@@ -282,10 +293,11 @@ public class MainActivity extends Activity {
                 if (asset.isEmpty() || rows == null || !botActive) return;
                 int imported = engine.importHistoricalCandles(asset, rows);
                 if (imported > 0) {
+                    SignalEngine.Result result = engine.currentResult();
                     runOnUiThread(() -> {
-                        lastTick.setText(asset + " • IMPORTED " + imported + " VERIFIED HISTORICAL 10s CANDLES");
-                        signalView.setText("WAIT");
-                        signalView.setTextColor(Color.WHITE);
+                        lastTick.setText(asset + " • UPDATED " + imported + " REAL 10s HISTORY CANDLES");
+                        showSignal(result, System.currentTimeMillis() / 1000.0);
+                        status.setText("AADI • HISTORY ANALYSIS  |  Candles: " + result.closedCandles + "  |  Score: " + result.score + "/100");
                     });
                 }
             } catch (Exception e) {
@@ -298,7 +310,7 @@ public class MainActivity extends Activity {
                 JSONObject o = new JSONObject(json);
                 String asset = o.optString("asset", "");
                 double price = o.optDouble("price", Double.NaN);
-                double ts = o.optDouble("timestamp", System.currentTimeMillis() / 1000.0);
+                double ts = o.optDouble("timestamp", 0);
                 if (asset.trim().isEmpty() || !Double.isFinite(price) || price <= 0) return;
                 if (!botActive) return;
                 SignalEngine.Result result = engine.onTick(asset, price, ts);
