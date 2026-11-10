@@ -17,10 +17,6 @@ import android.text.style.ForegroundColorSpan;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.TimeUnit;
 import android.view.ViewGroup;
 import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
@@ -29,8 +25,8 @@ import org.json.JSONObject;
 public class MainActivity extends Activity {
     private TextView status, lastTick, signalView, diagnosticView;
     private Button activateButton;
-    private volatile boolean botActive = false;
-    private volatile SignalEngine engine = new SignalEngine();
+    private boolean botActive = false;
+    private SignalEngine engine = new SignalEngine();
     private WebView web;
     private long receivedTicks = 0;
     private final Handler uiHandler = new Handler(Looper.getMainLooper());
@@ -38,16 +34,6 @@ public class MainActivity extends Activity {
     private long lastSignalFlashBucket = Long.MIN_VALUE;
     private long signalFlashUntil = 0;
     private String lastSignalFlashAsset = "";
-    // History packets are batched off the WebView/UI path; live ticks stay on their existing path.
-    private final ScheduledExecutorService historyExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
-        Thread t = new Thread(r, "AADI-History-Loader");
-        t.setDaemon(true);
-        return t;
-    });
-    private org.json.JSONArray pendingHistoryRows = new org.json.JSONArray();
-    private String pendingHistoryAsset = "";
-    private ScheduledFuture<?> historyFlushTask;
-    private static final long HISTORY_BATCH_DELAY_MS = 1200L;
 
     private static final String MARKET_URL = "https://market-qx.trade/en/trade";
     private static final String HOOK =
@@ -56,8 +42,8 @@ public class MainActivity extends Activity {
         "const NativeWS=window.WebSocket;const seen=new Set();let diagCount=0,historySent=0;" +
         "function emit(price,asset,time){" +
         "price=Number(price);if(!Number.isFinite(price)||price<=0||!asset)return;" +
-        "const nextAsset=String(asset);" +
-        "const feedTime=normTime(time);try{AadiNative.onTick(JSON.stringify({price:price,asset:nextAsset,timestamp:feedTime||0}));}catch(e){}" +
+        "const feedTime=normTime(time);try{AadiNative.onTick(JSON.stringify({price:price,asset:String(asset),timestamp:feedTime||0}));}catch(e){}" +
+        "requestLatestHistory(String(asset),feedTime||Date.now()/1000);" +
         "}" +
         "function key(o,names){for(const n of names){if(o[n]!==undefined&&o[n]!==null)return o[n];}return null;}" +
         "function normTime(v){let n=Number(v);if(!Number.isFinite(n)||n<=0)return 0;if(n>1e12)n/=1000;return n;}" +
@@ -106,7 +92,7 @@ public class MainActivity extends Activity {
 "              for(const v of x)if(v&&typeof v==='object')walk(v,asset,d+1);return;\n" +
 "            }\n" +
 "            const a=key(x,['asset','symbol','pair','instrument','assetName','ticker'])||asset;\n" +
-"            for(const name of ['data','candles','history','rows']){\n" +
+"            for(const name of ['data','candles']){\n" +
 "              const arr=x[name];if(!Array.isArray(arr))continue;\n" +
 "              const rows=[];\n" +
 "              for(const r of arr){\n" +
@@ -114,11 +100,25 @@ public class MainActivity extends Activity {
 "                  const t=normTime(r[0]),o=Number(r[1]),cl=Number(r[2]),h=Number(r[3]),l=Number(r[4]);\n" +
 "                  if(t&&[o,cl,h,l].every(Number.isFinite)&&o>0&&cl>0&&h>=Math.max(o,cl)&&l<=Math.min(o,cl)&&l>0&&h>=l)rows.push({timestamp:t,open:o,high:h,low:l,close:cl});\n" +
 "                }else if(r&&typeof r==='object'){\n" +
-"                  const t=normTime(key(r,['timestamp','time','ts','date','at'])),o=Number(key(r,['open','o'])),h=Number(key(r,['high','h'])),l=Number(key(r,['low','l'])),cl=Number(key(r,['close','c']));\n" +
+"                  const t=normTime(key(r,['timestamp','time','ts'])),o=Number(key(r,['open','o'])),h=Number(key(r,['high','h'])),l=Number(key(r,['low','l'])),cl=Number(key(r,['close','c']));\n" +
 "                  if(t&&[o,h,l,cl].every(Number.isFinite)&&o>0&&h>=Math.max(o,cl)&&l<=Math.min(o,cl)&&l>0&&h>=l)rows.push({timestamp:t,open:o,high:h,low:l,close:cl});\n" +
 "                }\n" +
 "              }\n" +
-"              // Only source-provided OHLC candles are imported; no candles are synthesized from ticks.\n" +
+"              // Aggregate genuine Market-QX history ticks into 10-second OHLC bars.\n" +
+"              // Derived only from received exchange prices; never demo data.\n" +
+"              if(rows.length===0 && name==='data'){\n" +
+"                const buckets=new Map();\n" +
+"                for(const r of arr){\n" +
+"                  if(!r||typeof r!=='object'||Array.isArray(r))continue;\n" +
+"                  const t=normTime(key(r,['time','timestamp','ts','created_at']));\n" +
+"                  const p=Number(key(r,['price','rate','quote','value']));\n" +
+"                  if(!t||!Number.isFinite(p)||p<=0)continue;\n" +
+"                  const bucket=Math.floor(t/10)*10;let bar=buckets.get(bucket);\n" +
+"                  if(!bar){bar={timestamp:bucket,open:p,high:p,low:p,close:p};buckets.set(bucket,bar);}\n" +
+"                  else{bar.high=Math.max(bar.high,p);bar.low=Math.min(bar.low,p);bar.close=p;}\n" +
+"                }\n" +
+"                for(const bar of buckets.values())rows.push(bar);\n" +
+"              }\n" +
 "              if(rows.length)out.push({asset:a||assetHint||activeAsset||'UNKNOWN',candles:rows});\n" +
 "            }\n" +
 "            for(const v of Object.values(x))if(v&&typeof v==='object')walk(v,a,d+1);\n" +
@@ -129,7 +129,7 @@ public class MainActivity extends Activity {
 "          try{\n" +
 "            const event=Array.isArray(o)&&typeof o[0]==='string'?o[0]:'';\n" +
 "            const payload=event?o[1]:o;\n" +
-"            if(/history|candle/i.test(event)){\n" +
+"            if(event==='history/load'){\n" +
 "              const packets=collectHistory(payload,activeAsset);\n" +
 "              let oldest=Number.POSITIVE_INFINITY,total=0;\n" +
 "              for(const p of packets){if(p.asset==='UNKNOWN')continue;total+=p.candles.length;\n" +
@@ -137,13 +137,9 @@ public class MainActivity extends Activity {
 "                try{AadiNative.onHistory(JSON.stringify(p));}catch(e){}\n" +
 "              }\n" +
 "              if(total&&Number.isFinite(oldest)){\n" +
-"                const previousOldest=historyOldest;\n" +
-"                if(previousOldest===0||oldest<previousOldest)historyOldest=oldest;\n" +
-"                try{AadiNative.onDiagnostic('HISTORY RESPONSE '+total+' OHLC rows • oldest '+oldest+' • page '+historyPages);}catch(e){}\n" +
-"                if(oldest>historyTarget&&historyPages<64){\n" +
-"                  const nextAnchor=(previousOldest>0&&oldest>=previousOldest)?previousOldest-3600:oldest-1;\n" +
-"                  if(nextAnchor>historyTarget)setTimeout(function(){requestHistory(activeAsset,nextAnchor);},350);\n" +
-"                }\n" +
+"                const next=oldest<historyOldest||historyOldest===0?oldest:historyOldest-3600;\n" +
+"                historyOldest=next;\n" +
+"                if(oldest>historyTarget&&historyPages<64)setTimeout(function(){requestHistory(activeAsset,next);},350);\n" +
 "              }\n" +
 "            }\n" +
 "            const packets=findHistory(o,null);\n" +
@@ -299,27 +295,6 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void flushHistoryBatch(String asset) {
-        if (!asset.equals(pendingHistoryAsset)) return;
-        if (!botActive) {
-            historyFlushTask = historyExecutor.schedule(() -> flushHistoryBatch(asset),
-                    500L, TimeUnit.MILLISECONDS);
-            return;
-        }
-        org.json.JSONArray batch = pendingHistoryRows;
-        pendingHistoryRows = new org.json.JSONArray();
-        pendingHistoryAsset = "";
-        historyFlushTask = null;
-        SignalEngine target = engine;
-        int imported = target.importHistoricalCandles(asset, batch);
-        final int retained = target.getClosedCandleCount();
-        uiHandler.post(() -> {
-            diagnosticView.setText("HISTORY " + (retained >= 20 ? "READY" : "LOADING") + ": " + asset
-                    + " | packet rows=" + batch.length() + " | new/updated=" + imported
-                    + " | retained real candles=" + retained);
-        });
-    }
-
     private class Bridge {
         @JavascriptInterface public void onLoginState(boolean loggedIn) {
             runOnUiThread(() -> {
@@ -337,31 +312,25 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface public void onHistory(String json) {
-            if (json == null) return;
-            // Parse and queue packets away from the WebView callback. Several history pages
-            // are merged together so the engine performs one short merge instead of recalculating
-            // the signal separately for every page.
-            historyExecutor.execute(() -> {
-                try {
-                    JSONObject packet = new JSONObject(json);
-                    String asset = packet.optString("asset", "");
-                    org.json.JSONArray rows = packet.optJSONArray("candles");
-                    if (asset.isEmpty() || rows == null) return;
-                    if (!asset.equals(pendingHistoryAsset)) {
-                        pendingHistoryAsset = asset;
-                        pendingHistoryRows = new org.json.JSONArray();
-                    }
-                    for (int i = 0; i < rows.length(); i++) {
-                        JSONObject row = rows.optJSONObject(i);
-                        if (row != null) pendingHistoryRows.put(row);
-                    }
-                    if (historyFlushTask != null) historyFlushTask.cancel(false);
-                    historyFlushTask = historyExecutor.schedule(() -> flushHistoryBatch(asset),
-                            HISTORY_BATCH_DELAY_MS, TimeUnit.MILLISECONDS);
-                } catch (Exception e) {
-                    runOnUiThread(() -> diagnosticView.setText("HISTORY: packet parse error"));
+            try {
+                JSONObject packet = new JSONObject(json);
+                String asset = packet.optString("asset", "");
+                org.json.JSONArray rows = packet.optJSONArray("candles");
+                if (asset.isEmpty() || rows == null || !botActive) return;
+                int imported = engine.importHistoricalCandles(asset, rows);
+                runOnUiThread(() -> diagnosticView.setText("HISTORY PACKET: asset=" + asset
+                        + " | rows=" + rows.length() + " | imported=" + imported));
+                if (imported > 0) {
+                    SignalEngine.Result result = engine.currentResult();
+                    runOnUiThread(() -> {
+                        lastTick.setText(asset + " • UPDATED " + imported + " REAL 10s HISTORY CANDLES");
+                        showSignal(result, System.currentTimeMillis() / 1000.0);
+                        status.setText("AADI • HISTORY ANALYSIS  |  Candles: " + result.closedCandles + "  |  Score: " + result.score + "/100");
+                    });
                 }
-            });
+            } catch (Exception e) {
+                runOnUiThread(() -> status.setText("AADI • Historical candle parse error"));
+            }
         }
 
         @JavascriptInterface public void onTick(String json) {
@@ -392,7 +361,6 @@ status.setText("AADI • LIVE  |  Candles: " + result.closedCandles + "  |  Scor
     }
 
     @Override protected void onDestroy() {
-        historyExecutor.shutdownNow();
         if (web != null) {
             web.removeJavascriptInterface("AadiNative");
             web.destroy();

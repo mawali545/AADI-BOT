@@ -26,9 +26,6 @@ public final class SignalEngine {
 
     private static final int FAST=9, SLOW=21, RSI_PERIOD=14, MOMENTUM=5;
     private static final int MIN_CANDLES=20;
-    // Keep the full 20-candle context, but only require the latest 3 real bars
-    // to be contiguous so a gap in older history does not stall live signals.
-    private static final int MIN_RECENT_CONSECUTIVE=3;
     private static final long FRAME_SECONDS=10;
 
     private static final class Candle {
@@ -54,10 +51,6 @@ public final class SignalEngine {
 
     private long latestFeedTime=-1;
     private Result latestHistoryResult=null;
-    // Re-entry control: do not repeat CALL/PUT through one uninterrupted price leg.
-    private String lastDirectionalSide="";
-    private double postSignalExtreme=Double.NaN;
-    private boolean sameSideRearmed=false;
     // The forming candle is built only from current live exchange ticks.
     // Older context remains sourced from Market-QX history packets.
     private long liveBucket=-1;
@@ -79,9 +72,6 @@ public final class SignalEngine {
             totalClosed=0;
             latestHistoryResult=null;
             latestFeedTime=-1;
-            lastDirectionalSide="";
-            postSignalExtreme=Double.NaN;
-            sameSideRearmed=false;
             liveBucket=-1;
             liveCandle=null;
         }
@@ -92,21 +82,17 @@ public final class SignalEngine {
         lastPrice=price;
         long bucket=(ts/FRAME_SECONDS)*FRAME_SECONDS;
         if(liveCandle==null || bucket>liveBucket) {
-            // The candle that just ended is now a genuine completed bar.
-            // Calculate once from closed history and lock that direction for
-            // the whole new 10-second candle; live price fluctuations cannot flip it.
             if(liveCandle!=null) appendClosedLiveCandle(liveCandle);
             liveBucket=bucket;
             liveCandle=new Candle(bucket,price,price,price,price);
-            lockedNextCandleResult=calculateClosedCandles();
-            latestHistoryResult=lockedNextCandleResult;
         } else if(bucket==liveBucket) {
-            // Update only the live quote/OHLC. Do not recalculate direction
-            // from a still-forming candle on every tick.
             liveCandle=new Candle(liveBucket,liveCandle.open,
                     Math.max(liveCandle.high,price),Math.min(liveCandle.low,price),price);
         }
-        return currentResult();
+        // Re-evaluate using all historical context plus the freshest forming
+        // candle on every tick; the signal is not held back until the next bar.
+        latestHistoryResult=calculateWithLiveCandle();
+        return latestHistoryResult;
     }
 
     private void appendClosedLiveCandle(Candle completed) {
@@ -148,12 +134,6 @@ public final class SignalEngine {
             totalClosed=0;
             latestHistoryResult=null;
             latestFeedTime=-1;
-            liveBucket=-1;
-            liveCandle=null;
-            lockedNextCandleResult=null;
-            lastDirectionalSide="";
-            postSignalExtreme=Double.NaN;
-            sameSideRearmed=false;
         }
         asset=symbol;
         TreeMap<Long,Candle> incoming = new TreeMap<>();
@@ -195,20 +175,9 @@ public final class SignalEngine {
         candles.clear();
         for(Candle candle:merged.values()) candles.addLast(candle);
         totalClosed=candles.size();
-        // If the current locked decision is still WAIT (startup/history not ready),
-        // refresh it as genuine OHLC pages arrive. Never flip an already-issued
-        // CALL/PUT halfway through its 10-second decision candle.
-        if(changed>0 && (lockedNextCandleResult==null
-                || "WAIT".equals(lockedNextCandleResult.signal))) {
-            Result refreshed=liveCandle!=null?calculateWithLiveCandle():calculateClosedCandles();
-            lockedNextCandleResult=refreshed;
-            latestHistoryResult=refreshed;
-        }
-
+        if(changed>0) latestHistoryResult=liveCandle!=null?calculateWithLiveCandle():calculateClosedCandles();
         return changed;
     }
-
-    public synchronized int getClosedCandleCount() { return candles.size(); }
 
     private double number(JSONObject row,String longKey,String shortKey) {
         double v=row.has(longKey)?row.optDouble(longKey,Double.NaN):row.optDouble(shortKey,Double.NaN);
@@ -229,12 +198,12 @@ public final class SignalEngine {
         if(cs.size()<MIN_CANDLES)
             return snapshot("WAIT","Collecting genuine closed-candle history");
         int consecutive=1;
-        for(int i=cs.size()-1;i>0&&consecutive<MIN_RECENT_CONSECUTIVE;i--) {
+        for(int i=cs.size()-1;i>0&&consecutive<MIN_CANDLES;i--) {
             if(cs.get(i).time-cs.get(i-1).time!=FRAME_SECONDS) break;
             consecutive++;
         }
-        if(consecutive<MIN_RECENT_CONSECUTIVE)
-            return snapshot("WAIT","Need 3 recent consecutive real 10-second candles");
+        if(consecutive<MIN_CANDLES)
+            return snapshot("WAIT","Need consecutive real 10-second candles");
 
         List<Double> values=new ArrayList<>();
         for(Candle c:cs) values.add(c.close);
@@ -242,13 +211,6 @@ public final class SignalEngine {
         Candle last=cs.get(n-1);
         double atr=averageTrueRange(cs,14);
         if(atr<=0) return snapshot("WAIT","Insufficient price movement data");
-        if("CALL".equals(lastDirectionalSide)) {
-            postSignalExtreme=Double.isFinite(postSignalExtreme)?Math.max(postSignalExtreme,last.high):last.high;
-            if(postSignalExtreme-last.close>=atr*0.30) sameSideRearmed=true;
-        } else if("PUT".equals(lastDirectionalSide)) {
-            postSignalExtreme=Double.isFinite(postSignalExtreme)?Math.min(postSignalExtreme,last.low):last.low;
-            if(last.close-postSignalExtreme>=atr*0.30) sameSideRearmed=true;
-        }
 
         double fast=ema(values,9), slow=ema(values,21);
         double rsi=rsiWilder(values,14);
@@ -300,12 +262,6 @@ public final class SignalEngine {
                 && closePos>=0.58;
         boolean bearReject=nearResistance && upperWick>Math.max(last.bodyAbs(),atr*0.18)
                 && closePos<=0.42;
-        boolean bearishReversalWarning=liquiditySweep<0 || failedBreak<0
-                || (nearResistance && upperWick>Math.max(last.bodyAbs()*0.85,atr*0.20) && closePos<0.56)
-                || (last.close<cs.get(n-2).low && microFlow< -0.70);
-        boolean bullishReversalWarning=liquiditySweep>0 || failedBreak>0
-                || (nearSupport && lowerWick>Math.max(last.bodyAbs()*0.85,atr*0.20) && closePos>0.44)
-                || (last.close>cs.get(n-2).high && microFlow>0.70);
 
         // Continuous directional score: evidence accumulates rather than
         // requiring every indicator to agree before a signal can be emitted.
@@ -347,13 +303,6 @@ public final class SignalEngine {
         if(bearBreak) bias-=10;
         if(bullReject) bias+=8;
         if(bearReject) bias-=8;
-        if(nearResistance && !bullBreak) bias-=3.5;
-        if(nearSupport && !bearBreak) bias+=3.5;
-        if(bearishReversalWarning) bias-=7.5;
-        if(bullishReversalWarning) bias+=7.5;
-        double fastExtension=(last.close-fast)/atr;
-        if(fastExtension>1.15 && !bullBreak) bias-=clamp((fastExtension-1.15)*4.0,0,7.0);
-        if(fastExtension< -1.15 && !bearBreak) bias+=clamp((-fastExtension-1.15)*4.0,0,7.0);
 
         // Respect a mature trend during a shallow pullback, but never mute
         // a clear short-term structure break / exhaustion reversal.
@@ -393,49 +342,21 @@ public final class SignalEngine {
                 || biasSide<0 && (liquiditySweep<0 || failedBreak<0))
             alignedEvidence++;
         double requiredEdge=alignedEvidence>=2?5.8:alignedEvidence==1?6.3:6.8;
-        // Reject only a decisive short-term contradiction; a single opposite candle
-        // or colour flip is not enough to block the normal 10-second signal.
-        boolean strongDirectionalConflict =
-                (bias>0 && microFlow<=-0.95 && (structure<0 || liquiditySweep<0 || failedBreak<0))
-                || (bias<0 && microFlow>=0.95 && (structure>0 || liquiditySweep>0 || failedBreak>0));
-        if(strongDirectionalConflict || (bullishReversalWarning && bearishReversalWarning)) {
-            return new Result(asset,"WAIT","WAIT: conflicting reversal and short-term structure evidence",
-                    last.close,fast,slow,rsi,momentum,0,totalClosed);
-        }
         if(Math.abs(bias)<requiredEdge) {
             return new Result(asset,"WAIT","WAIT: mixed short-term flow • next-candle edge not clear",
                     last.close,fast,slow,rsi,momentum,0,totalClosed);
         }
         String sig=bias>0?"CALL":"PUT";
-        Candle previous=cs.get(n-2);
-        if(sig.equals(lastDirectionalSide)) {
-            boolean resumed = "CALL".equals(sig)
-                    ? (last.close>previous.high || (last.close>previous.close && closePos>0.62 && microFlow>0.25) || bullBreak)
-                    : (last.close<previous.low || (last.close<previous.close && closePos<0.38 && microFlow< -0.25) || bearBreak);
-            if(!sameSideRearmed)
-                return new Result(asset,"WAIT","WAIT: same trend leg already signalled • waiting for a meaningful pullback",
-                        last.close,fast,slow,rsi,momentum,0,totalClosed);
-            if(!resumed)
-                return new Result(asset,"WAIT","WAIT: pullback detected • waiting for continuation confirmation",
-                        last.close,fast,slow,rsi,momentum,0,totalClosed);
-        }
-        if("CALL".equals(sig) && bearishReversalWarning && bias<10.5)
-            return new Result(asset,"WAIT","WAIT: upper liquidity/rejection • CALL entry risk elevated",last.close,fast,slow,rsi,momentum,0,totalClosed);
-        if("PUT".equals(sig) && bullishReversalWarning && bias> -10.5)
-            return new Result(asset,"WAIT","WAIT: lower liquidity/rejection • PUT entry risk elevated",last.close,fast,slow,rsi,momentum,0,totalClosed);
-        lastDirectionalSide=sig;
-        postSignalExtreme="CALL".equals(sig)?last.high:last.low;
-        sameSideRearmed=false;
         int score=(int)Math.round(clamp(50.0+Math.abs(bias)*1.15,50,94));
         String pattern;
+        if(turnBias>0.35) pattern="bullish turning-point / bounce";
+        else if(turnBias< -0.35) pattern="bearish turning-point / rejection";
         if(bullBreak) pattern="bullish breakout";
         else if(bearBreak) pattern="bearish breakout";
         else if(pullback>0) pattern="bullish pullback continuation";
         else if(pullback<0) pattern="bearish pullback continuation";
         else if(bullReject) pattern="support rejection";
         else if(bearReject) pattern="resistance rejection";
-        else if(turnBias>0.35) pattern="bullish turning-point / bounce";
-        else if(turnBias< -0.35) pattern="bearish turning-point / rejection";
         else if(structure>0) pattern="higher-high / higher-low structure";
         else if(structure<0) pattern="lower-high / lower-low structure";
         else if(candlePatternBias>0.25) pattern="bullish candle pattern / rejection";
@@ -931,23 +852,12 @@ public final class SignalEngine {
 
     private double macdHistogram(List<Double> values) {
         if(values.isEmpty()) return 0;
-        // Build both MACD EMAs in one pass. This is mathematically equivalent
-        // to ema(values[0..i], period) for every i, but avoids the old O(n^2)
-        // prefix recalculation that froze the live UI with large history sets.
-        List<Double> line=new ArrayList<>(values.size());
-        double sum12=0,sum26=0,ema12=0,ema26=0;
-        double k12=2.0/13.0,k26=2.0/27.0;
+        // Build the MACD line from every available closed candle. This keeps
+        // the signal-line EMA meaningful even during the 20-candle warm-up.
+        List<Double> line=new ArrayList<>();
         for(int i=0;i<values.size();i++) {
-            double value=values.get(i);
-            if(i<12) sum12+=value;
-            if(i<26) sum26+=value;
-            if(i==11) ema12=sum12/12.0;
-            else if(i>11) ema12=value*k12+ema12*(1.0-k12);
-            if(i==25) ema26=sum26/26.0;
-            else if(i>25) ema26=value*k26+ema26*(1.0-k26);
-            double fast=i<11?(sum12/(i+1)):ema12;
-            double slow=i<25?(sum26/(i+1)):ema26;
-            line.add(fast-slow);
+            List<Double> part=values.subList(0,i+1);
+            line.add(ema(part,12)-ema(part,26));
         }
         double macdNow=line.get(line.size()-1);
         double signal=ema(line,9);
