@@ -25,7 +25,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: android/.android-signing
-          key: aadi-bot-stable-debug-signing-v1
+          key: aadi-bot-stable-debug-signing-v2
       - name: Prepare stable development signing key
         working-directory: android
         run: |
@@ -34,7 +34,7 @@ jobs:
             keytool -genkeypair -v \
               -keystore .android-signing/aadi-debug.keystore \
               -storepass aadi-debug-store \
-              -keypass aadi-debug-key \
+              -keypass aadi-debug-store \
               -alias aadi-debug \
               -keyalg RSA -keysize 2048 -validity 10000 \
               -dname "CN=AADI Bot Development, OU=Debug, O=AADI, L=NA, S=NA, C=PK"
