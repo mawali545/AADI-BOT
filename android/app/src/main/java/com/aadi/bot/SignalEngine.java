@@ -196,6 +196,7 @@ public final class SignalEngine {
         // progression through alternating candle colours, and liquidity sweeps.
         double shapeBias=multiScaleShapeBias(cs,atr);
         double stairBias=stairStepBias(cs,7);
+        double turnBias=turningPointBias(cs,atr);
         double alternatingBias=alternatingProgressBias(cs,6,atr);
         int liquiditySweep=liquiditySweepDirection(cs,12,atr);
         int failedBreak=failedBreakoutDirection(cs,12);
@@ -241,6 +242,7 @@ public final class SignalEngine {
         // they do not delay or change the existing 10-second signal boundary.
         bias+=clamp(shapeBias*5.0,-9,9);
         bias+=clamp(stairBias*6.0,-6,6);
+        bias+=clamp(turnBias*6.0,-8,8);
         bias+=clamp(alternatingBias*4.0,-5,5);
         bias+=liquiditySweep*7.0;
         bias+=failedBreak*7.0;
@@ -284,6 +286,8 @@ public final class SignalEngine {
         String sig=bias>=0?"CALL":"PUT";
         int score=(int)Math.round(clamp(50.0+Math.abs(bias)*1.15,50,94));
         String pattern;
+        if(turnBias>0.35) pattern="bullish turning-point / bounce";
+        else if(turnBias< -0.35) pattern="bearish turning-point / rejection";
         if(bullBreak) pattern="bullish breakout";
         else if(bearBreak) pattern="bearish breakout";
         else if(pullback>0) pattern="bullish pullback continuation";
@@ -416,6 +420,64 @@ public final class SignalEngine {
             weightTotal+=weight;
         }
         return weightTotal>0?clamp(total/weightTotal,-1,1):0;
+    }
+
+    /**
+     * Scores where a U/V or stair-step move is turning: defended swing lows,
+     * rejected swing highs, pullback holds, failed continuation and reclaim/
+     * breakdown of nearby micro structure. It uses closed candles only.
+     */
+    private double turningPointBias(List<Candle> cs,double atr) {
+        if(cs.size()<8||atr<=0) return 0;
+        int n=cs.size();
+        Candle last=cs.get(n-1),prev=cs.get(n-2);
+        double total=0,weights=0;
+        int[] windows={8,13,21,34,55,89};
+        for(int w:windows) {
+            if(n<w+1) continue;
+            int from=n-w-1;
+            double hi=Double.NEGATIVE_INFINITY,lo=Double.POSITIVE_INFINITY;
+            int hiAt=-1,loAt=-1;
+            for(int i=from;i<n-1;i++) {
+                Candle c=cs.get(i);
+                if(c.high>hi){hi=c.high;hiAt=i;}
+                if(c.low<lo){lo=c.low;loAt=i;}
+            }
+            double range=Math.max(atr,hi-lo);
+            double closeLocation=(last.close-lo)/Math.max(1e-12,hi-lo);
+            double lowerWick=Math.min(last.open,last.close)-last.low;
+            double upperWick=last.high-Math.max(last.open,last.close);
+            double vote=0;
+            // U/V floor: after a low, price must lift away from it and show
+            // demand (close location, lower wick, green body or reclaim).
+            double bounce=last.close-lo;
+            if(loAt>=from+1 && bounce>atr*0.12) {
+                double depth=(hi-lo)>0?(last.close-lo)/(hi-lo):0;
+                if(depth>0.18) vote+=Math.min(1.0,bounce/atr*0.35);
+                if(lowerWick>last.bodyAbs()*0.8 && closeLocation>0.55) vote+=0.35;
+                if(last.close>prev.high) vote+=0.35;
+            }
+            // Crest: mirror image for supply/rejection and bearish rollover.
+            double drop=hi-last.close;
+            if(hiAt>=from+1 && drop>atr*0.12) {
+                double depth=(hi-last.close)/(hi-lo+1e-12);
+                if(depth>0.18) vote-=Math.min(1.0,drop/atr*0.35);
+                if(upperWick>last.bodyAbs()*0.8 && closeLocation<0.45) vote-=0.35;
+                if(last.close<prev.low) vote-=0.35;
+            }
+            // Staircase pullback: a retracement that holds the prior swing
+            // area and resumes is continuation; a decisive loss of that area
+            // is an early warning of a step failure/reversal.
+            double recentMid=(hi+lo)*0.5;
+            if(last.close>prev.close && last.close>recentMid && last.low>lo+atr*0.08)
+                vote+=0.18;
+            if(last.close<prev.close && last.close<recentMid && last.high<hi-atr*0.08)
+                vote-=0.18;
+            double weight=w<=13?0.55:w<=34?0.85:1.0;
+            total+=clamp(vote,-1.8,1.8)*weight;
+            weights+=weight;
+        }
+        return weights>0?clamp(total/weights,-1.5,1.5):0;
     }
 
     /**
