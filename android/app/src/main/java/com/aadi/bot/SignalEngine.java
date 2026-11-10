@@ -191,7 +191,7 @@ public final class SignalEngine {
                     || old.low!=fresh.low || old.close!=fresh.close) changed++;
             merged.put(entry.getKey(),fresh);
         }
-        while(merged.size()>17280) merged.pollFirstEntry();
+        while(merged.size()>8640) merged.pollFirstEntry();
         candles.clear();
         for(Candle candle:merged.values()) candles.addLast(candle);
         totalClosed=candles.size();
@@ -393,6 +393,15 @@ public final class SignalEngine {
                 || biasSide<0 && (liquiditySweep<0 || failedBreak<0))
             alignedEvidence++;
         double requiredEdge=alignedEvidence>=2?5.8:alignedEvidence==1?6.3:6.8;
+        // Reject only a decisive short-term contradiction; a single opposite candle
+        // or colour flip is not enough to block the normal 10-second signal.
+        boolean strongDirectionalConflict =
+                (bias>0 && microFlow<=-0.95 && (structure<0 || liquiditySweep<0 || failedBreak<0))
+                || (bias<0 && microFlow>=0.95 && (structure>0 || liquiditySweep>0 || failedBreak>0));
+        if(strongDirectionalConflict || (bullishReversalWarning && bearishReversalWarning)) {
+            return new Result(asset,"WAIT","WAIT: conflicting reversal and short-term structure evidence",
+                    last.close,fast,slow,rsi,momentum,0,totalClosed);
+        }
         if(Math.abs(bias)<requiredEdge) {
             return new Result(asset,"WAIT","WAIT: mixed short-term flow • next-candle edge not clear",
                     last.close,fast,slow,rsi,momentum,0,totalClosed);
