@@ -51,7 +51,7 @@ public class MainActivity extends Activity {
         "let activeAsset=null,historyWs=null,historyPages=0,historyOldest=0,historyTarget=0;\n" +
 "        function requestHistory(asset,anchor){\n" +
 "          if(!asset||!historyWs||historyPages>=64||loginState!==true)return;\n" +
-"          const payload={asset:String(asset),index:Date.now()*100+historyPages,offset:3600,period:10,time:Math.floor(anchor||Date.now()/1000)};\n" +
+"          const payload={asset:String(asset),index:Math.floor(Date.now()/10)+historyPages,offset:3600,period:10,time:Math.floor(anchor||Date.now()/1000)};\n" +
 "          try{historyWs.send('42[\"history/load\",'+JSON.stringify(payload)+']');historyPages++;}catch(e){}\n" +
 "        }\n" +
 "        function collectHistory(root,assetHint){\n" +
@@ -109,10 +109,7 @@ public class MainActivity extends Activity {
 "            for(const p of packets){if(p.asset==='UNKNOWN')continue;historySent++;try{AadiNative.onHistory(JSON.stringify(p));}catch(e){}}\n" +
 "          }catch(e){}\n" +
 "        }\n" +
-        "function process(o){" +
-        "try{const packets=findHistory(o,null);for(const p of packets){if(p.asset==='UNKNOWN')continue;historySent++;try{AadiNative.onHistory(JSON.stringify(p));}catch(e){}}" +
-        "}catch(e){}" +
-        "}" +
+
         "function safeShape(root){" +
         "const out=[];function walk(x,p,d){if(d>7||x==null||out.length>=12)return;" +
         "if(Array.isArray(x)){if(x.length&&typeof x[0]==='object'&&x[0]!==null&&!Array.isArray(x[0])){const k=Object.keys(x[0]).slice(0,24);const low=k.map(z=>z.toLowerCase());if(low.some(z=>['open','o'].includes(z))&&low.some(z=>['high','h'].includes(z))&&low.some(z=>['low','l'].includes(z))&&low.some(z=>['close','c'].includes(z)))out.push(p+': object-candle-array len='+x.length+' fields='+k.join(','));}" +
@@ -132,7 +129,7 @@ public class MainActivity extends Activity {
         "const of=window.fetch;window.fetch=function(){return of.apply(this,arguments).then(function(res){try{const copy=res.clone();copy.text().then(function(t){if(t&&t.length<4000000)parse(t);}).catch(function(){});}catch(e){}return res;});};" +
         "const xo=XMLHttpRequest.prototype.open,xs=XMLHttpRequest.prototype.send;XMLHttpRequest.prototype.open=function(){this.addEventListener('load',function(){try{const t=this.responseText;if(t&&t.length<4000000)parse(t);}catch(e){};});return xo.apply(this,arguments);};XMLHttpRequest.prototype.send=function(){return xs.apply(this,arguments);};" +
         "try{AadiNative.onSocket('WebSocket + history response scanner enabled');}catch(e){}" +
-        "let loginState=null;function checkLogin(){try{const hasPassword=!!document.querySelector('input[type=password]');const hasLoginText=Array.from(document.querySelectorAll('button,[role=button],input[type=submit]')).some(e=>/^(log in|login|sign in)$/i.test((e.innerText||e.value||'').trim()));const hasChart=!!document.querySelector('canvas,[class*=chart i],[id*=chart i]');const logged=hasChart&&!hasPassword&&!hasLoginText&&document.readyState==='complete';if(logged!==loginState){loginState=logged;try{AadiNative.onLoginState(logged);}catch(e){}}}catch(e){}}setInterval(checkLogin,2000);" +
+        "let loginState=null;function checkLogin(){try{const hasPassword=!!document.querySelector('input[type=password]');const hasLoginText=Array.from(document.querySelectorAll('button,[role=button],input[type=submit]')).some(e=>/^(log in|login|sign in)$/i.test((e.innerText||e.value||'').trim()));const hasChart=!!document.querySelector('canvas,[class*=chart i],[id*=chart i]');const logged=hasChart&&!hasPassword&&!hasLoginText&&document.readyState==='complete';if(logged!==loginState){loginState=logged;try{AadiNative.onLoginState(logged);}catch(e){}if(logged&&activeAsset&&historyPages===0)setTimeout(function(){requestHistory(activeAsset,Date.now()/1000);},700);}}catch(e){}}setInterval(checkLogin,2000);" +
         "})();";
 
     @Override public void onCreate(Bundle state) {
