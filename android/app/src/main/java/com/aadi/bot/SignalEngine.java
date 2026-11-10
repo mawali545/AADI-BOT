@@ -311,38 +311,62 @@ public final class SignalEngine {
      */
     private double multiScaleShapeBias(List<Candle> cs,double atr) {
         if(cs.size()<7||atr<=0) return 0;
-        int[] windows={5,9,15};
+        // From micro turns through broad formations. All windows are evaluated
+        // from already-closed candles; this adds no wait to the 10-second cycle.
+        int[] windows={5,9,15,21,30,45,60,90};
         double total=0,weightTotal=0;
         for(int w:windows) {
             if(cs.size()<w) continue;
             int from=cs.size()-w;
-            int pivot=-1;
+            int half=Math.max(2,w/3);
+            double leftMean=0,rightMean=0;
+            for(int i=0;i<half;i++) {
+                leftMean+=cs.get(from+i).close;
+                rightMean+=cs.get(cs.size()-half+i).close;
+            }
+            leftMean/=half;
+            rightMean/=half;
             double min=Double.POSITIVE_INFINITY,max=Double.NEGATIVE_INFINITY;
             int minAt=-1,maxAt=-1;
             for(int i=0;i<w;i++) {
-                double p=cs.get(from+i).close;
-                if(p<min){min=p;minAt=i;}
-                if(p>max){max=p;maxAt=i;}
+                Candle c=cs.get(from+i);
+                if(c.low<min){min=c.low;minAt=i;}
+                if(c.high>max){max=c.high;maxAt=i;}
             }
-            double first=cs.get(from).close,last=cs.get(cs.size()-1).close;
             double score=0;
-            if(minAt>0&&minAt<w-1) {
-                double down=first-min,up=last-min;
-                double center=1.0-Math.abs((minAt/(double)(w-1))-0.5)*1.4;
-                if(down>atr*0.18&&up>atr*0.18)
-                    score+=Math.min(1.5,Math.min(down,up)/atr)*Math.max(0.25,center);
+            // U: a meaningful trough between two higher shoulders, with
+            // recovery confirmed by the average of the right-side closes.
+            if(minAt>=2&&minAt<=w-3) {
+                double leftDrop=leftMean-min;
+                double rightRise=rightMean-min;
+                double recovery=rightMean-leftMean;
+                double center=1.0-Math.abs((minAt/(double)(w-1))-0.5)*1.25;
+                if(leftDrop>atr*0.20&&rightRise>atr*0.20&&recovery>atr*0.08) {
+                    double strength=Math.min(leftDrop,rightRise)/atr;
+                    score+=Math.min(2.0,strength)*Math.max(0.2,center);
+                }
             }
-            if(maxAt>0&&maxAt<w-1) {
-                double up=max-first,down=max-last;
-                double center=1.0-Math.abs((maxAt/(double)(w-1))-0.5)*1.4;
-                if(up>atr*0.18&&down>atr*0.18)
-                    score-=Math.min(1.5,Math.min(up,down)/atr)*Math.max(0.25,center);
+            // Inverted U / V: a crest between two lower shoulders.
+            if(maxAt>=2&&maxAt<=w-3) {
+                double leftRise=max-leftMean;
+                double rightDrop=max-rightMean;
+                double rollover=leftMean-rightMean;
+                double center=1.0-Math.abs((maxAt/(double)(w-1))-0.5)*1.25;
+                if(leftRise>atr*0.20&&rightDrop>atr*0.20&&rollover>atr*0.08) {
+                    double strength=Math.min(leftRise,rightDrop)/atr;
+                    score-=Math.min(2.0,strength)*Math.max(0.2,center);
+                }
             }
-            double weight=w==5?0.7:w==9?1.0:1.2;
+            // Mixed red/green candles are not a veto: broad net progress
+            // confirms which side is controlling the complete formation.
+            double net=cs.get(cs.size()-1).close-cs.get(from).open;
+            double netVote=clamp(net/(atr*Math.sqrt(w/5.0)),-0.65,0.65);
+            score=score*0.75+netVote*0.25;
+            double weight=w<=9?0.65:w<=21?0.9:w<=45?1.15:1.35;
             total+=score*weight;
             weightTotal+=weight;
         }
-        return weightTotal>0?clamp(total/weightTotal,-1.5,1.5):0;
+        return weightTotal>0?clamp(total/weightTotal,-1.8,1.8):0;
     }
 
     /** Measures repeated higher-high/higher-low or lower-high/lower-low steps. */
