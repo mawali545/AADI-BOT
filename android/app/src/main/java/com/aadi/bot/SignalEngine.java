@@ -176,6 +176,9 @@ public final class SignalEngine {
         double[] dmi=calculateDmi(cs,10);
         double plusDi=dmi[0], minusDi=dmi[1], adx=dmi[2];
         double macd=macdHistogram(values);
+        // Supertrend is calculated from the already-closed history, so it adds
+        // no extra candle wait and does not move the 10-second signal boundary.
+        int supertrend=supertrendDirection(cs,7,2.0);
         Candle last=cs.get(cs.size()-1);
 
         int lookback=Math.min(12,cs.size()-1);
@@ -208,6 +211,7 @@ public final class SignalEngine {
         if(momentum>0) bull+=18; else if(momentum<0) bear+=18;
         if(plusDi>minusDi&&adx>=10) bull+=14; else if(minusDi>plusDi&&adx>=10) bear+=14;
         if(macd>0) bull+=12; else if(macd<0) bear+=12;
+        if(supertrend>0) bull+=18; else if(supertrend<0) bear+=18;
         if(rsi>=50&&rsi<=68) bull+=12;
         else if(rsi<=50&&rsi>=32) bear+=12;
         if(closePosition>=0.65) bull+=10; else if(closePosition<=0.35) bear+=10;
@@ -226,9 +230,9 @@ public final class SignalEngine {
             sig="CALL"; why="CALL: support rejection with bullish close";
         } else if(bearReject&&bear>=55&&bear>bull+12) {
             sig="PUT"; why="PUT: resistance rejection with bearish close";
-        } else if(bull>=60&&bull>bear+15&&!nearResistance&&fast>slow&&momentum>0) {
+        } else if(bull>=60&&bull>bear+15&&!nearResistance&&fast>slow&&momentum>0&&supertrend>0) {
             sig="CALL"; why="CALL: bullish trend and momentum aligned";
-        } else if(bear>=60&&bear>bull+15&&!nearSupport&&fast<slow&&momentum<0) {
+        } else if(bear>=60&&bear>bull+15&&!nearSupport&&fast<slow&&momentum<0&&supertrend<0) {
             sig="PUT"; why="PUT: bearish trend and momentum aligned";
         } else if(nearResistance&&bull>bear) why="WAIT: bullish entry blocked at resistance";
         else if(nearSupport&&bear>bull) why="WAIT: bearish entry blocked at support";
@@ -249,6 +253,39 @@ public final class SignalEngine {
         double macdNow=line.get(line.size()-1);
         double signal=ema(line,9);
         return macdNow-signal;
+    }
+
+    /** Returns +1 for bullish, -1 for bearish, 0 when unavailable. */
+    private int supertrendDirection(List<Candle> cs,int period,double multiplier) {
+        if(cs.size()<period+2) return 0;
+        double finalUpper=0, finalLower=0;
+        int trend=1;
+        for(int i=1;i<cs.size();i++) {
+            Candle cur=cs.get(i), prev=cs.get(i-1);
+            double tr=Math.max(cur.high-cur.low,
+                    Math.max(Math.abs(cur.high-prev.close),Math.abs(cur.low-prev.close)));
+            int from=Math.max(1,i-period+1);
+            double atr=0;
+            for(int j=from;j<=i;j++) {
+                Candle a=cs.get(j), b=cs.get(j-1);
+                atr+=Math.max(a.high-a.low,
+                        Math.max(Math.abs(a.high-b.close),Math.abs(a.low-b.close)));
+            }
+            atr/=Math.max(1,i-from+1);
+            double mid=(cur.high+cur.low)/2.0;
+            double basicUpper=mid+multiplier*atr;
+            double basicLower=mid-multiplier*atr;
+            if(i==1) {
+                finalUpper=basicUpper;
+                finalLower=basicLower;
+            } else {
+                finalUpper=(basicUpper<finalUpper||prev.close>finalUpper)?basicUpper:finalUpper;
+                finalLower=(basicLower>finalLower||prev.close<finalLower)?basicLower:finalLower;
+            }
+            if(trend>0&&cur.close<finalLower) trend=-1;
+            else if(trend<0&&cur.close>finalUpper) trend=1;
+        }
+        return trend;
     }
 
     private double[] calculateDmi(List<Candle> cs,int period) {
