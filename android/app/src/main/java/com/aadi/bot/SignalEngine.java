@@ -25,7 +25,7 @@ public final class SignalEngine {
     }
 
     private static final int FAST=9, SLOW=21, RSI_PERIOD=14, MOMENTUM=5;
-    private static final int MIN_CANDLES=20;
+    private static final int MIN_CANDLES=50;
     private static final long FRAME_SECONDS=10;
 
     private static final class Candle {
@@ -77,7 +77,7 @@ public final class SignalEngine {
             // The previous candle is now final. Use only its closed OHLC data
             // to predict the candle that has just started.
             candles.addLast(new Candle(candleTime,open,high,low,close));
-            while (candles.size()>600) candles.removeFirst();
+            while (candles.size()>18000) candles.removeFirst();
             totalClosed++;
             startCandle(bucket, price);
             lockedNextCandleResult=calculateClosedCandles();
@@ -98,7 +98,7 @@ public final class SignalEngine {
      */
     public synchronized int importHistoricalCandles(String symbol, JSONArray rows) {
         if (symbol == null || symbol.trim().isEmpty() || rows == null) return 0;
-        TreeMap<Long,Candle> sorted = new TreeMap<>();
+        TreeMap<Long,Candle> incoming = new TreeMap<>();
         for (int i=0; i<rows.length(); i++) {
             JSONObject row=rows.optJSONObject(i);
             if (row==null) continue;
@@ -110,36 +110,36 @@ public final class SignalEngine {
             if (!Double.isFinite(o)||!Double.isFinite(h)||!Double.isFinite(l)||!Double.isFinite(c)
                     || o<=0||h<=0||l<=0||c<=0||h<Math.max(o,c)||l>Math.min(o,c)||h<l) continue;
             long bucket=(t/FRAME_SECONDS)*FRAME_SECONDS;
-            sorted.put(bucket,new Candle(bucket,o,h,l,c));
+            // Never import the currently forming 10-second candle as closed history.
+            long now=System.currentTimeMillis()/1000L;
+            if (bucket >= (now/FRAME_SECONDS)*FRAME_SECONDS) continue;
+            incoming.put(bucket,new Candle(bucket,o,h,l,c));
         }
-        if (sorted.size()<MIN_CANDLES) return 0;
-        Long previous=null;
-        for(Long t:sorted.keySet()) {
-            if(previous!=null && t-previous!=FRAME_SECONDS) return 0;
-            previous=t;
-        }
-        long now=System.currentTimeMillis()/1000L;
-        while(!sorted.isEmpty() && sorted.lastKey() >= (now/FRAME_SECONDS)*FRAME_SECONDS)
-            sorted.pollLastEntry();
-        if(sorted.size()<MIN_CANDLES) return 0;
-        if(asset!=null && !asset.equals(symbol)) {
-            candles.clear(); totalClosed=0;
-        } else if(asset!=null && !candles.isEmpty()) {
-            // Keep an existing live history rather than replacing it with a duplicate response.
-            return 0;
+        if (incoming.isEmpty()) return 0;
+        if (asset!=null && !asset.equals(symbol)) {
+            candles.clear(); totalClosed=0; candleTime=-1;
+            awaitingLiveCandle=false; lockedNextCandleResult=null;
         }
         asset=symbol;
-        candles.clear();
-        for(Candle candle:sorted.values()) {
-            candles.addLast(candle);
-            while(candles.size()>600) candles.removeFirst();
+        TreeMap<Long,Candle> merged=new TreeMap<>();
+        for(Candle old:candles) merged.put(old.time,old);
+        int added=0;
+        for(java.util.Map.Entry<Long,Candle> entry:incoming.entrySet()) {
+            if(!merged.containsKey(entry.getKey())) added++;
+            merged.put(entry.getKey(),entry.getValue());
         }
+        // Retain up to two days of 10-second history for contextual analysis.
+        while(merged.size()>18000) merged.pollFirstEntry();
+        candles.clear();
+        for(Candle candle:merged.values()) candles.addLast(candle);
         totalClosed=candles.size();
-        candleTime=sorted.lastKey();
-        lastPrice=sorted.lastEntry().getValue().close;
-        awaitingLiveCandle=true;
-        lockedNextCandleResult=snapshot("WAIT","Historical candles loaded; waiting for live candle close");
-        return candles.size();
+        if (awaitingLiveCandle || candleTime<0) {
+            candleTime=merged.lastKey();
+            lastPrice=merged.lastEntry().getValue().close;
+            awaitingLiveCandle=true;
+            lockedNextCandleResult=snapshot("WAIT","Historical candles loading; waiting for live candle");
+        }
+        return added;
     }
 
     private double number(JSONObject row,String longKey,String shortKey) {
