@@ -25,7 +25,7 @@ public final class SignalEngine {
     }
 
     private static final int FAST=9, SLOW=21, RSI_PERIOD=14, MOMENTUM=5;
-    private static final int MIN_CANDLES=50;
+    private static final int MIN_CANDLES=20;
     private static final long FRAME_SECONDS=10;
 
     private static final class Candle {
@@ -36,6 +36,7 @@ public final class SignalEngine {
         }
         double range() { return Math.max(0, high-low); }
         double body() { return close-open; }
+        double bodyAbs() { return Math.abs(close-open); }
     }
 
     private final Deque<Candle> candles = new ArrayDeque<>();
@@ -154,69 +155,85 @@ public final class SignalEngine {
     }
 
     private Result calculateClosedCandles() {
-        // This method runs only at a 10-second candle boundary. The forming
-        // candle is deliberately excluded from every indicator and decision.
+        // Evaluate only at the 10-second boundary; never wait for another candle
+        // once the minimum closed history is available.
         List<Candle> cs=new ArrayList<>(candles);
         if(cs.size()<MIN_CANDLES)
-            return snapshot("WAIT","Building closed-candle history");
-        // Require 50 consecutive genuine 10-second closes; do not treat sparse
-        // 1-minute/5-minute history as a 10-second signal dataset.
+            return snapshot("WAIT","Building 20 closed-candle history");
         int consecutive=1;
         for(int i=cs.size()-1;i>0&&consecutive<MIN_CANDLES;i--) {
             if(cs.get(i).time-cs.get(i-1).time!=FRAME_SECONDS) break;
             consecutive++;
         }
         if(consecutive<MIN_CANDLES)
-            return snapshot("WAIT","Need 50 consecutive closed 10-second candles");
+            return snapshot("WAIT","Need 20 consecutive closed 10-second candles");
 
         List<Double> values=new ArrayList<>();
         for(Candle c:cs) values.add(c.close);
         double fast=ema(values,9), slow=ema(values,21);
         double rsi=rsiWilder(values,14);
         double momentum=values.get(values.size()-1)-values.get(values.size()-4);
-        double[] dmi=calculateDmi(cs,14);
+        double[] dmi=calculateDmi(cs,10);
         double plusDi=dmi[0], minusDi=dmi[1], adx=dmi[2];
         double macd=macdHistogram(values);
         Candle last=cs.get(cs.size()-1);
-        double avgRange=0;
-        for(int i=cs.size()-14;i<cs.size();i++) avgRange+=cs.get(i).range();
-        avgRange/=14.0;
 
+        int lookback=Math.min(12,cs.size()-1);
         double resistance=Double.NEGATIVE_INFINITY, support=Double.POSITIVE_INFINITY;
-        for(int i=Math.max(0,cs.size()-18);i<cs.size()-1;i++) {
-            resistance=Math.max(resistance,cs.get(i).high);
-            support=Math.min(support,cs.get(i).low);
+        double avgRange=0;
+        for(int i=cs.size()-lookback-1;i<cs.size()-1;i++) {
+            Candle x=cs.get(i);
+            resistance=Math.max(resistance,x.high);
+            support=Math.min(support,x.low);
+            avgRange+=x.range();
         }
-        boolean nearResistance=avgRange>0 && resistance-last.close<=avgRange*0.35;
-        boolean nearSupport=avgRange>0 && last.close-support<=avgRange*0.35;
-        boolean spike=avgRange>0 && last.range()>avgRange*2.5;
-        boolean flat=avgRange<=0 || Math.abs(momentum)<avgRange*0.18;
-        boolean bullishCandle=last.close>last.open && last.range()>0
-                && last.body()/last.range()>=0.18;
-        boolean bearishCandle=last.close<last.open && last.range()>0
-                && -last.body()/last.range()>=0.18;
+        avgRange/=lookback;
+        double range=last.range();
+        double upperWick=last.high-Math.max(last.open,last.close);
+        double lowerWick=Math.min(last.open,last.close)-last.low;
+        double closePosition=range>0?(last.close-last.low)/range:0.5;
+        boolean spike=avgRange>0&&range>avgRange*2.4;
+        boolean flat=avgRange<=0||Math.abs(momentum)<avgRange*0.12;
+        boolean nearResistance=avgRange>0&&resistance-last.close<=avgRange*0.30;
+        boolean nearSupport=avgRange>0&&last.close-support<=avgRange*0.30;
+        boolean bullReject=nearSupport&&lowerWick>=Math.max(last.bodyAbs()*1.25,range*0.35)
+                &&closePosition>=0.62;
+        boolean bearReject=nearResistance&&upperWick>=Math.max(last.bodyAbs()*1.25,range*0.35)
+                &&closePosition<=0.38;
+        boolean bullBreak=last.close>resistance&&closePosition>=0.70;
+        boolean bearBreak=last.close<support&&closePosition<=0.30;
 
-        int bull=0, bear=0;
-        if(fast>slow) bull+=20; else if(fast<slow) bear+=20;
-        if(macd>0) bull+=20; else if(macd<0) bear+=20;
-        if(rsi>=52 && rsi<=72) bull+=15; else if(rsi<=48 && rsi>=28) bear+=15;
-        if(plusDi>minusDi && adx>=12) bull+=15; else if(minusDi>plusDi && adx>=12) bear+=15;
-        if(momentum>0) bull+=15; else if(momentum<0) bear+=15;
-        if(bullishCandle) bull+=15; else if(bearishCandle) bear+=15;
+        int bull=0,bear=0;
+        if(fast>slow) bull+=18; else if(fast<slow) bear+=18;
+        if(momentum>0) bull+=18; else if(momentum<0) bear+=18;
+        if(plusDi>minusDi&&adx>=10) bull+=14; else if(minusDi>plusDi&&adx>=10) bear+=14;
+        if(macd>0) bull+=12; else if(macd<0) bear+=12;
+        if(rsi>=50&&rsi<=68) bull+=12;
+        else if(rsi<=50&&rsi>=32) bear+=12;
+        if(closePosition>=0.65) bull+=10; else if(closePosition<=0.35) bear+=10;
+        if(bullBreak) bull+=16;
+        if(bearBreak) bear+=16;
+        // Rejection at a recent extreme is treated as a reversal setup,
+        // not as a continuation signal into resistance/support.
+        if(bullReject) bull+=28;
+        if(bearReject) bear+=28;
 
+        String sig="WAIT",why="WAIT: no clean 10-second setup";
         int score=Math.max(bull,bear);
-        String sig="WAIT", why="WAIT: mixed market direction";
-        if(spike) why="WAIT: sudden volatility spike";
-        else if(flat) why="WAIT: price is moving sideways";
-        else if(bull>=70 && bull>bear+15 && !nearResistance) {
-            sig="CALL"; why="CALL: bullish momentum confirmed by multiple factors";
-        } else if(bear>=70 && bear>bull+15 && !nearSupport) {
-            sig="PUT"; why="PUT: bearish momentum confirmed by multiple factors";
-        } else if(nearResistance && bull>=55) why="WAIT: CALL blocked near resistance";
-        else if(nearSupport && bear>=55) why="WAIT: PUT blocked near support";
-        else if(bull>bear) why="WAIT: bullish setup forming — waiting for stronger entry";
-        else if(bear>bull) why="WAIT: bearish setup forming — waiting for stronger entry";
-
+        if(spike) why="WAIT: abnormal volatility; avoid chasing";
+        else if(flat) why="WAIT: sideways/weak momentum";
+        else if(bullReject&&bull>=55&&bull>bear+12) {
+            sig="CALL"; why="CALL: support rejection with bullish close";
+        } else if(bearReject&&bear>=55&&bear>bull+12) {
+            sig="PUT"; why="PUT: resistance rejection with bearish close";
+        } else if(bull>=60&&bull>bear+15&&!nearResistance&&fast>slow&&momentum>0) {
+            sig="CALL"; why="CALL: bullish trend and momentum aligned";
+        } else if(bear>=60&&bear>bull+15&&!nearSupport&&fast<slow&&momentum<0) {
+            sig="PUT"; why="PUT: bearish trend and momentum aligned";
+        } else if(nearResistance&&bull>bear) why="WAIT: bullish entry blocked at resistance";
+        else if(nearSupport&&bear>bull) why="WAIT: bearish entry blocked at support";
+        else if(bull>bear) why="WAIT: bullish bias, confirmation not strong enough";
+        else if(bear>bull) why="WAIT: bearish bias, confirmation not strong enough";
         return new Result(asset,sig,why,last.close,fast,slow,rsi,momentum,score,totalClosed);
     }
 
