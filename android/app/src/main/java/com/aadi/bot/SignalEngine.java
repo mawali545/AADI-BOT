@@ -54,6 +54,10 @@ public final class SignalEngine {
 
     private long latestFeedTime=-1;
     private Result latestHistoryResult=null;
+    // Re-entry control: do not repeat CALL/PUT through one uninterrupted price leg.
+    private String lastDirectionalSide="";
+    private double postSignalExtreme=Double.NaN;
+    private boolean sameSideRearmed=false;
     // The forming candle is built only from current live exchange ticks.
     // Older context remains sourced from Market-QX history packets.
     private long liveBucket=-1;
@@ -75,6 +79,9 @@ public final class SignalEngine {
             totalClosed=0;
             latestHistoryResult=null;
             latestFeedTime=-1;
+            lastDirectionalSide="";
+            postSignalExtreme=Double.NaN;
+            sameSideRearmed=false;
             liveBucket=-1;
             liveCandle=null;
         }
@@ -188,6 +195,8 @@ public final class SignalEngine {
         return changed;
     }
 
+    public synchronized int getClosedCandleCount() { return candles.size(); }
+
     private double number(JSONObject row,String longKey,String shortKey) {
         double v=row.has(longKey)?row.optDouble(longKey,Double.NaN):row.optDouble(shortKey,Double.NaN);
         return v;
@@ -220,6 +229,13 @@ public final class SignalEngine {
         Candle last=cs.get(n-1);
         double atr=averageTrueRange(cs,14);
         if(atr<=0) return snapshot("WAIT","Insufficient price movement data");
+        if("CALL".equals(lastDirectionalSide)) {
+            postSignalExtreme=Double.isFinite(postSignalExtreme)?Math.max(postSignalExtreme,last.high):last.high;
+            if(postSignalExtreme-last.close>=atr*0.30) sameSideRearmed=true;
+        } else if("PUT".equals(lastDirectionalSide)) {
+            postSignalExtreme=Double.isFinite(postSignalExtreme)?Math.min(postSignalExtreme,last.low):last.low;
+            if(last.close-postSignalExtreme>=atr*0.30) sameSideRearmed=true;
+        }
 
         double fast=ema(values,9), slow=ema(values,21);
         double rsi=rsiWilder(values,14);
@@ -271,6 +287,12 @@ public final class SignalEngine {
                 && closePos>=0.58;
         boolean bearReject=nearResistance && upperWick>Math.max(last.bodyAbs(),atr*0.18)
                 && closePos<=0.42;
+        boolean bearishReversalWarning=liquiditySweep<0 || failedBreak<0
+                || (nearResistance && upperWick>Math.max(last.bodyAbs()*0.85,atr*0.20) && closePos<0.56)
+                || (last.close<cs.get(n-2).low && microFlow< -0.70);
+        boolean bullishReversalWarning=liquiditySweep>0 || failedBreak>0
+                || (nearSupport && lowerWick>Math.max(last.bodyAbs()*0.85,atr*0.20) && closePos>0.44)
+                || (last.close>cs.get(n-2).high && microFlow>0.70);
 
         // Continuous directional score: evidence accumulates rather than
         // requiring every indicator to agree before a signal can be emitted.
@@ -312,6 +334,13 @@ public final class SignalEngine {
         if(bearBreak) bias-=10;
         if(bullReject) bias+=8;
         if(bearReject) bias-=8;
+        if(nearResistance && !bullBreak) bias-=3.5;
+        if(nearSupport && !bearBreak) bias+=3.5;
+        if(bearishReversalWarning) bias-=7.5;
+        if(bullishReversalWarning) bias+=7.5;
+        double fastExtension=(last.close-fast)/atr;
+        if(fastExtension>1.15 && !bullBreak) bias-=clamp((fastExtension-1.15)*4.0,0,7.0);
+        if(fastExtension< -1.15 && !bearBreak) bias+=clamp((-fastExtension-1.15)*4.0,0,7.0);
 
         // Respect a mature trend during a shallow pullback, but never mute
         // a clear short-term structure break / exhaustion reversal.
@@ -356,6 +385,25 @@ public final class SignalEngine {
                     last.close,fast,slow,rsi,momentum,0,totalClosed);
         }
         String sig=bias>0?"CALL":"PUT";
+        Candle previous=cs.get(n-2);
+        if(sig.equals(lastDirectionalSide)) {
+            boolean resumed = "CALL".equals(sig)
+                    ? (last.close>previous.high || (last.close>previous.close && closePos>0.62 && microFlow>0.25) || bullBreak)
+                    : (last.close<previous.low || (last.close<previous.close && closePos<0.38 && microFlow< -0.25) || bearBreak);
+            if(!sameSideRearmed)
+                return new Result(asset,"WAIT","WAIT: same trend leg already signalled • waiting for a meaningful pullback",
+                        last.close,fast,slow,rsi,momentum,0,totalClosed);
+            if(!resumed)
+                return new Result(asset,"WAIT","WAIT: pullback detected • waiting for continuation confirmation",
+                        last.close,fast,slow,rsi,momentum,0,totalClosed);
+        }
+        if("CALL".equals(sig) && bearishReversalWarning && bias<10.5)
+            return new Result(asset,"WAIT","WAIT: upper liquidity/rejection • CALL entry risk elevated",last.close,fast,slow,rsi,momentum,0,totalClosed);
+        if("PUT".equals(sig) && bullishReversalWarning && bias> -10.5)
+            return new Result(asset,"WAIT","WAIT: lower liquidity/rejection • PUT entry risk elevated",last.close,fast,slow,rsi,momentum,0,totalClosed);
+        lastDirectionalSide=sig;
+        postSignalExtreme="CALL".equals(sig)?last.high:last.low;
+        sameSideRearmed=false;
         int score=(int)Math.round(clamp(50.0+Math.abs(bias)*1.15,50,94));
         String pattern;
         if(turnBias>0.35) pattern="bullish turning-point / bounce";

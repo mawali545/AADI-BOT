@@ -56,7 +56,8 @@ public class MainActivity extends Activity {
         "const NativeWS=window.WebSocket;const seen=new Set();let diagCount=0,historySent=0;" +
         "function emit(price,asset,time){" +
         "price=Number(price);if(!Number.isFinite(price)||price<=0||!asset)return;" +
-        "const feedTime=normTime(time);try{AadiNative.onTick(JSON.stringify({price:price,asset:String(asset),timestamp:feedTime||0}));}catch(e){}" +
+        "const nextAsset=String(asset);if(activeAsset!==nextAsset){activeAsset=nextAsset;historyPages=0;historyOldest=0;historyTarget=Date.now()/1000-86400;if(loginState===true)setTimeout(function(){requestHistory(nextAsset,Date.now()/1000);},250);}" +
+        "const feedTime=normTime(time);try{AadiNative.onTick(JSON.stringify({price:price,asset:nextAsset,timestamp:feedTime||0}));}catch(e){}" +
         "}" +
         "function key(o,names){for(const n of names){if(o[n]!==undefined&&o[n]!==null)return o[n];}return null;}" +
         "function normTime(v){let n=Number(v);if(!Number.isFinite(n)||n<=0)return 0;if(n>1e12)n/=1000;return n;}" +
@@ -76,13 +77,19 @@ public class MainActivity extends Activity {
         "let activeAsset=null,historyWs=null,historyPages=0,historyOldest=0,historyTarget=0,lastLiveHistoryBucket=0;\n" +
 "        function requestHistory(asset,anchor){\n" +
 "          if(!asset||!historyWs||historyPages>=64||loginState!==true)return;\n" +
-"          const payload={asset:String(asset),index:Math.floor(Date.now()/10)+historyPages,offset:3600,period:10,time:Math.floor(anchor||Date.now()/1000)};\n" +
-"          try{historyWs.send('42[\"history/load\",'+JSON.stringify(payload)+']');historyPages++;}catch(e){}\n" +
+"          let requestTime=Math.floor(Number(anchor)||Date.now()/1000);\n" +
+"          if(historyPages>0&&historyOldest>0&&requestTime>=historyOldest)requestTime=historyOldest-1;\n" +
+"          if(requestTime<=historyTarget)return;\n" +
+"          const payload={asset:String(asset),index:Math.floor(Date.now()/10)+historyPages,offset:3600,period:10,time:requestTime};\n" +
+"          try{historyWs.send('42[\"history/load\",'+JSON.stringify(payload)+']');historyPages++;try{AadiNative.onDiagnostic('HISTORY REQUEST '+historyPages+'/64 • '+asset+' • from '+requestTime);}catch(e){}}catch(e){}\n" +
 "        }\n" +
 "        function requestHistory(asset,anchor){\n" +
 "          if(!asset||!historyWs||historyPages>=64||loginState!==true)return;\n" +
-"          const payload={asset:String(asset),index:Math.floor(Date.now()/10)+historyPages,offset:3600,period:10,time:Math.floor(anchor||Date.now()/1000)};\n" +
-"          try{historyWs.send('42[\"history/load\",'+JSON.stringify(payload)+']');historyPages++;}catch(e){}\n" +
+"          let requestTime=Math.floor(Number(anchor)||Date.now()/1000);\n" +
+"          if(historyPages>0&&historyOldest>0&&requestTime>=historyOldest)requestTime=historyOldest-1;\n" +
+"          if(requestTime<=historyTarget)return;\n" +
+"          const payload={asset:String(asset),index:Math.floor(Date.now()/10)+historyPages,offset:3600,period:10,time:requestTime};\n" +
+"          try{historyWs.send('42[\"history/load\",'+JSON.stringify(payload)+']');historyPages++;try{AadiNative.onDiagnostic('HISTORY REQUEST '+historyPages+'/64 • '+asset+' • from '+requestTime);}catch(e){}}catch(e){}\n" +
 "        }\n" +
 "        function requestLatestHistory(asset,anchor){\n" +
 "          const bucket=Math.floor(Number(anchor||Date.now()/1000)/10);if(!asset||!historyWs||loginState!==true||bucket<=lastLiveHistoryBucket)return;\n" +
@@ -105,7 +112,7 @@ public class MainActivity extends Activity {
 "              for(const v of x)if(v&&typeof v==='object')walk(v,asset,d+1);return;\n" +
 "            }\n" +
 "            const a=key(x,['asset','symbol','pair','instrument','assetName','ticker'])||asset;\n" +
-"            for(const name of ['data','candles']){\n" +
+"            for(const name of ['data','candles','history','rows']){\n" +
 "              const arr=x[name];if(!Array.isArray(arr))continue;\n" +
 "              const rows=[];\n" +
 "              for(const r of arr){\n" +
@@ -113,7 +120,7 @@ public class MainActivity extends Activity {
 "                  const t=normTime(r[0]),o=Number(r[1]),cl=Number(r[2]),h=Number(r[3]),l=Number(r[4]);\n" +
 "                  if(t&&[o,cl,h,l].every(Number.isFinite)&&o>0&&cl>0&&h>=Math.max(o,cl)&&l<=Math.min(o,cl)&&l>0&&h>=l)rows.push({timestamp:t,open:o,high:h,low:l,close:cl});\n" +
 "                }else if(r&&typeof r==='object'){\n" +
-"                  const t=normTime(key(r,['timestamp','time','ts'])),o=Number(key(r,['open','o'])),h=Number(key(r,['high','h'])),l=Number(key(r,['low','l'])),cl=Number(key(r,['close','c']));\n" +
+"                  const t=normTime(key(r,['timestamp','time','ts','date','at'])),o=Number(key(r,['open','o'])),h=Number(key(r,['high','h'])),l=Number(key(r,['low','l'])),cl=Number(key(r,['close','c']));\n" +
 "                  if(t&&[o,h,l,cl].every(Number.isFinite)&&o>0&&h>=Math.max(o,cl)&&l<=Math.min(o,cl)&&l>0&&h>=l)rows.push({timestamp:t,open:o,high:h,low:l,close:cl});\n" +
 "                }\n" +
 "              }\n" +
@@ -128,7 +135,7 @@ public class MainActivity extends Activity {
 "          try{\n" +
 "            const event=Array.isArray(o)&&typeof o[0]==='string'?o[0]:'';\n" +
 "            const payload=event?o[1]:o;\n" +
-"            if(event==='history/load'){\n" +
+"            if(/history|candle/i.test(event)){\n" +
 "              const packets=collectHistory(payload,activeAsset);\n" +
 "              let oldest=Number.POSITIVE_INFINITY,total=0;\n" +
 "              for(const p of packets){if(p.asset==='UNKNOWN')continue;total+=p.candles.length;\n" +
@@ -136,9 +143,14 @@ public class MainActivity extends Activity {
 "                try{AadiNative.onHistory(JSON.stringify(p));}catch(e){}\n" +
 "              }\n" +
 "              if(total&&Number.isFinite(oldest)){\n" +
-"                const next=oldest<historyOldest||historyOldest===0?oldest:historyOldest-3600;\n" +
-"                historyOldest=next;\n" +
-"                if(oldest>historyTarget&&historyPages<64)setTimeout(function(){requestHistory(activeAsset,next);},350);\n" +
+"                const previousOldest=historyOldest;
+                if(previousOldest===0||oldest<previousOldest)historyOldest=oldest;
+                try{AadiNative.onDiagnostic('HISTORY RESPONSE '+total+' OHLC rows • oldest '+oldest+' • page '+historyPages);}catch(e){}\n" +
+"\n" +
+"                if(oldest>historyTarget&&historyPages<64){
+                  const nextAnchor=(previousOldest>0&&oldest>=previousOldest)?previousOldest-3600:oldest-1;
+                  if(nextAnchor>historyTarget)setTimeout(function(){requestHistory(activeAsset,nextAnchor);},350);
+                }\n" +
 "              }\n" +
 "            }\n" +
 "            const packets=findHistory(o,null);\n" +
@@ -295,20 +307,24 @@ public class MainActivity extends Activity {
     }
 
     private void flushHistoryBatch(String asset) {
-        if (!botActive || !asset.equals(pendingHistoryAsset)) return;
+        if (!asset.equals(pendingHistoryAsset)) return;
+        if (!botActive) {
+            historyFlushTask = historyExecutor.schedule(() -> flushHistoryBatch(asset),
+                    500L, TimeUnit.MILLISECONDS);
+            return;
+        }
         org.json.JSONArray batch = pendingHistoryRows;
         pendingHistoryRows = new org.json.JSONArray();
         pendingHistoryAsset = "";
         historyFlushTask = null;
         SignalEngine target = engine;
         int imported = target.importHistoricalCandles(asset, batch);
-        if (imported > 0) {
-            uiHandler.post(() -> {
-                diagnosticView.setText("HISTORY READY: " + asset + " | received="
-                        + batch.length() + " | new/updated=" + imported
-                        + " | live signal continues on real ticks");
-            });
-        }
+        final int retained = target.getClosedCandleCount();
+        uiHandler.post(() -> {
+            diagnosticView.setText("HISTORY " + (retained >= 20 ? "READY" : "LOADING") + ": " + asset
+                    + " | packet rows=" + batch.length() + " | new/updated=" + imported
+                    + " | retained real candles=" + retained);
+        });
     }
 
     private class Bridge {
@@ -328,7 +344,7 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface public void onHistory(String json) {
-            if (!botActive || json == null) return;
+            if (json == null) return;
             // Parse and queue packets away from the WebView callback. Several history pages
             // are merged together so the engine performs one short merge instead of recalculating
             // the signal separately for every page.
