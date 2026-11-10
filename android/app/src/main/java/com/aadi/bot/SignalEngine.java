@@ -63,7 +63,9 @@ public final class SignalEngine {
             if (bucket <= candleTime) return snapshot("WAIT", "Historical candles loaded; waiting for live candle close");
             startCandle(bucket, price);
             awaitingLiveCandle=false;
-            lockedNextCandleResult=snapshot("WAIT", "Waiting for first live candle to close");
+            // The imported history already contains closed candles. Calculate
+            // immediately at this first live boundary and lock for this candle.
+            lockedNextCandleResult=calculateClosedCandles();
             return lockedNextCandleResult;
         }
         if (candleTime < 0) {
