@@ -85,17 +85,21 @@ public final class SignalEngine {
         lastPrice=price;
         long bucket=(ts/FRAME_SECONDS)*FRAME_SECONDS;
         if(liveCandle==null || bucket>liveBucket) {
+            // The candle that just ended is now a genuine completed bar.
+            // Calculate once from closed history and lock that direction for
+            // the whole new 10-second candle; live price fluctuations cannot flip it.
             if(liveCandle!=null) appendClosedLiveCandle(liveCandle);
             liveBucket=bucket;
             liveCandle=new Candle(bucket,price,price,price,price);
+            lockedNextCandleResult=calculateClosedCandles();
+            latestHistoryResult=lockedNextCandleResult;
         } else if(bucket==liveBucket) {
+            // Update only the live quote/OHLC. Do not recalculate direction
+            // from a still-forming candle on every tick.
             liveCandle=new Candle(liveBucket,liveCandle.open,
                     Math.max(liveCandle.high,price),Math.min(liveCandle.low,price),price);
         }
-        // Re-evaluate using all historical context plus the freshest forming
-        // candle on every tick; the signal is not held back until the next bar.
-        latestHistoryResult=calculateWithLiveCandle();
-        return latestHistoryResult;
+        return currentResult();
     }
 
     private void appendClosedLiveCandle(Candle completed) {
