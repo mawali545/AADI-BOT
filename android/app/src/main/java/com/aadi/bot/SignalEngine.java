@@ -51,10 +51,14 @@ public final class SignalEngine {
 
     private long latestFeedTime=-1;
     private Result latestHistoryResult=null;
+    // The forming candle is built only from current live exchange ticks.
+    // Older context remains sourced from Market-QX history packets.
+    private long liveBucket=-1;
+    private Candle liveCandle=null;
 
     /**
-     * Tick packets are used only as a trusted exchange-clock reference.
-     * No synthetic OHLC candles are ever built from ticks.
+     * Update the live forming 10-second candle from genuine current exchange ticks.
+     * Historical candles are never used as the current quote.
      */
     public synchronized Result onTick(String symbol, double price, double timestamp) {
         if (symbol == null || symbol.trim().isEmpty() || !Double.isFinite(price) || price <= 0)
@@ -68,16 +72,54 @@ public final class SignalEngine {
             totalClosed=0;
             latestHistoryResult=null;
             latestFeedTime=-1;
+            liveBucket=-1;
+            liveCandle=null;
         }
-        latestFeedTime=Math.max(latestFeedTime,ts);
+        // Ignore out-of-order exchange ticks so an old packet cannot roll
+        // the current price or forming candle backwards.
+        if (latestFeedTime>0 && ts<latestFeedTime) return currentResult();
+        latestFeedTime=ts;
         lastPrice=price;
-        return currentResult();
+        long bucket=(ts/FRAME_SECONDS)*FRAME_SECONDS;
+        if(liveCandle==null || bucket>liveBucket) {
+            if(liveCandle!=null) appendClosedLiveCandle(liveCandle);
+            liveBucket=bucket;
+            liveCandle=new Candle(bucket,price,price,price,price);
+        } else if(bucket==liveBucket) {
+            liveCandle=new Candle(liveBucket,liveCandle.open,
+                    Math.max(liveCandle.high,price),Math.min(liveCandle.low,price),price);
+        }
+        // Re-evaluate using all historical context plus the freshest forming
+        // candle on every tick; the signal is not held back until the next bar.
+        latestHistoryResult=calculateWithLiveCandle();
+        return latestHistoryResult;
     }
 
-    /** Returns the most recent analysis made from genuine Market-QX OHLC history. */
+    private void appendClosedLiveCandle(Candle completed) {
+        if(!candles.isEmpty() && candles.peekLast().time==completed.time) {
+            candles.removeLast();
+        } else if(!candles.isEmpty() && candles.peekLast().time>completed.time) {
+            return;
+        }
+        candles.addLast(completed);
+        while(candles.size()>18000) candles.removeFirst();
+        totalClosed=candles.size();
+    }
+
+    private Result calculateWithLiveCandle() {
+        List<Candle> combined=new ArrayList<>(candles);
+        if(liveCandle!=null) {
+            if(!combined.isEmpty() && combined.get(combined.size()-1).time==liveCandle.time)
+                combined.set(combined.size()-1,liveCandle);
+            else combined.add(liveCandle);
+        }
+        return calculateFromCandles(combined);
+    }
+
+    /** Uses current live candle with prior historical context when available. */
     public synchronized Result currentResult() {
         return latestHistoryResult!=null ? latestHistoryResult
-                : snapshot("WAIT","Waiting for genuine Market-QX 10-second history candles");
+                : snapshot("WAIT","Waiting for genuine Market-QX history and live ticks");
     }
 
     /**
@@ -133,7 +175,7 @@ public final class SignalEngine {
         candles.clear();
         for(Candle candle:merged.values()) candles.addLast(candle);
         totalClosed=candles.size();
-        if(changed>0) latestHistoryResult=calculateClosedCandles();
+        if(changed>0) latestHistoryResult=liveCandle!=null?calculateWithLiveCandle():calculateClosedCandles();
         return changed;
     }
 
