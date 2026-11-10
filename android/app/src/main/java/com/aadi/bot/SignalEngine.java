@@ -148,6 +148,12 @@ public final class SignalEngine {
             totalClosed=0;
             latestHistoryResult=null;
             latestFeedTime=-1;
+            liveBucket=-1;
+            liveCandle=null;
+            lockedNextCandleResult=null;
+            lastDirectionalSide="";
+            postSignalExtreme=Double.NaN;
+            sameSideRearmed=false;
         }
         asset=symbol;
         TreeMap<Long,Candle> incoming = new TreeMap<>();
@@ -185,12 +191,19 @@ public final class SignalEngine {
                     || old.low!=fresh.low || old.close!=fresh.close) changed++;
             merged.put(entry.getKey(),fresh);
         }
-        while(merged.size()>8640) merged.pollFirstEntry();
+        while(merged.size()>17280) merged.pollFirstEntry();
         candles.clear();
         for(Candle candle:merged.values()) candles.addLast(candle);
         totalClosed=candles.size();
-        // History ingestion only updates the candle context. The next genuine live tick
-        // runs the unchanged signal calculation against the merged history and live candle.
+        // If the current locked decision is still WAIT (startup/history not ready),
+        // refresh it as genuine OHLC pages arrive. Never flip an already-issued
+        // CALL/PUT halfway through its 10-second decision candle.
+        if(changed>0 && (lockedNextCandleResult==null
+                || "WAIT".equals(lockedNextCandleResult.signal))) {
+            Result refreshed=liveCandle!=null?calculateWithLiveCandle():calculateClosedCandles();
+            lockedNextCandleResult=refreshed;
+            latestHistoryResult=refreshed;
+        }
 
         return changed;
     }
@@ -406,14 +419,14 @@ public final class SignalEngine {
         sameSideRearmed=false;
         int score=(int)Math.round(clamp(50.0+Math.abs(bias)*1.15,50,94));
         String pattern;
-        if(turnBias>0.35) pattern="bullish turning-point / bounce";
-        else if(turnBias< -0.35) pattern="bearish turning-point / rejection";
         if(bullBreak) pattern="bullish breakout";
         else if(bearBreak) pattern="bearish breakout";
         else if(pullback>0) pattern="bullish pullback continuation";
         else if(pullback<0) pattern="bearish pullback continuation";
         else if(bullReject) pattern="support rejection";
         else if(bearReject) pattern="resistance rejection";
+        else if(turnBias>0.35) pattern="bullish turning-point / bounce";
+        else if(turnBias< -0.35) pattern="bearish turning-point / rejection";
         else if(structure>0) pattern="higher-high / higher-low structure";
         else if(structure<0) pattern="lower-high / lower-low structure";
         else if(candlePatternBias>0.25) pattern="bullish candle pattern / rejection";
