@@ -26,6 +26,9 @@ public final class SignalEngine {
 
     private static final int FAST=9, SLOW=21, RSI_PERIOD=14, MOMENTUM=5;
     private static final int MIN_CANDLES=20;
+    // Keep the full 20-candle context, but only require the latest 3 real bars
+    // to be contiguous so a gap in older history does not stall live signals.
+    private static final int MIN_RECENT_CONSECUTIVE=3;
     private static final long FRAME_SECONDS=10;
 
     private static final class Candle {
@@ -200,12 +203,12 @@ public final class SignalEngine {
         if(cs.size()<MIN_CANDLES)
             return snapshot("WAIT","Collecting genuine closed-candle history");
         int consecutive=1;
-        for(int i=cs.size()-1;i>0&&consecutive<MIN_CANDLES;i--) {
+        for(int i=cs.size()-1;i>0&&consecutive<MIN_RECENT_CONSECUTIVE;i--) {
             if(cs.get(i).time-cs.get(i-1).time!=FRAME_SECONDS) break;
             consecutive++;
         }
-        if(consecutive<MIN_CANDLES)
-            return snapshot("WAIT","Need consecutive real 10-second candles");
+        if(consecutive<MIN_RECENT_CONSECUTIVE)
+            return snapshot("WAIT","Need 3 recent consecutive real 10-second candles");
 
         List<Double> values=new ArrayList<>();
         for(Candle c:cs) values.add(c.close);
@@ -854,12 +857,23 @@ public final class SignalEngine {
 
     private double macdHistogram(List<Double> values) {
         if(values.isEmpty()) return 0;
-        // Build the MACD line from every available closed candle. This keeps
-        // the signal-line EMA meaningful even during the 20-candle warm-up.
-        List<Double> line=new ArrayList<>();
+        // Build both MACD EMAs in one pass. This is mathematically equivalent
+        // to ema(values[0..i], period) for every i, but avoids the old O(n^2)
+        // prefix recalculation that froze the live UI with large history sets.
+        List<Double> line=new ArrayList<>(values.size());
+        double sum12=0,sum26=0,ema12=0,ema26=0;
+        double k12=2.0/13.0,k26=2.0/27.0;
         for(int i=0;i<values.size();i++) {
-            List<Double> part=values.subList(0,i+1);
-            line.add(ema(part,12)-ema(part,26));
+            double value=values.get(i);
+            if(i<12) sum12+=value;
+            if(i<26) sum26+=value;
+            if(i==11) ema12=sum12/12.0;
+            else if(i>11) ema12=value*k12+ema12*(1.0-k12);
+            if(i==25) ema26=sum26/26.0;
+            else if(i>25) ema26=value*k26+ema26*(1.0-k26);
+            double fast=i<11?(sum12/(i+1)):ema12;
+            double slow=i<25?(sum26/(i+1)):ema26;
+            line.add(fast-slow);
         }
         double macdNow=line.get(line.size()-1);
         double signal=ema(line,9);
