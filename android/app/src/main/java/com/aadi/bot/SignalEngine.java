@@ -238,13 +238,15 @@ public final class SignalEngine {
     }
 
     private double macdHistogram(List<Double> values) {
-        double macdNow=ema(values,12)-ema(values,26);
+        if(values.isEmpty()) return 0;
+        // Build the MACD line from every available closed candle. This keeps
+        // the signal-line EMA meaningful even during the 20-candle warm-up.
         List<Double> line=new ArrayList<>();
-        for(int i=25;i<values.size();i++) {
+        for(int i=0;i<values.size();i++) {
             List<Double> part=values.subList(0,i+1);
             line.add(ema(part,12)-ema(part,26));
         }
-        if(line.isEmpty()) return macdNow;
+        double macdNow=line.get(line.size()-1);
         double signal=ema(line,9);
         return macdNow-signal;
     }
@@ -278,12 +280,15 @@ public final class SignalEngine {
     }
 
     private double ema(List<Double> v,int period) {
-        if(v.size()<period) return v.get(v.size()-1);
+        if(v.isEmpty()) return 0;
+        // With fewer samples than the requested period, use their mean as a
+        // partial seed instead of incorrectly returning the latest close.
+        int seed=Math.min(period,v.size());
         double e=0;
-        for(int i=0;i<period;i++) e+=v.get(i);
-        e/=period;
+        for(int i=0;i<seed;i++) e+=v.get(i);
+        e/=seed;
         double k=2.0/(period+1);
-        for(int i=period;i<v.size();i++) e=v.get(i)*k+e*(1-k);
+        for(int i=seed;i<v.size();i++) e=v.get(i)*k+e*(1-k);
         return e;
     }
 
