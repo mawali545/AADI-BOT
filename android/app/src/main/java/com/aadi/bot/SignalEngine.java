@@ -25,7 +25,7 @@ public final class SignalEngine {
     }
 
     private static final int FAST=9, SLOW=21, RSI_PERIOD=14, MOMENTUM=5;
-    private static final int MIN_CANDLES=20;
+    private static final int MIN_CANDLES=13;
     private static final long FRAME_SECONDS=10;
 
     private static final class Candle {
@@ -40,6 +40,10 @@ public final class SignalEngine {
     }
 
     private final Deque<Candle> candles = new ArrayDeque<>();
+    // Only exchange ticks received after app startup populate this short live window.
+    private final Deque<Candle> liveCandles = new ArrayDeque<>();
+    // Cached once per history import / completed live bar, never scanned per tick.
+    private double historyContextBias=0;
     private String asset;
     private long candleTime=-1;
     private double open, high, low, close, lastPrice;
@@ -69,6 +73,8 @@ public final class SignalEngine {
         if (asset == null || !asset.equals(symbol)) {
             asset=symbol;
             candles.clear();
+            liveCandles.clear();
+            historyContextBias=0;
             totalClosed=0;
             latestHistoryResult=null;
             latestFeedTime=-1;
@@ -103,11 +109,17 @@ public final class SignalEngine {
         }
         candles.addLast(completed);
         while(candles.size()>8640) candles.removeFirst();
+        if(!liveCandles.isEmpty() && liveCandles.peekLast().time==completed.time) liveCandles.removeLast();
+        liveCandles.addLast(completed);
+        while(liveCandles.size()>15) liveCandles.removeFirst();
         totalClosed=candles.size();
+        refreshHistoryContext();
     }
 
     private Result calculateWithLiveCandle() {
-        List<Candle> combined=new ArrayList<>(candles);
+        // Direction uses ONLY up to 15 closed live candles plus the current forming candle.
+        // Imported history is context, never a direct signal trigger.
+        List<Candle> combined=new ArrayList<>(liveCandles);
         if(liveCandle!=null) {
             if(!combined.isEmpty() && combined.get(combined.size()-1).time==liveCandle.time)
                 combined.set(combined.size()-1,liveCandle);
@@ -131,6 +143,8 @@ public final class SignalEngine {
         if (symbol == null || symbol.trim().isEmpty() || rows == null) return 0;
         if (asset!=null && !asset.equals(symbol)) {
             candles.clear();
+            liveCandles.clear();
+            historyContextBias=0;
             totalClosed=0;
             latestHistoryResult=null;
             latestFeedTime=-1;
@@ -175,8 +189,19 @@ public final class SignalEngine {
         candles.clear();
         for(Candle candle:merged.values()) candles.addLast(candle);
         totalClosed=candles.size();
-        if(changed>0) latestHistoryResult=liveCandle!=null?calculateWithLiveCandle():calculateClosedCandles();
+        refreshHistoryContext();
+        // Never derive a directional signal from historical candles alone.
+        if(changed>0 && liveCandle!=null) latestHistoryResult=calculateWithLiveCandle();
         return changed;
+    }
+
+    private void refreshHistoryContext() {
+        if(candles.size()<30) { historyContextBias=0; return; }
+        Candle first=candles.peekFirst(), last=candles.peekLast();
+        double hi=Double.NEGATIVE_INFINITY, lo=Double.POSITIVE_INFINITY;
+        for(Candle c:candles) { hi=Math.max(hi,c.high); lo=Math.min(lo,c.low); }
+        double span=hi-lo;
+        historyContextBias=span>0?clamp((last.close-first.close)/span,-1.0,1.0):0;
     }
 
     private double number(JSONObject row,String longKey,String shortKey) {
@@ -266,6 +291,9 @@ public final class SignalEngine {
         // Continuous directional score: evidence accumulates rather than
         // requiring every indicator to agree before a signal can be emitted.
         double bias=0;
+        // Small background vote from the full fetched price path; it cannot
+        // override current candle and recent live-candle structure.
+        bias+=historyContextBias*1.25;
         bias+=clamp((fast-slow)/atr*5.0,-9,9);
         bias+=clamp(slopeFast*8.0,-8,8);
         bias+=clamp(slopeSlow*7.0,-9,9);

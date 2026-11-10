@@ -29,6 +29,7 @@ public class MainActivity extends Activity {
     private SignalEngine engine = new SignalEngine();
     private WebView web;
     private long receivedTicks = 0;
+    private volatile long lastUiTickAt = 0;
     private final Handler uiHandler = new Handler(Looper.getMainLooper());
     private Runnable signalColorReset;
     private long lastSignalFlashBucket = Long.MIN_VALUE;
@@ -66,11 +67,7 @@ public class MainActivity extends Activity {
 "          const payload={asset:String(asset),index:Math.floor(Date.now()/10)+historyPages,offset:3600,period:10,time:Math.floor(anchor||Date.now()/1000)};\n" +
 "          try{historyWs.send('42[\"history/load\",'+JSON.stringify(payload)+']');historyPages++;}catch(e){}\n" +
 "        }\n" +
-"        function requestHistory(asset,anchor){\n" +
-"          if(!asset||!historyWs||historyPages>=64||loginState!==true)return;\n" +
-"          const payload={asset:String(asset),index:Math.floor(Date.now()/10)+historyPages,offset:3600,period:10,time:Math.floor(anchor||Date.now()/1000)};\n" +
-"          try{historyWs.send('42[\"history/load\",'+JSON.stringify(payload)+']');historyPages++;}catch(e){}\n" +
-"        }\n" +
+"       
 "        function requestLatestHistory(asset,anchor){\n" +
 "          const bucket=Math.floor(Number(anchor||Date.now()/1000)/10);if(!asset||!historyWs||loginState!==true||bucket<=lastLiveHistoryBucket)return;\n" +
 "          lastLiveHistoryBucket=bucket;const payload={asset:String(asset),index:Math.floor(Date.now()/10)+historyPages+bucket,offset:180,time:Math.floor(Number(anchor)||Date.now()/1000),period:10};\n" +
@@ -142,8 +139,8 @@ public class MainActivity extends Activity {
 "                if(oldest>historyTarget&&historyPages<64)setTimeout(function(){requestHistory(activeAsset,next);},350);\n" +
 "              }\n" +
 "            }\n" +
-"            const packets=findHistory(o,null);\n" +
-"            for(const p of packets){if(p.asset==='UNKNOWN')continue;historySent++;try{AadiNative.onHistory(JSON.stringify(p));}catch(e){}}\n" +
+"            if(event==='history'||event==='candles/load'){const packets=findHistory(payload,activeAsset);\n" +
+"            for(const p of packets){if(p.asset==='UNKNOWN')continue;historySent++;try{AadiNative.onHistory(JSON.stringify(p));}catch(e){}}}\n" +
 "          }catch(e){}\n" +
 "        }\n" +
 
@@ -318,9 +315,9 @@ public class MainActivity extends Activity {
                 org.json.JSONArray rows = packet.optJSONArray("candles");
                 if (asset.isEmpty() || rows == null || !botActive) return;
                 int imported = engine.importHistoricalCandles(asset, rows);
-                runOnUiThread(() -> diagnosticView.setText("HISTORY PACKET: asset=" + asset
-                        + " | rows=" + rows.length() + " | imported=" + imported));
                 if (imported > 0) {
+                    runOnUiThread(() -> diagnosticView.setText("HISTORY PACKET: asset=" + asset
+                            + " | rows=" + rows.length() + " | imported=" + imported));
                     SignalEngine.Result result = engine.currentResult();
                     runOnUiThread(() -> {
                         lastTick.setText(asset + " • UPDATED " + imported + " REAL 10s HISTORY CANDLES");
@@ -344,11 +341,16 @@ public class MainActivity extends Activity {
                 SignalEngine.Result result = engine.onTick(asset, price, ts);
                 long count = ++receivedTicks;
                 String line = asset + "  " + price + "  • TICK #" + count + "  |  REAL FEED";
-runOnUiThread(() -> {
-                    lastTick.setText(line);
-                    showSignal(result, ts);
-status.setText("AADI • LIVE  |  Candles: " + result.closedCandles + "  |  Score: " + result.score + "/100");
-                });
+                long uiNow=SystemClock.uptimeMillis();
+                // Analyze every genuine tick, but coalesce display updates to protect the UI thread.
+                if(uiNow-lastUiTickAt>=200) {
+                    lastUiTickAt=uiNow;
+                    runOnUiThread(() -> {
+                        lastTick.setText(line);
+                        showSignal(result, ts);
+                        status.setText("AADI • LIVE  |  Live candles: " + result.closedCandles + "  |  Score: " + result.score + "/100");
+                    });
+                }
             } catch (Exception e) {
                 runOnUiThread(() -> status.setText("AADI • Tick parse error"));
             }
