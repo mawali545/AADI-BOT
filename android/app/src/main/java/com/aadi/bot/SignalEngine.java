@@ -52,13 +52,8 @@ public final class SignalEngine {
     private double historyOneHourBias=0, historyFifteenMinBias=0;
     private double historyChopScore=0;
     private String asset;
-    private long candleTime=-1;
-    private double open, high, low, close, lastPrice;
+    private double lastPrice;
     private int totalClosed=0;
-    private boolean awaitingLiveCandle=false;
-    private long previewedCandleTime=-1;
-    // One prediction is calculated at candle close and held for the entire next candle.
-    private Result lockedNextCandleResult=null;
 
     private long latestFeedTime=-1;
     private Result latestHistoryResult=null;
@@ -67,9 +62,6 @@ public final class SignalEngine {
     private long liveBucket=-1;
     private Candle liveCandle=null;
     private int liveTickCount=0;
-    // Once CALL/PUT appears, keep that direction fixed until the next 10-second candle.
-    private long lockedSignalBucket=-1;
-    private Result lockedDirectionalResult=null;
 
     /**
      * Update the live forming 10-second candle from genuine current exchange ticks.
@@ -94,10 +86,6 @@ public final class SignalEngine {
             liveBucket=-1;
             liveCandle=null;
             liveTickCount=0;
-            lockedSignalBucket=-1;
-            lockedDirectionalResult=null;
-            lockedNextCandleResult=null;
-            previewedCandleTime=-1;
         }
         // Ignore out-of-order exchange ticks so an old packet cannot roll
         // the current price or forming candle backwards.
@@ -107,20 +95,8 @@ public final class SignalEngine {
         long bucket=(ts/FRAME_SECONDS)*FRAME_SECONDS;
         if(liveCandle==null || bucket>liveBucket) {
             if(liveCandle!=null) appendClosedLiveCandle(liveCandle);
-            // The signal previewed during the previous candle's final second
-            // is the entry decision for this new 10-second candle.
-            Result issued=lockedNextCandleResult;
-            if(issued==null) {
-                latestHistoryResult=snapshot("WAIT","WAIT: no reliable final-second preview for this candle");
-            } else {
-                latestHistoryResult=new Result(asset,issued.signal,issued.reason,price,
-                        issued.emaFast,issued.emaSlow,issued.rsi,issued.momentum,
-                        issued.score,issued.closedCandles);
-            }
-            lockedNextCandleResult=null;
-            previewedCandleTime=-1;
-            lockedSignalBucket=bucket;
-            lockedDirectionalResult=latestHistoryResult;
+            // The previous candle is now closed. Start a fresh live candle;
+            // its forecast will be recalculated as fresh ticks arrive.
             liveBucket=bucket;
             liveCandle=new Candle(bucket,price,price,price,price);
             liveTickCount=1;
@@ -193,10 +169,6 @@ public final class SignalEngine {
             totalClosed=0;
             latestHistoryResult=null;
             latestFeedTime=-1;
-            lockedSignalBucket=-1;
-            lockedDirectionalResult=null;
-            lockedNextCandleResult=null;
-            previewedCandleTime=-1;
             liveBucket=-1;
             liveCandle=null;
             liveTickCount=0;
@@ -321,13 +293,7 @@ public final class SignalEngine {
         return v;
     }
 
-    private void startCandle(long time,double p) {
-        candleTime=time; open=p; high=p; low=p; close=p;
-    }
 
-    private Result calculateClosedCandles() {
-        return calculateFromCandles(new ArrayList<>(candles));
-    }
 
     private Result calculateFromCandles(List<Candle> cs) {
         if (cs.size() < MIN_CANDLES)
