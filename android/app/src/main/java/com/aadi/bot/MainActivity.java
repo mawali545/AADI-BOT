@@ -67,7 +67,6 @@ public class MainActivity extends Activity {
 "          const payload={asset:String(asset),index:Math.floor(Date.now()/10)+historyPages,offset:3600,period:10,time:Math.floor(anchor||Date.now()/1000)};\n" +
 "          try{historyWs.send('42[\"history/load\",'+JSON.stringify(payload)+']');historyPages++;}catch(e){}\n" +
 "        }\n" +
-"       
 "        function requestLatestHistory(asset,anchor){\n" +
 "          const bucket=Math.floor(Number(anchor||Date.now()/1000)/10);if(!asset||!historyWs||loginState!==true||bucket<=lastLiveHistoryBucket)return;\n" +
 "          lastLiveHistoryBucket=bucket;const payload={asset:String(asset),index:Math.floor(Date.now()/10)+historyPages+bucket,offset:180,time:Math.floor(Number(anchor)||Date.now()/1000),period:10};\n" +
