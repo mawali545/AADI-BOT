@@ -472,16 +472,6 @@ public final class SignalEngine {
         // Soften only the already-extended side when the move is losing force.
         if(lateEntryRisk && Math.signum(bias)==Math.signum(recentMove)) bias*=0.72;
 
-        boolean bearishTurn=turnBias< -0.55 || exhaustionBias< -0.48
-                || liquiditySweep<0 || failedBreak<0;
-        boolean bullishTurn=turnBias>0.55 || exhaustionBias>0.48
-                || liquiditySweep>0 || failedBreak>0;
-        boolean falseBreakBehavior=liquiditySweep!=0 || failedBreak!=0;
-        boolean lateEntryRisk=Math.abs(recentMove)>atr*1.65
-                && ((recentMove>0 && (exhaustionBias< -0.30 || turnBias< -0.45
-                    || upperWick>last.bodyAbs()*0.65))
-                || (recentMove<0 && (exhaustionBias>0.30 || turnBias>0.45
-                    || lowerWick>last.bodyAbs()*0.65)));
         // Independent eight-regime scoring: classify first, then let the
         // selected behaviour shape the directional decision.
         double turnStrength=Math.max(Math.abs(turnBias),Math.abs(exhaustionBias));
