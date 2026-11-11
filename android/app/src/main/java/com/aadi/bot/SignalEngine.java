@@ -397,13 +397,15 @@ public final class SignalEngine {
         int trend=longBias>0.16?1:longBias< -0.16?-1:0;
         int pullback=pullbackContinuation(cs,trend,atr);
 
+        // Flow already contributes to recentBias; do not count it twice.
+        // Sweep and failed-breakout are overlapping descriptions of one trap.
+        int trapVote=sweep!=0?sweep:failedBreak;
         double reversalBias=clamp(
-                0.22*clamp(pattern/1.5,-1,1)
-                +0.22*clamp(exhaustion/1.5,-1,1)
-                +0.14*clamp(turning/1.5,-1,1)
-                +0.10*clamp(multiScale/1.8,-1,1)
-                +0.20*clamp(flowBias/1.5,-1,1)
-                +0.06*sweep+0.06*failedBreak,-1,1);
+                0.28*clamp(pattern/1.5,-1,1)
+                +0.30*clamp(exhaustion/1.5,-1,1)
+                +0.18*clamp(turning/1.5,-1,1)
+                +0.16*clamp(multiScale/1.8,-1,1)
+                +0.08*trapVote,-1,1);
 
         // A shallow counter-candle that holds the swing is a pullback, not a
         // trend reversal. But a failed breakout, sweep or strong rejection
@@ -430,10 +432,7 @@ public final class SignalEngine {
                     || (lower>Math.max(last.bodyAbs()*1.15,atr*0.16)&&closePos>0.58
                         && (exhaustion>0.25||flowBias>0.55)));
 
-        // Independent evidence of absorption/rejection can outweigh the old
-        // trend. This is the key protection against "green pressure = CALL".
-        // Opposing absorption flags mean conflicting evidence, not a
-        // directional tie-break in favour of whichever condition runs last.
+        // Conflicting absorption means WAIT pressure, not a forced tie-break.
         boolean absorptionConflict=bearishAbsorption&&bullishAbsorption;
         if(absorptionConflict) forecast*=0.35;
         else if(bearishAbsorption) forecast=Math.min(forecast,-0.27);
@@ -854,31 +853,31 @@ public final class SignalEngine {
             double lowerWick=Math.min(last.open,last.close)-last.low;
             double upperWick=last.high-Math.max(last.open,last.close);
             double vote=0;
-            // U/V floor: after a low, price must lift away from it and show
-            // demand (close location, lower wick, green body or reclaim).
+            // Count a floor/crest only if the extreme is recent and price
+            // confirms a reclaim/rejection. Being inside an old range alone
+            // must never manufacture a reversal vote.
             double bounce=last.close-lo;
-            if(loAt>=from+1 && bounce>atr*0.12) {
-                double depth=(hi-lo)>0?(last.close-lo)/(hi-lo):0;
-                if(depth>0.18) vote+=Math.min(1.0,bounce/atr*0.35);
-                if(lowerWick>last.bodyAbs()*0.8 && closeLocation>0.55) vote+=0.35;
-                if(last.close>prev.high) vote+=0.35;
+            boolean recentLow=loAt>=n-6;
+            boolean bullishReclaim=last.close>prev.close||last.close>prev.high;
+            if(recentLow && bounce>atr*0.25 && closeLocation>0.58 && bullishReclaim) {
+                vote+=Math.min(0.95,bounce/atr*0.28);
+                if(lowerWick>Math.max(last.bodyAbs()*0.8,atr*0.10)) vote+=0.20;
+                if(last.close>prev.high) vote+=0.25;
             }
-            // Crest: mirror image for supply/rejection and bearish rollover.
             double drop=hi-last.close;
-            if(hiAt>=from+1 && drop>atr*0.12) {
-                double depth=(hi-last.close)/(hi-lo+1e-12);
-                if(depth>0.18) vote-=Math.min(1.0,drop/atr*0.35);
-                if(upperWick>last.bodyAbs()*0.8 && closeLocation<0.45) vote-=0.35;
-                if(last.close<prev.low) vote-=0.35;
+            boolean recentHigh=hiAt>=n-6;
+            boolean bearishReject=last.close<prev.close||last.close<prev.low;
+            if(recentHigh && drop>atr*0.25 && closeLocation<0.42 && bearishReject) {
+                vote-=Math.min(0.95,drop/atr*0.28);
+                if(upperWick>Math.max(last.bodyAbs()*0.8,atr*0.10)) vote-=0.20;
+                if(last.close<prev.low) vote-=0.25;
             }
-            // Staircase pullback: a retracement that holds the prior swing
-            // area and resumes is continuation; a decisive loss of that area
-            // is an early warning of a step failure/reversal.
-            double recentMid=(hi+lo)*0.5;
-            if(last.close>prev.close && last.close>recentMid && last.low>lo+atr*0.08)
-                vote+=0.18;
-            if(last.close<prev.close && last.close<recentMid && last.high<hi-atr*0.08)
-                vote-=0.18;
+            // Tiny continuation credit requires a real higher-low/lower-high
+            // step, not merely closing above/below the range midpoint.
+            if(last.close>prev.close && last.low>prev.low && last.close>lo+atr*0.20)
+                vote+=0.08;
+            if(last.close<prev.close && last.high<prev.high && last.close<hi-atr*0.20)
+                vote-=0.08;
             double weight=w<=13?0.55:w<=34?0.85:1.0;
             total+=clamp(vote,-1.8,1.8)*weight;
             weights+=weight;
