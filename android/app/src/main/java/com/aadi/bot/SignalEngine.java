@@ -996,15 +996,18 @@ public final class SignalEngine {
 
     /** EMA stack agreement across 9/20/50/100/200 periods, ATR-normalized. */
     private double emaStackBias(double e9,double e20,double e50,double e100,
-                                double e200,double atr) {
+                                double e200,double atr,int samples) {
         if(atr<=0) return 0;
         double[] values={e9,e20,e50,e100,e200};
+        // Require enough genuine live samples before long EMA pairs can vote.
+        int[] warmup={60,150,300,600};
+        double[] weightsByPair={1.0,0.9,0.7,0.5};
         double score=0, weights=0;
-        double[] w={1.0,1.0,0.9,0.7};
         for(int i=0;i<4;i++) {
+            if(samples<warmup[i]) continue;
             double separation=(values[i]-values[i+1])/atr;
-            score+=clamp(separation/0.35,-1,1)*w[i];
-            weights+=w[i];
+            score+=clamp(separation/0.35,-1,1)*weightsByPair[i];
+            weights+=weightsByPair[i];
         }
         return weights>0?score/weights:0;
     }
