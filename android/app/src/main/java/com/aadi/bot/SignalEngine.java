@@ -66,6 +66,7 @@ public final class SignalEngine {
     // Older context remains sourced from Market-QX history packets.
     private long liveBucket=-1;
     private Candle liveCandle=null;
+    private int liveTickCount=0;
     // Once CALL/PUT appears, keep that direction fixed until the next 10-second candle.
     private long lockedSignalBucket=-1;
     private Result lockedDirectionalResult=null;
@@ -92,6 +93,7 @@ public final class SignalEngine {
             latestFeedTime=-1;
             liveBucket=-1;
             liveCandle=null;
+            liveTickCount=0;
             lockedSignalBucket=-1;
             lockedDirectionalResult=null;
             lockedNextCandleResult=null;
@@ -121,20 +123,19 @@ public final class SignalEngine {
             lockedDirectionalResult=latestHistoryResult;
             liveBucket=bucket;
             liveCandle=new Candle(bucket,price,price,price,price);
+            liveTickCount=1;
         } else if(bucket==liveBucket) {
             liveCandle=new Candle(liveBucket,liveCandle.open,
                     Math.max(liveCandle.high,price),Math.min(liveCandle.low,price),price);
+            liveTickCount++;
         }
 
-        // Do not issue a direction from the first tick. Evaluate exactly once
-        // in the final second (exchange timestamp second 9 of each 10s bar),
-        // using the completed live OHLC so the result is for the NEXT bar.
-        if((ts%FRAME_SECONDS)>=FRAME_SECONDS-1 && previewedCandleTime!=liveBucket) {
-            lockedNextCandleResult=calculateWithLiveCandle();
-            // Publish during the final second so the trader can enter at the
-            // boundary; carry the same decision into the following candle.
-            latestHistoryResult=lockedNextCandleResult;
-            previewedCandleTime=liveBucket;
+        // Re-evaluate the upcoming candle on every fresh exchange tick.
+        // Never freeze a final-second guess for the whole next 10-second bar.
+        if(liveTickCount<2) {
+            latestHistoryResult=snapshot("WAIT","WAIT: collecting live tick behaviour for next-candle forecast");
+        } else {
+            latestHistoryResult=calculateWithLiveCandle();
         }
         return latestHistoryResult!=null?latestHistoryResult:currentResult();
     }
@@ -198,6 +199,7 @@ public final class SignalEngine {
             previewedCandleTime=-1;
             liveBucket=-1;
             liveCandle=null;
+            liveTickCount=0;
         }
         asset=symbol;
         TreeMap<Long,Candle> incoming = new TreeMap<>();
@@ -329,131 +331,112 @@ public final class SignalEngine {
 
     private Result calculateFromCandles(List<Candle> cs) {
         if (cs.size() < MIN_CANDLES)
-            return snapshot("WAIT", "Collecting genuine closed-candle history");
+            return snapshot("WAIT", "Collecting genuine chart history for next-candle forecast");
 
-        int n = cs.size();
-        Candle last = cs.get(n - 1);
-        Candle prev = cs.get(n - 2);
-        double atr = averageTrueRange(cs, 14);
-        if (atr <= 0)
-            return snapshot("WAIT", "Insufficient price movement data");
+        final int n=cs.size();
+        final Candle last=cs.get(n-1), prev=cs.get(n-2);
+        final double atr=averageTrueRange(cs,14);
+        if(atr<=0) return snapshot("WAIT","Insufficient genuine price movement");
 
-        List<Double> closes = new ArrayList<>();
-        for (Candle c : cs) closes.add(c.close);
+        List<Double> closes=new ArrayList<>();
+        for(Candle c:cs) closes.add(c.close);
+        final double fastMove=last.close-cs.get(n-4).close;
+        final double slowMove=last.close-cs.get(n-9).close;
+        final double pressure=candlePressure(cs,5);
+        final int structure=swingStructure(cs);
 
-        double fastMove = last.close - cs.get(n - 4).close;
-        double slowMove = last.close - cs.get(n - 9).close;
-        double pressure = candlePressure(cs, 5);
-        int structure = swingStructure(cs);
+        // Separate the broad regime from the immediate candle behaviour.
+        // Long history is context, not a command to blindly follow its trend.
+        double longBias=0.35*historyContextBias
+                +0.20*historyFourHourBias
+                +0.15*historyOneHourBias
+                +0.15*structure
+                +0.15*clamp(slowMove/(atr*2.5),-1,1);
+        longBias=clamp(longBias,-1,1);
 
-        double priorHigh = Double.NEGATIVE_INFINITY;
-        double priorLow = Double.POSITIVE_INFINITY;
-        for (int i = n - 4; i < n - 1; i++) {
-            priorHigh = Math.max(priorHigh, cs.get(i).high);
-            priorLow = Math.min(priorLow, cs.get(i).low);
+        // Recent displacement and pressure are only part of the forecast.
+        // A positive pressure reading cannot overrule rejection/exhaustion.
+        double fastBias=clamp(fastMove/(atr*1.8),-1,1);
+        double flowBias=shortTermFlowBias(cs,atr);
+        double stairBias=stairStepBias(cs,3);
+        double alternatingBias=alternatingProgressBias(cs,Math.min(12,n),atr);
+        double recentBias=clamp(0.30*fastBias+0.20*pressure
+                +0.35*clamp(flowBias/1.5,-1,1)
+                +0.15*stairBias,-1,1);
+        // Alternating red/green candles can still make directional progress.
+        recentBias=clamp(recentBias+0.10*clamp(alternatingBias/1.5,-1,1),-1,1);
+
+        // These reversal readers were previously disconnected from the final
+        // decision. They now actively test whether the current pressure is
+        // being absorbed, rejected, exhausted, or trapped.
+        double pattern=candlestickPatternBias(cs,atr);
+        double exhaustion=exhaustionReversalBias(cs,atr);
+        double turning=turningPointBias(cs,atr);
+        double multiScale=multiScaleShapeBias(cs,atr);
+        int sweep=liquiditySweepDirection(cs,12,atr);
+        int failedBreak=failedBreakoutDirection(cs,12);
+        int trend=longBias>0.16?1:longBias< -0.16?-1:0;
+        int pullback=pullbackContinuation(cs,trend,atr);
+
+        double reversalBias=clamp(
+                0.28*clamp(pattern/1.5,-1,1)
+                +0.25*clamp(exhaustion/1.5,-1,1)
+                +0.18*clamp(turning/1.5,-1,1)
+                +0.12*clamp(multiScale/1.8,-1,1)
+                +0.09*sweep+0.08*failedBreak,-1,1);
+
+        // A shallow counter-candle that holds the swing is a pullback, not a
+        // trend reversal. But a failed breakout, sweep or strong rejection
+        // can forecast the opposite-colour candle even while trend/pressure
+        // still point the other way.
+        if(pullback!=0) recentBias=clamp(recentBias+0.16*pullback,-1,1);
+
+        double forecast=0.34*longBias+0.29*recentBias+0.37*reversalBias;
+
+        double candleRange=Math.max(last.range(),1e-12);
+        double closePos=(last.close-last.low)/candleRange;
+        double upper=last.high-Math.max(last.open,last.close);
+        double lower=Math.min(last.open,last.close)-last.low;
+        boolean bearishAbsorption=(trend>=0)
+                && ((sweep<0||failedBreak<0)
+                    || (pattern< -0.55&&exhaustion< -0.35)
+                    || (upper>Math.max(last.bodyAbs()*1.15,atr*0.16)&&closePos<0.42
+                        && exhaustion< -0.35));
+        boolean bullishAbsorption=(trend<=0)
+                && ((sweep>0||failedBreak>0)
+                    || (pattern>0.55&&exhaustion>0.35)
+                    || (lower>Math.max(last.bodyAbs()*1.15,atr*0.16)&&closePos>0.58
+                        && exhaustion>0.35));
+
+        // Independent evidence of absorption/rejection can outweigh the old
+        // trend. This is the key protection against "green pressure = CALL".
+        if(bearishAbsorption) forecast=Math.min(forecast,-0.27);
+        if(bullishAbsorption) forecast=Math.max(forecast,0.27);
+
+        String regime;
+        if(bearishAbsorption) regime="BEARISH ABSORPTION / REJECTION";
+        else if(bullishAbsorption) regime="BULLISH ABSORPTION / REJECTION";
+        else if(longBias>0.28&&reversalBias> -0.15) regime="UPTREND WITH PULLBACK CHECK";
+        else if(longBias< -0.28&&reversalBias<0.15) regime="DOWNTREND WITH BOUNCE CHECK";
+        else if(Math.abs(longBias)<0.18&&historyChopScore>0.35) regime="MIXED / CHOP";
+        else regime="TRANSITION / MIXED";
+
+        // No artificial certainty: conflicting evidence means WAIT.
+        if(forecast>0.22) {
+            int score=(int)Math.round(clamp(54+Math.abs(forecast)*34,54,88));
+            String why="CALL forecast • "+regime+" • trend, live flow and reversal checks agree";
+            return new Result(asset,"CALL",why,last.close,ema(closes,9),ema(closes,21),
+                    rsiWilder(closes,14),fastMove,score,totalClosed);
         }
-
-        double range = Math.max(last.range(), 1e-12);
-        double closePos = (last.close - last.low) / range;
-        double upperWick = last.high - Math.max(last.open, last.close);
-        double lowerWick = Math.min(last.open, last.close) - last.low;
-        int candleDirection = last.close > last.open ? 1 : last.close < last.open ? -1 : 0;
-
-        // A reversal is recognized only when price actually breaks the nearby
-        // micro-structure and closes decisively; a colour flip alone is not enough.
-        double priorImpulse = prev.close - cs.get(n - 6).close;
-        boolean bullishReversal = priorImpulse < -atr * 0.35
-                && last.close > priorHigh
-                && closePos >= 0.62
-                && last.close > last.open;
-        boolean bearishReversal = priorImpulse > atr * 0.35
-                && last.close < priorLow
-                && closePos <= 0.38
-                && last.close < last.open;
-
-        int direction = 0;
-        String regime = "MIXED / TRANSITION";
-        int votes = 0;
-
-        if (bullishReversal && !bearishReversal) {
-            direction = 1;
-            regime = "BULLISH REVERSAL";
-            votes = 4;
-        } else if (bearishReversal && !bullishReversal) {
-            direction = -1;
-            regime = "BEARISH REVERSAL";
-            votes = 4;
-        } else {
-            int up = 0, down = 0;
-            if (structure > 0) up++;
-            else if (structure < 0) down++;
-            if (fastMove > atr * 0.12) up++;
-            else if (fastMove < -atr * 0.12) down++;
-            if (slowMove > atr * 0.20) up++;
-            else if (slowMove < -atr * 0.20) down++;
-            if (pressure > 0.08) up++;
-            else if (pressure < -0.08) down++;
-
-            // The newest candle must agree with continuation. A single opposite
-            // candle is treated as a pullback, not an automatic reverse signal.
-            if (candleDirection > 0 && last.close > prev.close) up++;
-            else if (candleDirection < 0 && last.close < prev.close) down++;
-
-            // A decisive close beyond the previous three-candle boundary is
-            // stronger than colour and can confirm a fresh breakout.
-            if (last.close > priorHigh && closePos >= 0.60) up++;
-            else if (last.close < priorLow && closePos <= 0.40) down++;
-
-            if (up >= 4 && up >= down + 2) {
-                direction = 1;
-                votes = up;
-                regime = structure > 0 ? "UPTREND / HIGHER LOWS" : "BULLISH BREAKOUT";
-            } else if (down >= 4 && down >= up + 2) {
-                direction = -1;
-                votes = down;
-                regime = structure < 0 ? "DOWNTREND / LOWER HIGHS" : "BEARISH BREAKDOWN";
-            } else if (up >= 3 && down == 0 && candleDirection > 0) {
-                direction = 1;
-                votes = up;
-                regime = "BULLISH CONTINUATION";
-            } else if (down >= 3 && up == 0 && candleDirection < 0) {
-                direction = -1;
-                votes = down;
-                regime = "BEARISH CONTINUATION";
-            }
+        if(forecast< -0.22) {
+            int score=(int)Math.round(clamp(54+Math.abs(forecast)*34,54,88));
+            String why="PUT forecast • "+regime+" • trend, live flow and reversal checks agree";
+            return new Result(asset,"PUT",why,last.close,ema(closes,9),ema(closes,21),
+                    rsiWilder(closes,14),fastMove,score,totalClosed);
         }
-
-        // Do not chase an extended move at the edge of its recent range.
-        double recentHigh = Double.NEGATIVE_INFINITY;
-        double recentLow = Double.POSITIVE_INFINITY;
-        for (int i = n - 9; i < n - 1; i++) {
-            recentHigh = Math.max(recentHigh, cs.get(i).high);
-            recentLow = Math.min(recentLow, cs.get(i).low);
-        }
-        boolean stretchedUp = last.close >= recentHigh - atr * 0.08
-                && upperWick > Math.max(last.bodyAbs() * 0.65, atr * 0.12);
-        boolean stretchedDown = last.close <= recentLow + atr * 0.08
-                && lowerWick > Math.max(last.bodyAbs() * 0.65, atr * 0.12);
-        if ((direction > 0 && stretchedUp) || (direction < 0 && stretchedDown)) {
-            direction = 0;
-            regime = "LATE MOVE / REJECTION";
-        }
-
-        if (direction == 0) {
-            String why = "WAIT • " + regime
-                    + " • price structure is mixed or reversal is not confirmed";
-            return new Result(asset, "WAIT", why, last.close,
-                    ema(closes, 9), ema(closes, 21), rsiWilder(closes, 14),
-                    fastMove, 0, totalClosed);
-        }
-
-        int score = (int) Math.round(clamp(58 + votes * 6, 58, 88));
-        String signal = direction > 0 ? "CALL" : "PUT";
-        String why = signal + ": " + regime + " • " + votes
-                + " aligned price-action checks • next 10-second candle";
-        return new Result(asset, signal, why, last.close,
-                ema(closes, 9), ema(closes, 21), rsiWilder(closes, 14),
-                fastMove, score, totalClosed);
+        String why="WAIT • "+regime+" • pressure and candle-reversal evidence conflict";
+        return new Result(asset,"WAIT",why,last.close,ema(closes,9),ema(closes,21),
+                rsiWilder(closes,14),fastMove,0,totalClosed);
     }
 
     /**
