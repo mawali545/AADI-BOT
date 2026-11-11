@@ -131,7 +131,7 @@ public final class SignalEngine {
             return;
         }
         liveCandles.addLast(completed);
-        while(liveCandles.size()>15) liveCandles.removeFirst();
+        while(liveCandles.size()>200) liveCandles.removeFirst();
         totalClosed=liveCandles.size();
     }
 
@@ -216,14 +216,29 @@ public final class SignalEngine {
         int microStructure=marketStructure(cs);
         int dominant=dominantTrend(ema(closes,9),ema(closes,21),
                 slopeFast,slopeSlow,structure,supertrend);
+
+        // Additional EMA stack: all five periods are calculated from the
+        // expanding genuine-live window. EMA100/200 mature as live candles accrue.
+        double e9=ema(closes,9), e20=ema(closes,20), e50=ema(closes,50);
+        double e100=ema(closes,100), e200=ema(closes,200);
+        double emaStackVote=emaStackBias(e9,e20,e50,e100,e200,atr);
+        // Fast RSI7 and standard RSI14; 30/50/70 are context levels, not
+        // automatic reversal commands. Momentum and level agreement are blended.
+        double rsi7=rsiWilder(closes,7), rsi14=rsiWilder(closes,14);
+        double rsiVote=rsiMomentumBias(closes,rsi7,rsi14);
+
+        // Preserve the existing indicator and market-behaviour evidence.
+        // The new EMA/RSI pair gets a limited share instead of overriding it.
         double indicatorBias=clamp(
-                0.20*macdVote
-                +0.15*clamp(slopeFast*3,-1,1)
-                +0.12*clamp(slopeSlow*2,-1,1)
-                +0.18*dmiVote
-                +0.12*supertrend
-                +0.08*microStructure
-                +0.15*dominant,-1,1);
+                0.16*macdVote
+                +0.12*clamp(slopeFast*3,-1,1)
+                +0.10*clamp(slopeSlow*2,-1,1)
+                +0.15*dmiVote
+                +0.10*supertrend
+                +0.07*microStructure
+                +0.12*dominant
+                +0.12*emaStackVote
+                +0.06*rsiVote,-1,1);
         // Indicators refine the broad regime; live price-action reversal
         // evidence below can still overrule them when genuine rejection forms.
         longBias=clamp(0.82*longBias+0.18*indicatorBias,-1,1);
@@ -973,6 +988,34 @@ public final class SignalEngine {
         double total=0;
         for(int i=from;i<dxValues.size();i++) total+=dxValues.get(i);
         return new double[]{lastPlus,lastMinus,total/(dxValues.size()-from)};
+    }
+
+    /** EMA stack agreement across 9/20/50/100/200 periods, ATR-normalized. */
+    private double emaStackBias(double e9,double e20,double e50,double e100,
+                                double e200,double atr) {
+        if(atr<=0) return 0;
+        double[] values={e9,e20,e50,e100,e200};
+        double score=0, weights=0;
+        double[] w={1.0,1.0,0.9,0.7};
+        for(int i=0;i<4;i++) {
+            double separation=(values[i]-values[i+1])/atr;
+            score+=clamp(separation/0.35,-1,1)*w[i];
+            weights+=w[i];
+        }
+        return weights>0?score/weights:0;
+    }
+
+    /** RSI7/RSI14 momentum with 30/50/70 context; extremes alone do not reverse trend. */
+    private double rsiMomentumBias(List<Double> closes,double rsi7,double rsi14) {
+        if(closes.size()<9) return 0;
+        double prior7=rsiWilder(closes.subList(0,closes.size()-1),7);
+        double fast=clamp((rsi7-50.0)/25.0,-1,1);
+        double standard=clamp((rsi14-50.0)/30.0,-1,1);
+        double acceleration=clamp((rsi7-prior7)/12.0,-1,1);
+        double vote=0.50*fast+0.30*standard+0.20*acceleration;
+        if(rsi7>=70&&acceleration<0) vote-=0.12;
+        if(rsi7<=30&&acceleration>0) vote+=0.12;
+        return clamp(vote,-1,1);
     }
 
     private double ema(List<Double> v,int period) {
