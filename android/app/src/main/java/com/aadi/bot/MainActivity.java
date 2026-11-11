@@ -10,6 +10,7 @@ import android.webkit.WebViewClient;
 import android.widget.LinearLayout;
 import android.widget.Button;
 import android.widget.TextView;
+import android.text.TextUtils;
 import android.graphics.Color;
 import android.text.SpannableString;
 import android.text.Spanned;
@@ -173,16 +174,22 @@ public class MainActivity extends Activity {
         status = new TextView(this);
         status.setTextColor(Color.WHITE);
         status.setTextSize(12);
+        status.setSingleLine(true);
+        status.setEllipsize(TextUtils.TruncateAt.END);
         status.setPadding(14, 12, 14, 6);
         status.setText("AADI • Starting Market-QX hook…");
         lastTick = new TextView(this);
         lastTick.setTextColor(Color.rgb(80, 220, 150));
         lastTick.setTextSize(10);
+        lastTick.setSingleLine(true);
+        lastTick.setEllipsize(TextUtils.TruncateAt.END);
         lastTick.setPadding(14, 4, 14, 10);
         lastTick.setText("No real tick received");
         signalView = new TextView(this);
         signalView.setTextColor(Color.WHITE);
         signalView.setTextSize(14);
+        signalView.setLines(2);
+        signalView.setEllipsize(TextUtils.TruncateAt.END);
         signalView.setPadding(14, 4, 14, 10);
         signalView.setText("SIGNAL: WAIT • Waiting for real candles");
         root.addView(status);
@@ -191,8 +198,9 @@ public class MainActivity extends Activity {
         diagnosticView = new TextView(this);
         diagnosticView.setTextColor(Color.LTGRAY);
         diagnosticView.setTextSize(9);
+        diagnosticView.setLines(3);
+        diagnosticView.setEllipsize(TextUtils.TruncateAt.END);
         diagnosticView.setPadding(14, 2, 14, 6);
-        diagnosticView.setMaxLines(5);
         diagnosticView.setText("HISTORY DIAGNOSTICS: waiting for Market-QX packets");
         root.addView(diagnosticView);
         signalView.setText("WAIT");
@@ -347,7 +355,7 @@ public class MainActivity extends Activity {
                     runOnUiThread(() -> {
                         lastTick.setText(line);
                         showSignal(result, ts);
-                        status.setText("AADI • LIVE  |  Live candles: " + result.closedCandles + "  |  Score: " + result.score + "/100");
+                        if (receivedTicks == 1) status.setText("AADI • LIVE FEED CONNECTED");
                     });
                 }
             } catch (Exception e) {
