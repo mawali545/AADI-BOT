@@ -46,7 +46,6 @@ public class MainActivity extends Activity {
         "price=Number(price);if(!Number.isFinite(price)||price<=0||!asset||!activeAsset||String(asset)!==String(activeAsset))return;" +
         "const feedTime=normTime(time);if(!feedTime)return;const now=Date.now()/1000;if(feedTime<now-45||feedTime>now+8)return;" +
         "try{AadiNative.onTick(JSON.stringify({price:price,asset:String(asset),timestamp:feedTime}));}catch(e){}" +
-        "requestLatestHistory(String(asset),feedTime||Date.now()/1000);" +
         "}" +
         "function key(o,names){for(const n of names){if(o[n]!==undefined&&o[n]!==null)return o[n];}return null;}" +
         "function normTime(v){let n=Number(v);if(!Number.isFinite(n)||n<=0)return 0;if(n>1e12)n/=1000;return n;}" +
@@ -65,7 +64,7 @@ public class MainActivity extends Activity {
         "}walk(root,assetHint,0);return found;}" +
         "let activeAsset=null,historyWs=null,historyPages=0,historyOldest=0,historyTarget=0,lastLiveHistoryBucket=0;\n" +
 "        function requestHistory(asset,anchor){\n" +
-"          if(!asset||!historyWs||historyWs.readyState!==1||historyPages>=64||loginState!==true)return;\n" +
+"          if(!asset||!historyWs||historyWs.readyState!==1||historyPages>=24||loginState!==true)return;\n" +
 "          const payload={asset:String(asset),index:Math.floor(Date.now()/10)+historyPages,offset:3600,period:10,time:Math.floor(anchor||Date.now()/1000)};\n" +
 "          try{historyWs.send('42[\"history/load\",'+JSON.stringify(payload)+']');historyPages++;}catch(e){}\n" +
 "        }\n" +
@@ -136,7 +135,7 @@ public class MainActivity extends Activity {
 "              if(total&&Number.isFinite(oldest)){\n" +
 "                const next=oldest<historyOldest||historyOldest===0?oldest:historyOldest-3600;\n" +
 "                historyOldest=next;\n" +
-"                if(oldest>historyTarget&&historyPages<64)setTimeout(function(){requestHistory(activeAsset,next);},350);\n" +
+"                if(oldest>historyTarget&&historyPages<24)setTimeout(function(){requestHistory(activeAsset,next);},350);\n" +
 "              }\n" +
 "            }\n" +
 "            if(event==='history'||event==='candles/load'){const packets=findHistory(payload,null);\n" +
@@ -329,14 +328,9 @@ public class MainActivity extends Activity {
                 if (asset.isEmpty() || rows == null || !botActive) return;
                 int imported = engine.importHistoricalCandles(asset, rows);
                 if (imported > 0) {
-                    runOnUiThread(() -> diagnosticView.setText("HISTORY PACKET: asset=" + asset
-                            + " | rows=" + rows.length() + " | imported=" + imported));
-                    SignalEngine.Result result = engine.currentResult();
-                    runOnUiThread(() -> {
-                        lastTick.setText(asset + " • UPDATED " + imported + " REAL 10s HISTORY CANDLES");
-                        showSignal(result, System.currentTimeMillis() / 1000.0);
-                        status.setText("AADI • HISTORY ANALYSIS  |  Candles: " + result.closedCandles + "  |  Score: " + result.score + "/100");
-                    });
+                    // History updates context only. Only fresh live ticks may change the displayed signal.
+                    runOnUiThread(() -> diagnosticView.setText("HISTORY READY: asset=" + asset
+                            + " | rows=" + rows.length() + " | updated=" + imported));
                 }
             } catch (Exception e) {
                 runOnUiThread(() -> status.setText("AADI • Historical candle parse error"));
