@@ -129,8 +129,8 @@ public class MainActivity extends Activity {
     }
 
     private void showSignal(SignalEngine.Result result, double tickTimestamp) {
-        String display=result.signal + "  •  SCORE " + result.score + "/100\\n"
-                + result.reason + "  |  Candles: " + result.closedCandles;
+        String display="SIGNAL: " + result.signal + "\\n"
+                + result.reason + "  |  Live candles: " + result.closedCandles;
         boolean directional="CALL".equals(result.signal) || "PUT".equals(result.signal);
         if(!directional) {
             if(signalColorReset!=null) uiHandler.removeCallbacks(signalColorReset);
