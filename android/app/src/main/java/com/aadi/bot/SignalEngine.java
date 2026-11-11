@@ -345,6 +345,30 @@ public final class SignalEngine {
                 +0.15*clamp(slowMove/(atr*2.5),-1,1);
         longBias=clamp(longBias,-1,1);
 
+        // Activate the indicator implementations in the final decision.
+        // Each vote is normalized by ATR so it scales across OTC instruments.
+        double slopeFast=normalizedSlope(closes,atr,5);
+        double slopeSlow=normalizedSlope(closes,atr,12);
+        double macdVote=clamp(macdHistogram(closes)/(atr*0.08),-1,1);
+        double[] dmi=calculateDmi(cs,14);
+        double dmiVote=clamp((dmi[0]-dmi[1])/35.0,-1,1)
+                *clamp(dmi[2]/35.0,0,1);
+        int supertrend=supertrendDirection(cs,10,2.5);
+        int microStructure=marketStructure(cs);
+        int dominant=dominantTrend(ema(closes,9),ema(closes,21),
+                slopeFast,slopeSlow,structure,supertrend);
+        double indicatorBias=clamp(
+                0.20*macdVote
+                +0.15*clamp(slopeFast*3,-1,1)
+                +0.12*clamp(slopeSlow*2,-1,1)
+                +0.18*dmiVote
+                +0.12*supertrend
+                +0.08*microStructure
+                +0.15*dominant,-1,1);
+        // Indicators refine the broad regime; live price-action reversal
+        // evidence below can still overrule them when genuine rejection forms.
+        longBias=clamp(0.82*longBias+0.18*indicatorBias,-1,1);
+
         // Recent displacement and pressure are only part of the forecast.
         // A positive pressure reading cannot overrule rejection/exhaustion.
         double fastBias=clamp(fastMove/(atr*1.8),-1,1);
