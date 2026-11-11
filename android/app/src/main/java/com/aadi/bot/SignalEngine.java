@@ -472,26 +472,73 @@ public final class SignalEngine {
         // Soften only the already-extended side when the move is losing force.
         if(lateEntryRisk && Math.signum(bias)==Math.signum(recentMove)) bias*=0.72;
 
-        String regime;
-        if(falseBreakBehavior && (bullishTurn || bearishTurn)) regime="FALSE_BREAK / SWEEP";
-        else if(trend>0 && bearishTurn || trend<0 && bullishTurn) regime="REVERSAL ATTEMPT";
-        else if(pullback!=0) regime="PULLBACK";
-        else if(bullBreak || bearBreak) regime="BREAKOUT";
-        else if(Math.abs(recentMove)>atr*1.35 && bodyRatio>=0.62) regime="IMPULSE";
-        else if(adx>=20 && Math.abs(slopeSlow)>=0.12) regime="TRENDING";
-        else if(adx<13 && Math.abs(slopeSlow)<0.10
-                || historyChopScore>=0.58 && Math.abs(slopeSlow)<0.14) regime="RANGE";
-        else if(historyChopScore>=0.62
-                || Math.abs(pressure)<0.16 && Math.abs(persistence)<0.18) regime="CHOPPY";
-        else regime="TRANSITION";
+        // Independent eight-regime scoring: classify first, then let the
+        // selected behaviour shape the directional decision.
+        double turnStrength=Math.max(Math.abs(turnBias),Math.abs(exhaustionBias));
+        double sweepStrength=(liquiditySweep!=0||failedBreak!=0)?1.0:0.0;
+        double trendStrength=clamp((adx-12.0)/18.0,0,1)*0.30
+                +clamp(Math.abs(slopeSlow)/0.30,0,1)*0.30
+                +clamp(Math.abs(persistence),0,1)*0.20
+                +clamp(Math.abs(structure),0,1)*0.20;
+        double rangeStrength=clamp((18.0-adx)/12.0,0,1)*0.40
+                +clamp(1.0-Math.abs(slopeSlow)/0.22,0,1)*0.35
+                +clamp(historyChopScore,0,1)*0.25;
+        double chopStrength=clamp(historyChopScore,0,1)*0.45
+                +clamp(1.0-Math.abs(pressure)/0.55,0,1)*0.25
+                +clamp(1.0-Math.abs(persistence)/0.55,0,1)*0.30;
+        double breakoutStrength=(bullBreak||bearBreak)
+                ?clamp(0.50+bodyRatio*0.25+Math.abs(closePos-0.5)*0.50,0,1):0;
+        double reversalStrength=(trend!=0 && ((trend>0&&bearishTurn)||(trend<0&&bullishTurn)))
+                ?clamp(0.45+turnStrength*0.35+sweepStrength*0.20,0,1):0;
+        double pullbackStrength=pullback!=0 && reversalStrength<0.62
+                ?clamp(0.55+Math.abs(pullback)*0.25-Math.abs(turnBias)*0.10,0,1):0;
+        double falseBreakStrength=(falseBreakBehavior && (bullishTurn||bearishTurn))
+                ?clamp(0.62+turnStrength*0.20+sweepStrength*0.18,0,1):0;
+        double transitionStrength=clamp(0.48
+                +((Math.signum(slopeFast)!=Math.signum(slopeSlow))?0.18:0)
+                +((trend!=0 && turnStrength>0.35)?0.16:0)
+                +(Math.abs(pressure)<0.18?0.12:0),0,1);
 
-        // In ranges, favor defended boundaries, not the middle of the box.
-        // In choppy markets, only the newest pressure/rejection gets extra say.
-        if("RANGE".equals(regime)) {
+        String regime="TRANSITION";
+        double regimeConfidence=transitionStrength;
+        if(falseBreakStrength>regimeConfidence){regime="FALSE BREAK / SWEEP";regimeConfidence=falseBreakStrength;}
+        if(reversalStrength>regimeConfidence){regime="REVERSAL ATTEMPT";regimeConfidence=reversalStrength;}
+        if(breakoutStrength>regimeConfidence){regime="BREAKOUT";regimeConfidence=breakoutStrength;}
+        if(pullbackStrength>regimeConfidence){regime="PULLBACK";regimeConfidence=pullbackStrength;}
+        if(trendStrength>regimeConfidence){regime="TRENDING";regimeConfidence=trendStrength;}
+        if(rangeStrength>regimeConfidence){regime="RANGE";regimeConfidence=rangeStrength;}
+        if(chopStrength>regimeConfidence){regime="CHOPPY";regimeConfidence=chopStrength;}
+        // A low-confidence winner is not a reliable regime; call it transition.
+        if(regimeConfidence<0.40){regime="TRANSITION";regimeConfidence=Math.max(regimeConfidence,transitionStrength);}
+
+        // Behaviour-specific execution logic. These are small, bounded
+        // adjustments to the common evidence score, not rigid candle-count gates.
+        if("TRENDING".equals(regime)) {
+            if(trend!=0) bias+=trend*2.0;
+            if(pullback==0 && Math.signum(bias)==trend) bias+=clamp(persistence*2.0,-1.5,1.5);
+        } else if("PULLBACK".equals(regime)) {
+            if(pullback!=0) bias+=pullback*2.5;
+        } else if("RANGE".equals(regime)) {
             if(nearSupport || (closePos<0.24 && lowerWick>upperWick)) bias+=7;
             if(nearResistance || (closePos>0.76 && upperWick>lowerWick)) bias-=7;
+            // Avoid taking a direction from the middle of a flat range.
+            if(!nearSupport&&!nearResistance) bias*=0.78;
+        } else if("CHOPPY".equals(regime)) {
+            bias=bias*0.68+clamp(pressure*5.0,-4.0,4.0);
+        } else if("TRANSITION".equals(regime)) {
+            bias*=0.82;
+        } else if("BREAKOUT".equals(regime)) {
+            if(bullBreak) bias+=3.0;
+            if(bearBreak) bias-=3.0;
+        } else if("REVERSAL ATTEMPT".equals(regime)) {
+            bias+=clamp(turnBias*2.0+exhaustionBias*1.5,-3.5,3.5);
+        } else if("FALSE BREAK / SWEEP".equals(regime)) {
+            bias+=clamp((liquiditySweep+failedBreak)*2.0,-4.0,4.0);
         }
-        if("CHOPPY".equals(regime)) bias+=clamp(pressure*6.0,-5,5);
+
+        // Soften only an already-extended move when fresh rejection evidence
+        // says the entry would be late.
+        if(lateEntryRisk && Math.signum(bias)==Math.signum(recentMove)) bias*=0.72;
 
         // Adaptive signal edge: 6.8 remains the maximum strictness, but
         // aligned short-term evidence can lower the edge slightly so the bot
@@ -510,9 +557,11 @@ public final class SignalEngine {
         if(biasSide>0 && (liquiditySweep>0 || failedBreak>0)
                 || biasSide<0 && (liquiditySweep<0 || failedBreak<0))
             alignedEvidence++;
-        double requiredEdge=alignedEvidence>=2?5.8:alignedEvidence==1?6.3:6.8;
+        double requiredEdge=alignedEvidence>=2?5.5:alignedEvidence==1?6.0:6.5;
+        if("CHOPPY".equals(regime)) requiredEdge+=0.7;
+        else if("TRANSITION".equals(regime)) requiredEdge+=0.25;
         if(Math.abs(bias)<requiredEdge) {
-            return new Result(asset,"WAIT","WAIT: mixed short-term flow • next-candle edge not clear",
+            return new Result(asset,"WAIT","WAIT • "+regime+" ("+(int)Math.round(regimeConfidence*100)+"% regime confidence) • next-candle edge not clear",
                     last.close,fast,slow,rsi,momentum,0,totalClosed);
         }
         String sig=bias>0?"CALL":"PUT";
@@ -533,7 +582,7 @@ public final class SignalEngine {
         else if(pressure>0.18) pattern="buying pressure";
         else if(pressure< -0.18) pattern="selling pressure";
         else pattern="short-term directional pressure";
-        String why=sig+": "+regime+" • "+pattern+" • "+(bias>=0?"upward":"downward")+" bias";
+        String why=sig+": "+regime+" ("+(int)Math.round(regimeConfidence*100)+"% regime confidence) • "+pattern+" • "+(bias>=0?"upward":"downward")+" bias";
         return new Result(asset,sig,why,last.close,fast,slow,rsi,momentum,score,totalClosed);
     }
 
