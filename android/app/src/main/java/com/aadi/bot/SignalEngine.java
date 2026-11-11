@@ -690,53 +690,86 @@ public final class SignalEngine {
 
 
     /**
-     * Detects exhaustion after a short directional run. Three or four candles
-     * in one direction are not, by themselves, a reversal: price must also
-     * show weakening bodies, rejection wicks, or a fresh micro-structure loss.
-     * Returns a signed vote (+ bullish reversal, - bearish reversal).
+     * Adaptive candle-by-candle exhaustion/reversal reading.
+     * It never requires a fixed number of same-colour candles. It evaluates
+     * the rolling live window by price displacement, changing pressure,
+     * candle anatomy, rejection and local structure failure.
      */
     private double exhaustionReversalBias(List<Candle> cs,double atr) {
         int n=cs.size();
         if(n<7||atr<=0) return 0;
-        int from=n-5, up=0, down=0;
+
+        int window=Math.min(15,n-1);
+        int from=n-window-1;
+        int split=from+Math.max(2,window/2);
+        double earlyPressure=0,earlyWeight=0,latePressure=0,lateWeight=0;
+        double netPath=cs.get(n-2).close-cs.get(from).open;
+        double totalTravel=0;
         for(int i=from;i<n-1;i++) {
-            Candle c=cs.get(i);
-            if(c.close>c.open) up++;
-            else if(c.close<c.open) down++;
+            Candle x=cs.get(i);
+            double range=Math.max(x.range(),1e-12);
+            double p=clamp(x.body()/range,-1,1);
+            double w=1.0+(i-from)/(double)Math.max(1,window);
+            if(i<split) { earlyPressure+=p*w; earlyWeight+=w; }
+            else { latePressure+=p*w; lateWeight+=w; }
+            if(i>from) totalTravel+=Math.abs(x.close-cs.get(i-1).close);
         }
-        Candle a=cs.get(n-3), b=cs.get(n-2), last=cs.get(n-1);
+        earlyPressure=earlyWeight>0?earlyPressure/earlyWeight:0;
+        latePressure=lateWeight>0?latePressure/lateWeight:0;
+        double fading=latePressure-earlyPressure;
+        double direction=netPath>0?1:netPath<0?-1:0;
+        double displacement=Math.abs(netPath)/atr;
+        if(direction==0||displacement<0.35) return 0;
+
+        Candle last=cs.get(n-1),prev=cs.get(n-2);
         double range=Math.max(last.range(),1e-12);
         double closePos=(last.close-last.low)/range;
         double upper=last.high-Math.max(last.open,last.close);
         double lower=Math.min(last.open,last.close)-last.low;
-        boolean fading=last.bodyAbs()<b.bodyAbs()*0.78
-                && b.bodyAbs()<a.bodyAbs()*1.08;
-        boolean bearishReject=upper>Math.max(last.bodyAbs()*0.85,atr*0.14)
-                && closePos<0.58;
-        boolean bullishReject=lower>Math.max(last.bodyAbs()*0.85,atr*0.14)
-                && closePos>0.42;
+        double body=last.body();
+        boolean counterBody=body*direction<0;
+        boolean counterClose=(last.close-prev.close)*direction<0;
+        boolean pressureFading=fading*direction< -0.10;
+        boolean strongFade=fading*direction< -0.28;
+        boolean rejectedExtreme=direction>0
+                ? upper>Math.max(last.bodyAbs()*0.85,atr*0.14)&&closePos<0.55
+                : lower>Math.max(last.bodyAbs()*0.85,atr*0.14)&&closePos>0.45;
 
-        double upRun=last.close-cs.get(from).open;
-        double downRun=cs.get(from).open-last.close;
-        if(up>=3 && upRun>atr*0.60) {
-            boolean counterClose=last.close<last.open || last.close<b.close;
-            boolean microBreak=last.close<b.low || (last.close<b.close && last.low<b.low);
-            int clues=(fading?1:0)+(bearishReject?1:0)+(counterClose?1:0)+(microBreak?1:0);
-            if(clues>=3) return -1.10;
-            if(clues==2 && (bearishReject||microBreak)) return -0.82;
-            if(fading && bearishReject) return -0.62;
-            if(fading) return -0.28; // reduce late trend-chasing, not a full reversal
+        // A close through the immediately preceding candle's opposite edge
+        // is a fresh structure clue; a wick-only colour change is not enough.
+        boolean structureBreak=direction>0
+                ? last.close<prev.low || (last.close<prev.close&&last.low<prev.low)
+                : last.close>prev.high || (last.close>prev.close&&last.high>prev.high);
+
+        // Detect failed extension from the rolling window's extreme.
+        double priorExtreme=direction>0?Double.NEGATIVE_INFINITY:Double.POSITIVE_INFINITY;
+        for(int i=from;i<n-1;i++) {
+            Candle x=cs.get(i);
+            priorExtreme=direction>0?Math.max(priorExtreme,x.high):Math.min(priorExtreme,x.low);
         }
-        if(down>=3 && downRun>atr*0.60) {
-            boolean counterClose=last.close>last.open || last.close>b.close;
-            boolean microBreak=last.close>b.high || (last.close>b.close && last.high>b.high);
-            int clues=(fading?1:0)+(bullishReject?1:0)+(counterClose?1:0)+(microBreak?1:0);
-            if(clues>=3) return 1.10;
-            if(clues==2 && (bullishReject||microBreak)) return 0.82;
-            if(fading && bullishReject) return 0.62;
-            if(fading) return 0.28;
-        }
-        return 0;
+        boolean failedExtension=direction>0
+                ? last.high>priorExtreme&&last.close<priorExtreme
+                : last.low<priorExtreme&&last.close>priorExtreme;
+
+        // A directional run is meaningful only if price actually travelled;
+        // choppy alternating candles with little net displacement are ignored.
+        double efficiency=totalTravel>0?Math.abs(netPath)/totalTravel:0;
+        double vote=0;
+        if(pressureFading) vote-=0.28*direction;
+        if(strongFade) vote-=0.22*direction;
+        if(counterBody) vote-=0.22*direction;
+        if(counterClose) vote-=0.30*direction;
+        if(rejectedExtreme) vote-=0.42*direction;
+        if(structureBreak) vote-=0.48*direction;
+        if(failedExtension) vote-=0.38*direction;
+
+        // Scale evidence by the strength of the preceding move, but cap it so
+        // this module warns against chasing rather than forcing a reversal.
+        double moveFactor=clamp((displacement-0.30)/1.20,0.35,1.0);
+        double efficiencyFactor=efficiency>0.22?1.0:0.70;
+        vote*=moveFactor*efficiencyFactor;
+        if(structureBreak&& (rejectedExtreme||counterClose)) vote*=1.18;
+        return clamp(vote,-1.35,1.35);
     }
 
     /**
