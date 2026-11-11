@@ -131,6 +131,9 @@ public final class SignalEngine {
         // using the completed live OHLC so the result is for the NEXT bar.
         if((ts%FRAME_SECONDS)>=FRAME_SECONDS-1 && previewedCandleTime!=liveBucket) {
             lockedNextCandleResult=calculateWithLiveCandle();
+            // Publish during the final second so the trader can enter at the
+            // boundary; carry the same decision into the following candle.
+            latestHistoryResult=lockedNextCandleResult;
             previewedCandleTime=liveBucket;
         }
         return latestHistoryResult!=null?latestHistoryResult:currentResult();
@@ -187,6 +190,12 @@ public final class SignalEngine {
             totalClosed=0;
             latestHistoryResult=null;
             latestFeedTime=-1;
+            lockedSignalBucket=-1;
+            lockedDirectionalResult=null;
+            lockedNextCandleResult=null;
+            previewedCandleTime=-1;
+            liveBucket=-1;
+            liveCandle=null;
         }
         asset=symbol;
         TreeMap<Long,Candle> incoming = new TreeMap<>();
