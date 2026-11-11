@@ -187,6 +187,8 @@ public final class SignalEngine {
             candles.clear();
             liveCandles.clear();
             historyContextBias=0;
+            historyDayBias=historyFourHourBias=historyOneHourBias=historyFifteenMinBias=0;
+            historyChopScore=0;
             totalClosed=0;
             latestHistoryResult=null;
             latestFeedTime=-1;
