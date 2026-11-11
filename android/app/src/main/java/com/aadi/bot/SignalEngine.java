@@ -236,6 +236,8 @@ public final class SignalEngine {
             merged.put(entry.getKey(),fresh);
         }
         while(merged.size()>8640) merged.pollFirstEntry();
+        // Ignore duplicate history packets; do not rescan a full day of candles.
+        if(changed==0) return 0;
         candles.clear();
         for(Candle candle:merged.values()) candles.addLast(candle);
         totalClosed=candles.size();
