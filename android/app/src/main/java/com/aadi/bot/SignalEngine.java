@@ -345,34 +345,34 @@ public final class SignalEngine {
         double bias=0;
         // Small background vote from the full fetched price path; it cannot
         // override current candle and recent live-candle structure.
-        bias+=historyContextBias*1.25;
-        bias+=clamp((fast-slow)/atr*5.0,-9,9);
+        bias+=historyContextBias*0.55;
+        bias+=clamp((fast-slow)/atr*3.2,-6,6);
         bias+=clamp(slopeFast*8.0,-8,8);
-        bias+=clamp(slopeSlow*7.0,-9,9);
+        bias+=clamp(slopeSlow*4.0,-6,6);
         bias+=clamp(pressure*12.0,-12,12);
-        bias+=clamp(persistence*7.0,-7,7);
-        bias+=clamp((plusDi-minusDi)/18.0,-6,6)*(adx>=8?1.0:0.55);
-        bias+=clamp((rsi-50.0)/4.0,-6,6);
-        bias+=macd>0?3:macd<0?-3:0;
-        bias+=supertrend*4.0;
+        bias+=clamp(persistence*4.5,-5,5);
+        bias+=clamp((plusDi-minusDi)/18.0,-4,4)*(adx>=8?1.0:0.55);
+        bias+=clamp((rsi-50.0)/4.0,-3.5,3.5);
+        bias+=macd>0?1.5:macd<0?-1.5:0;
+        bias+=supertrend*2.5;
         bias+=structure*8.0;
         bias+=pullback*8.0;
         // These are additive pattern votes, not extra confirmation gates:
         // they do not delay or change the existing 10-second signal boundary.
         bias+=clamp(shapeBias*5.0,-9,9);
         bias+=clamp(stairBias*6.0,-6,6);
-        bias+=clamp(turnBias*6.0,-8,8);
+        bias+=clamp(turnBias*9.0,-11,11);
         // Context-aware candle reading; wick rejection and formations matter,
         // while a lone candle colour/body is deliberately weak.
-        bias+=clamp(candlePatternBias*7.0,-8,8);
+        bias+=clamp(candlePatternBias*8.5,-10,10);
         // Short-horizon flow can veto a misleading 1-3 candle chase.
-        bias+=clamp(microFlow*8.5,-10,10);
+        bias+=clamp(microFlow*12.0,-14,14);
         // Give fresh exhaustion/rejection evidence enough weight to stop
         // chasing a move after 3-4 same-direction candles.
-        bias+=clamp(exhaustionBias*9.0,-10,10);
+        bias+=clamp(exhaustionBias*12.0,-13,13);
         bias+=clamp(alternatingBias*4.0,-5,5);
-        bias+=liquiditySweep*7.0;
-        bias+=failedBreak*7.0;
+        bias+=liquiditySweep*9.0;
+        bias+=failedBreak*9.0;
         if(bodyRatio>=0.45) bias+=last.body()>0?1.0:last.body()<0?-1.0:0;
         // Avoid chasing a large impulse when the move is stretched and rejected.
         double recentMove=last.close-cs.get(Math.max(0,n-4)).open;
@@ -389,8 +389,10 @@ public final class SignalEngine {
 
         // Respect a mature trend during a shallow pullback, but never mute
         // a clear short-term structure break / exhaustion reversal.
-        boolean sharpMicroReversal=Math.abs(microFlow)>=0.72
-                || Math.abs(exhaustionBias)>=0.68;
+        boolean sharpMicroReversal=Math.abs(microFlow)>=0.48
+                || Math.abs(exhaustionBias)>=0.48
+                || Math.abs(turnBias)>=0.80
+                || liquiditySweep!=0 || failedBreak!=0;
         if(adx>=18 && trend!=0 && !sharpMicroReversal) {
             if(trend>0 && bias<0) bias*=0.72;
             if(trend<0 && bias>0) bias*=0.72;
