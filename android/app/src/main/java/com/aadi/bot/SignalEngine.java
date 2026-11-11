@@ -280,6 +280,9 @@ public final class SignalEngine {
         double turnBias=turningPointBias(cs,atr);
         double candlePatternBias=candlestickPatternBias(cs,atr);
         double microFlow=shortTermFlowBias(cs,atr);
+        // Detect a late-stage 3-5 candle run losing force or being rejected.
+        // This is a reversal warning, not a blind counter-trend trigger.
+        double exhaustionBias=exhaustionReversalBias(cs,atr);
         double alternatingBias=alternatingProgressBias(cs,6,atr);
         int liquiditySweep=liquiditySweepDirection(cs,12,atr);
         int failedBreak=failedBreakoutDirection(cs,12);
@@ -334,6 +337,9 @@ public final class SignalEngine {
         bias+=clamp(candlePatternBias*7.0,-8,8);
         // Short-horizon flow can veto a misleading 1-3 candle chase.
         bias+=clamp(microFlow*8.5,-10,10);
+        // Give fresh exhaustion/rejection evidence enough weight to stop
+        // chasing a move after 3-4 same-direction candles.
+        bias+=clamp(exhaustionBias*9.0,-10,10);
         bias+=clamp(alternatingBias*4.0,-5,5);
         bias+=liquiditySweep*7.0;
         bias+=failedBreak*7.0;
@@ -353,7 +359,8 @@ public final class SignalEngine {
 
         // Respect a mature trend during a shallow pullback, but never mute
         // a clear short-term structure break / exhaustion reversal.
-        boolean sharpMicroReversal=Math.abs(microFlow)>=0.72;
+        boolean sharpMicroReversal=Math.abs(microFlow)>=0.72
+                || Math.abs(exhaustionBias)>=0.68;
         if(adx>=18 && trend!=0 && !sharpMicroReversal) {
             if(trend>0 && bias<0) bias*=0.72;
             if(trend<0 && bias>0) bias*=0.72;
@@ -381,6 +388,8 @@ public final class SignalEngine {
         double biasSide=Math.signum(bias);
         if(biasSide!=0 && biasSide==Math.signum(microFlow) && Math.abs(microFlow)>=0.55)
             alignedEvidence++;
+        if(biasSide!=0 && biasSide==Math.signum(exhaustionBias)
+                && Math.abs(exhaustionBias)>=0.55) alignedEvidence++;
         if(biasSide!=0 && biasSide==Math.signum(shapeBias) && Math.abs(shapeBias)>=0.65)
             alignedEvidence++;
         if(biasSide!=0 && biasSide==Math.signum(turnBias) && Math.abs(turnBias)>=0.55)
@@ -677,6 +686,57 @@ public final class SignalEngine {
 
         // Clamp to a bounded vote; a lone colour flip can never dominate.
         return clamp(vote,-1.5,1.5);
+    }
+
+
+    /**
+     * Detects exhaustion after a short directional run. Three or four candles
+     * in one direction are not, by themselves, a reversal: price must also
+     * show weakening bodies, rejection wicks, or a fresh micro-structure loss.
+     * Returns a signed vote (+ bullish reversal, - bearish reversal).
+     */
+    private double exhaustionReversalBias(List<Candle> cs,double atr) {
+        int n=cs.size();
+        if(n<7||atr<=0) return 0;
+        int from=n-5, up=0, down=0;
+        for(int i=from;i<n-1;i++) {
+            Candle c=cs.get(i);
+            if(c.close>c.open) up++;
+            else if(c.close<c.open) down++;
+        }
+        Candle a=cs.get(n-3), b=cs.get(n-2), last=cs.get(n-1);
+        double range=Math.max(last.range(),1e-12);
+        double closePos=(last.close-last.low)/range;
+        double upper=last.high-Math.max(last.open,last.close);
+        double lower=Math.min(last.open,last.close)-last.low;
+        boolean fading=last.bodyAbs()<b.bodyAbs()*0.78
+                && b.bodyAbs()<a.bodyAbs()*1.08;
+        boolean bearishReject=upper>Math.max(last.bodyAbs()*0.85,atr*0.14)
+                && closePos<0.58;
+        boolean bullishReject=lower>Math.max(last.bodyAbs()*0.85,atr*0.14)
+                && closePos>0.42;
+
+        double upRun=last.close-cs.get(from).open;
+        double downRun=cs.get(from).open-last.close;
+        if(up>=3 && upRun>atr*0.60) {
+            boolean counterClose=last.close<last.open || last.close<b.close;
+            boolean microBreak=last.close<b.low || (last.close<b.close && last.low<b.low);
+            int clues=(fading?1:0)+(bearishReject?1:0)+(counterClose?1:0)+(microBreak?1:0);
+            if(clues>=3) return -1.10;
+            if(clues==2 && (bearishReject||microBreak)) return -0.82;
+            if(fading && bearishReject) return -0.62;
+            if(fading) return -0.28; // reduce late trend-chasing, not a full reversal
+        }
+        if(down>=3 && downRun>atr*0.60) {
+            boolean counterClose=last.close>last.open || last.close>b.close;
+            boolean microBreak=last.close>b.high || (last.close>b.close && last.high>b.high);
+            int clues=(fading?1:0)+(bullishReject?1:0)+(counterClose?1:0)+(microBreak?1:0);
+            if(clues>=3) return 1.10;
+            if(clues==2 && (bullishReject||microBreak)) return 0.82;
+            if(fading && bullishReject) return 0.62;
+            if(fading) return 0.28;
+        }
+        return 0;
     }
 
     /**
