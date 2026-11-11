@@ -59,6 +59,9 @@ public final class SignalEngine {
     // Older context remains sourced from Market-QX history packets.
     private long liveBucket=-1;
     private Candle liveCandle=null;
+    // Once CALL/PUT appears, keep that direction fixed until the next 10-second candle.
+    private long lockedSignalBucket=-1;
+    private Result lockedDirectionalResult=null;
 
     /**
      * Update the live forming 10-second candle from genuine current exchange ticks.
@@ -80,6 +83,8 @@ public final class SignalEngine {
             latestFeedTime=-1;
             liveBucket=-1;
             liveCandle=null;
+            lockedSignalBucket=-1;
+            lockedDirectionalResult=null;
         }
         // Ignore out-of-order exchange ticks so an old packet cannot roll
         // the current price or forming candle backwards.
@@ -89,15 +94,18 @@ public final class SignalEngine {
         long bucket=(ts/FRAME_SECONDS)*FRAME_SECONDS;
         if(liveCandle==null || bucket>liveBucket) {
             if(liveCandle!=null) appendClosedLiveCandle(liveCandle);
+            // A new candle is the only point where a fresh direction may be issued.
+            lockedSignalBucket=-1;
+            lockedDirectionalResult=null;
             liveBucket=bucket;
             liveCandle=new Candle(bucket,price,price,price,price);
         } else if(bucket==liveBucket) {
             liveCandle=new Candle(liveBucket,liveCandle.open,
                     Math.max(liveCandle.high,price),Math.min(liveCandle.low,price),price);
         }
-        // Re-evaluate using all historical context plus the freshest forming
-        // candle on every tick; the signal is not held back until the next bar.
-        latestHistoryResult=calculateWithLiveCandle();
+        // WAIT may improve as ticks arrive, but the first directional result
+        // is locked for this candle so CALL/PUT cannot flip repeatedly.
+        latestHistoryResult=calculateAndLockForCurrentCandle();
         return latestHistoryResult;
     }
 
@@ -114,6 +122,17 @@ public final class SignalEngine {
         while(liveCandles.size()>15) liveCandles.removeFirst();
         totalClosed=candles.size();
         refreshHistoryContext();
+    }
+
+    private Result calculateAndLockForCurrentCandle() {
+        if (lockedDirectionalResult!=null && lockedSignalBucket==liveBucket)
+            return lockedDirectionalResult;
+        Result candidate=calculateWithLiveCandle();
+        if ("CALL".equals(candidate.signal) || "PUT".equals(candidate.signal)) {
+            lockedSignalBucket=liveBucket;
+            lockedDirectionalResult=candidate;
+        }
+        return candidate;
     }
 
     private Result calculateWithLiveCandle() {
@@ -191,7 +210,7 @@ public final class SignalEngine {
         totalClosed=candles.size();
         refreshHistoryContext();
         // Never derive a directional signal from historical candles alone.
-        if(changed>0 && liveCandle!=null) latestHistoryResult=calculateWithLiveCandle();
+        if(changed>0 && liveCandle!=null) latestHistoryResult=calculateAndLockForCurrentCandle();
         return changed;
     }
 
