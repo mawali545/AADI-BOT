@@ -62,6 +62,10 @@ public final class SignalEngine {
     private long liveBucket=-1;
     private Candle liveCandle=null;
     private int liveTickCount=0;
+    // A forecast is prepared near candle close, then issued once at the next
+    // 10-second boundary and held unchanged throughout that candle.
+    private Result pendingNextCandleResult=null;
+    private long previewedBucket=-1;
 
     /**
      * Update the live forming 10-second candle from genuine current exchange ticks.
@@ -86,6 +90,8 @@ public final class SignalEngine {
             liveBucket=-1;
             liveCandle=null;
             liveTickCount=0;
+            pendingNextCandleResult=null;
+            previewedBucket=-1;
         }
         // Ignore out-of-order exchange ticks so an old packet cannot roll
         // the current price or forming candle backwards.
@@ -94,9 +100,26 @@ public final class SignalEngine {
         lastPrice=price;
         long bucket=(ts/FRAME_SECONDS)*FRAME_SECONDS;
         if(liveCandle==null || bucket>liveBucket) {
-            if(liveCandle!=null) appendClosedLiveCandle(liveCandle);
-            // The previous candle is now closed. Start a fresh live candle;
-            // its forecast will be recalculated as fresh ticks arrive.
+            if(liveCandle!=null) {
+                appendClosedLiveCandle(liveCandle);
+                // If no tick arrived in the final second, use the now-completed
+                // genuine candle as a fallback forecast before starting the next.
+                if(pendingNextCandleResult==null) {
+                    pendingNextCandleResult=calculateWithLiveCandle();
+                }
+            }
+            // Publish exactly one decision for this new candle. It remains
+            // fixed until this candle ends; no CALL/PUT flicker inside a bar.
+            if(pendingNextCandleResult!=null) {
+                Result issued=pendingNextCandleResult;
+                latestHistoryResult=new Result(asset,issued.signal,issued.reason,price,
+                        issued.emaFast,issued.emaSlow,issued.rsi,issued.momentum,
+                        issued.score,issued.closedCandles);
+            } else {
+                latestHistoryResult=snapshot("WAIT","WAIT: no reliable next-candle forecast");
+            }
+            pendingNextCandleResult=null;
+            previewedBucket=-1;
             liveBucket=bucket;
             liveCandle=new Candle(bucket,price,price,price,price);
             liveTickCount=1;
@@ -106,14 +129,14 @@ public final class SignalEngine {
             liveTickCount++;
         }
 
-        // Re-evaluate the upcoming candle on every fresh exchange tick.
-        // Never freeze a final-second guess for the whole next 10-second bar.
-        if(liveTickCount<2) {
-            latestHistoryResult=snapshot("WAIT","WAIT: collecting live tick behaviour for next-candle forecast");
-        } else {
-            latestHistoryResult=calculateWithLiveCandle();
+        // Learn from the current candle continuously, but only commit one
+        // forecast near its close. That forecast is for the NEXT 10-second bar.
+        if(liveTickCount>=2 && (ts%FRAME_SECONDS)>=FRAME_SECONDS-1
+                && previewedBucket!=liveBucket) {
+            pendingNextCandleResult=calculateWithLiveCandle();
+            previewedBucket=liveBucket;
         }
-        return latestHistoryResult!=null?latestHistoryResult:currentResult();
+        return currentResult();
     }
 
     private void appendClosedLiveCandle(Candle completed) {
@@ -172,6 +195,8 @@ public final class SignalEngine {
             liveBucket=-1;
             liveCandle=null;
             liveTickCount=0;
+            pendingNextCandleResult=null;
+            previewedBucket=-1;
         }
         asset=symbol;
         TreeMap<Long,Candle> incoming = new TreeMap<>();
