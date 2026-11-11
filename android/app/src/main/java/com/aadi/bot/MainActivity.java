@@ -43,8 +43,9 @@ public class MainActivity extends Activity {
         "if(window.__AADI_HOOKED__)return;window.__AADI_HOOKED__=true;" +
         "const NativeWS=window.WebSocket;const seen=new Set();let diagCount=0,historySent=0;" +
         "function emit(price,asset,time){" +
-        "price=Number(price);if(!Number.isFinite(price)||price<=0||!asset)return;" +
-        "const feedTime=normTime(time);try{AadiNative.onTick(JSON.stringify({price:price,asset:String(asset),timestamp:feedTime||0}));}catch(e){}" +
+        "price=Number(price);if(!Number.isFinite(price)||price<=0||!asset||!activeAsset||String(asset)!==String(activeAsset))return;" +
+        "const feedTime=normTime(time);if(!feedTime)return;const now=Date.now()/1000;if(feedTime<now-45||feedTime>now+8)return;" +
+        "try{AadiNative.onTick(JSON.stringify({price:price,asset:String(asset),timestamp:feedTime}));}catch(e){}" +
         "requestLatestHistory(String(asset),feedTime||Date.now()/1000);" +
         "}" +
         "function key(o,names){for(const n of names){if(o[n]!==undefined&&o[n]!==null)return o[n];}return null;}" +
@@ -84,7 +85,7 @@ public class MainActivity extends Activity {
 "                  const t=normTime(r[0]),o=Number(r[1]),cl=Number(r[2]),h=Number(r[3]),l=Number(r[4]);\n" +
 "                  if(t&&[o,cl,h,l].every(Number.isFinite)&&o>0&&cl>0&&h>=Math.max(o,cl)&&l<=Math.min(o,cl)&&l>0&&h>=l)rows.push({timestamp:t,open:o,high:h,low:l,close:cl});\n" +
 "                }\n" +
-"                if(rows.length)out.push({asset:asset||assetHint||activeAsset||'UNKNOWN',candles:rows});\n" +
+"                if(rows.length)out.push({asset:asset||assetHint||'UNKNOWN',candles:rows});\n" +
 "              }\n" +
 "              for(const v of x)if(v&&typeof v==='object')walk(v,asset,d+1);return;\n" +
 "            }\n" +
@@ -97,8 +98,7 @@ public class MainActivity extends Activity {
 "                  const t=normTime(r[0]),o=Number(r[1]),cl=Number(r[2]),h=Number(r[3]),l=Number(r[4]);\n" +
 "                  if(t&&[o,cl,h,l].every(Number.isFinite)&&o>0&&cl>0&&h>=Math.max(o,cl)&&l<=Math.min(o,cl)&&l>0&&h>=l)rows.push({timestamp:t,open:o,high:h,low:l,close:cl});\n" +
 "                }else if(r&&typeof r==='object'){\n" +
-"                  const t=normTime(key(r,['timestamp','time','ts'])),o=Number(key(r,['open','o'])),h=Number(key(r,['high','h'])),l=Number(key(r,['low','l'])),cl=Number(key(r,['close','c']));\n" +
-"                  if(t&&[o,h,l,cl].every(Number.isFinite)&&o>0&&h>=Math.max(o,cl)&&l<=Math.min(o,cl)&&l>0&&h>=l)rows.push({timestamp:t,open:o,high:h,low:l,close:cl});\n" +
+"                  const t=normTime(key(r,['timestamp','time','ts'])),o=Number(key(r,['open','o'])),h=Number(key(r,['high','h'])),l=Number(key(r,['low','l'])),cl=Number(key(r,['close','c']));\n" +"                  if(t&&[o,h,l,cl].every(Number.isFinite)&&o>0&&h>=Math.max(o,cl)&&l<=Math.min(o,cl)&&l>0&&h>=l)rows.push({timestamp:t,open:o,high:h,low:l,close:cl});\n" +
 "                }\n" +
 "              }\n" +
 "              // Aggregate genuine Market-QX history ticks into 10-second OHLC bars.\n" +
@@ -127,7 +127,7 @@ public class MainActivity extends Activity {
 "            const event=Array.isArray(o)&&typeof o[0]==='string'?o[0]:'';\n" +
 "            const payload=event?o[1]:o;\n" +
 "            if(event==='history/load'){\n" +
-"              const packets=collectHistory(payload,activeAsset);\n" +
+"              const packets=collectHistory(payload,null);\n" +
 "              let oldest=Number.POSITIVE_INFINITY,total=0;\n" +
 "              for(const p of packets){if(p.asset==='UNKNOWN')continue;total+=p.candles.length;\n" +
 "                for(const row of p.candles)oldest=Math.min(oldest,row.timestamp);\n" +
@@ -139,7 +139,7 @@ public class MainActivity extends Activity {
 "                if(oldest>historyTarget&&historyPages<64)setTimeout(function(){requestHistory(activeAsset,next);},350);\n" +
 "              }\n" +
 "            }\n" +
-"            if(event==='history'||event==='candles/load'){const packets=findHistory(payload,activeAsset);\n" +
+"            if(event==='history'||event==='candles/load'){const packets=findHistory(payload,null);\n" +
 "            for(const p of packets){if(p.asset==='UNKNOWN')continue;historySent++;try{AadiNative.onHistory(JSON.stringify(p));}catch(e){}}}\n" +
 "          }catch(e){}\n" +
 "        }\n" +
@@ -159,9 +159,8 @@ public class MainActivity extends Activity {
         "for(const [k,v] of Object.entries(x)){if(/^(price|currentprice|lastprice|closeprice|rate|quote)$/i.test(k)&&asset&&(typeof v==='number'||typeof v==='string')&&Number(v)>0){emit(v,asset,time);return;}}" +
         "for(const v of Object.values(x))if(v&&typeof v==='object')walkTicks(v,d+1);}" +
         "let pendingBinaryPacket=null;function parse(s){try{let q=String(s).trim();if(q.startsWith('451-')){pendingBinaryPacket=JSON.parse(q.slice(4));return;}if(pendingBinaryPacket){if(q.charCodeAt(0)===4)q=q.slice(1);const attachment=JSON.parse(q),packet=pendingBinaryPacket;pendingBinaryPacket=null;function hydrate(x){if(!x||typeof x!=='object')return x;if(Array.isArray(x))return x.map(hydrate);if(x._placeholder===true)return attachment;const z={};for(const [k,v] of Object.entries(x))z[k]=hydrate(v);return z;}const rebuilt=[packet[0],hydrate(packet[1])];diagnostic(rebuilt);process(rebuilt);if(String(rebuilt[0])!=='history/load'&&String(rebuilt[0])!=='history'&&String(rebuilt[0])!=='candles/load')walkTicks(rebuilt[1],0);return;}if(q.startsWith('42')&&(q[2]==='['||q[2]==='{'))q=q.slice(2);else if(q.charCodeAt(0)===4)q=q.slice(1);const o=JSON.parse(q);diagnostic(o);if(Array.isArray(o)&&typeof o[0]==='string'){const event=String(o[0]);const payload=o[1];process(o);if(event!=='history/load'&&event!=='history'&&event!=='candles/load')walkTicks(payload,0);}else{process(o);walkTicks(o,0);}}catch(e){}}" +
-        "window.WebSocket=new Proxy(NativeWS,{construct:function(T,args){const ws=Reflect.construct(T,args,T);historyWs=ws;const nativeSend=ws.send.bind(ws);ws.send=function(data){try{const raw=String(data);if(raw.startsWith('42[')){const msg=JSON.parse(raw.slice(2));if(msg[0]==='instruments/update'&&msg[1]&&msg[1].asset){const a=String(msg[1].asset);if(a!==activeAsset){activeAsset=a;historyPages=0;historyOldest=0;historyTarget=Date.now()/1000-86400;setTimeout(function(){requestHistory(a,Date.now()/1000);},900);}}}}catch(e){}return nativeSend(data);};try{AadiNative.onSocket('Market-QX WebSocket opened');}catch(e){}ws.addEventListener('message',function(ev){if(typeof ev.data==='string')parse(ev.data);else if(ev.data instanceof Blob)ev.data.text().then(parse).catch(function(){});else if(ev.data instanceof ArrayBuffer){try{parse(new TextDecoder().decode(ev.data));}catch(e){}}});ws.addEventListener('close',function(){try{AadiNative.onSocket('Market WebSocket closed');}catch(e){}});return ws;}});" +
-        "const of=window.fetch;window.fetch=function(){return of.apply(this,arguments).then(function(res){try{const copy=res.clone();copy.text().then(function(t){if(t&&t.length<4000000)parse(t);}).catch(function(){});}catch(e){}return res;});};" +
-        "const xo=XMLHttpRequest.prototype.open,xs=XMLHttpRequest.prototype.send;XMLHttpRequest.prototype.open=function(){this.addEventListener('load',function(){try{const t=this.responseText;if(t&&t.length<4000000)parse(t);}catch(e){};});return xo.apply(this,arguments);};XMLHttpRequest.prototype.send=function(){return xs.apply(this,arguments);};" +
+        "window.WebSocket=new Proxy(NativeWS,{construct:function(T,args){const ws=Reflect.construct(T,args,T);let marketSocket=false;try{const u=new URL(String(args[0]||''),location.href);marketSocket=(u.hostname===location.hostname||u.hostname.endsWith('.market-qx.trade'));}catch(e){}if(!marketSocket)return ws;const nativeSend=ws.send.bind(ws);ws.send=function(data){try{const raw=String(data);if(raw.startsWith('42[')){const msg=JSON.parse(raw.slice(2));if(msg[0]==='instruments/update'&&msg[1]&&msg[1].asset){const a=String(msg[1].asset);const socketChanged=historyWs!==ws;historyWs=ws;if(a!==activeAsset||socketChanged){activeAsset=a;historyPages=0;historyOldest=0;lastLiveHistoryBucket=0;historyTarget=Date.now()/1000-86400;try{AadiNative.onSocket('CHART SOCKET ACTIVE • '+a);}catch(e){}setTimeout(function(){requestHistory(a,Date.now()/1000);},900);}}}}catch(e){}return nativeSend(data);};ws.addEventListener('message',function(ev){if(typeof ev.data==='string')parse(ev.data);else if(ev.data instanceof Blob)ev.data.text().then(parse).catch(function(){});else if(ev.data instanceof ArrayBuffer){try{parse(new TextDecoder().decode(ev.data));}catch(e){}}});ws.addEventListener('close',function(){if(historyWs===ws){historyWs=null;try{AadiNative.onSocket('CHART WEBSOCKET CLOSED • feed paused');}catch(e){}}});return ws;}});" +
+        "" +
         "try{AadiNative.onSocket('WebSocket + history response scanner enabled');}catch(e){}" +
         "let loginState=null;function checkLogin(){try{const hasPassword=!!document.querySelector('input[type=password]');const hasLoginText=Array.from(document.querySelectorAll('button,[role=button],input[type=submit]')).some(e=>/^(log in|login|sign in)$/i.test((e.innerText||e.value||'').trim()));const hasChart=!!document.querySelector('canvas,[class*=chart i],[id*=chart i]');const logged=hasChart&&!hasPassword&&!hasLoginText&&document.readyState==='complete';if(logged!==loginState){loginState=logged;try{AadiNative.onLoginState(logged);}catch(e){}if(logged&&activeAsset&&historyPages===0)setTimeout(function(){requestHistory(activeAsset,Date.now()/1000);},700);}}catch(e){}}setInterval(checkLogin,2000);" +
         "})();";
@@ -197,8 +196,7 @@ public class MainActivity extends Activity {
         root.addView(signalView);
         diagnosticView = new TextView(this);
         diagnosticView.setTextColor(Color.LTGRAY);
-        diagnosticView.setTextSize(9);
-        diagnosticView.setLines(3);
+        diagnosticView.setTextSize(9);        diagnosticView.setLines(3);
         diagnosticView.setEllipsize(TextUtils.TruncateAt.END);
         diagnosticView.setPadding(14, 2, 14, 6);
         diagnosticView.setText("HISTORY DIAGNOSTICS: waiting for Market-QX packets");
@@ -298,7 +296,6 @@ public class MainActivity extends Activity {
             signalView.setTextColor(Color.WHITE);
         }
     }
-
     private class Bridge {
         @JavascriptInterface public void onLoginState(boolean loggedIn) {
             runOnUiThread(() -> {
@@ -308,7 +305,16 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface public void onSocket(String message) {
-            runOnUiThread(() -> status.setText("AADI • " + message));
+            runOnUiThread(() -> {
+                status.setText("AADI • " + message);
+                if (message != null && message.contains("CLOSED")) {
+                    engine = new SignalEngine();
+                    receivedTicks = 0;
+                    lastTick.setText("Chart feed disconnected • waiting for verified reconnect");
+                    signalView.setText("WAIT • FEED DISCONNECTED");
+                    signalView.setTextColor(Color.WHITE);
+                }
+            });
         }
 
         @JavascriptInterface public void onDiagnostic(String message) {
@@ -343,7 +349,10 @@ public class MainActivity extends Activity {
                 String asset = o.optString("asset", "");
                 double price = o.optDouble("price", Double.NaN);
                 double ts = o.optDouble("timestamp", 0);
-                if (asset.trim().isEmpty() || !Double.isFinite(price) || price <= 0) return;
+                if (asset.trim().isEmpty() || !Double.isFinite(price) || price <= 0 || !Double.isFinite(ts)) return;
+                double feedSeconds = ts > 10000000000.0 ? ts / 1000.0 : ts;
+                double wallSeconds = System.currentTimeMillis() / 1000.0;
+                if (feedSeconds <= 0 || feedSeconds < wallSeconds - 45 || feedSeconds > wallSeconds + 8) return;
                 if (!botActive) return;
                 SignalEngine.Result result = engine.onTick(asset, price, ts);
                 long count = ++receivedTicks;
