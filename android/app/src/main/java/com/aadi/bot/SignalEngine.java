@@ -47,6 +47,10 @@ public final class SignalEngine {
     private final Deque<Candle> liveCandles = new ArrayDeque<>();
     // Cached once per history import / completed live bar, never scanned per tick.
     private double historyContextBias=0;
+    // Cached multi-horizon regime map from the complete imported QX history.
+    private double historyDayBias=0, historyFourHourBias=0;
+    private double historyOneHourBias=0, historyFifteenMinBias=0;
+    private double historyChopScore=0;
     private String asset;
     private long candleTime=-1;
     private double open, high, low, close, lastPrice;
@@ -222,16 +226,47 @@ public final class SignalEngine {
     }
 
     private void refreshHistoryContext() {
-        if(candles.size()<30) { historyContextBias=0; return; }
-        // Read the entire fetched history through several nested horizons.
-        // Net displacement is measured against actual path travel, so a
-        // red/green alternating sequence is not mistaken for a clean trend.
-        double day=historyEfficiencyBias(candles.size());
-        double fourHour=historyEfficiencyBias(Math.min(1440,candles.size()));
-        double oneHour=historyEfficiencyBias(Math.min(360,candles.size()));
-        double fifteenMin=historyEfficiencyBias(Math.min(90,candles.size()));
-        historyContextBias=clamp(day*0.10+fourHour*0.20
-                +oneHour*0.30+fifteenMin*0.40,-1.0,1.0);
+        if(candles.size()<30) {
+            historyContextBias=0;
+            historyDayBias=historyFourHourBias=historyOneHourBias=historyFifteenMinBias=0;
+            historyChopScore=0;
+            return;
+        }
+        // The complete available QX history (up to the imported one-day cap)
+        // is summarized across nested horizons. This is cached on history
+        // import / candle close, never recalculated for every incoming tick.
+        historyDayBias=historyEfficiencyBias(candles.size());
+        historyFourHourBias=historyEfficiencyBias(Math.min(1440,candles.size()));
+        historyOneHourBias=historyEfficiencyBias(Math.min(360,candles.size()));
+        historyFifteenMinBias=historyEfficiencyBias(Math.min(90,candles.size()));
+        historyContextBias=clamp(historyDayBias*0.10+historyFourHourBias*0.20
+                +historyOneHourBias*0.30+historyFifteenMinBias*0.40,-1.0,1.0);
+        historyChopScore=historyAlternationScore(Math.min(90,candles.size()));
+    }
+
+    /** Alternation with weak net progress indicates a choppy/ranging history. */
+    private double historyAlternationScore(int requested) {
+        int count=Math.min(requested,candles.size());
+        if(count<12) return 0;
+        int skip=candles.size()-count, changes=0, previous=0, seen=0;
+        double travel=0;
+        Candle first=null, last=null, prior=null;
+        for(Candle c:candles) {
+            if(seen++<skip) continue;
+            if(first==null) first=c;
+            last=c;
+            int direction=c.close>c.open?1:c.close<c.open?-1:0;
+            if(direction!=0) {
+                if(previous!=0&&direction!=previous) changes++;
+                previous=direction;
+            }
+            if(prior!=null) travel+=Math.abs(c.close-prior.close);
+            prior=c;
+        }
+        if(first==null||last==null||travel<=0) return 0;
+        double efficiency=Math.abs(last.close-first.open)/travel;
+        double alternation=changes/(double)Math.max(1,count-1);
+        return clamp(alternation*(1.0-clamp(efficiency,0,1)),0,1);
     }
 
     private double historyEfficiencyBias(int requested) {
@@ -345,7 +380,11 @@ public final class SignalEngine {
         double bias=0;
         // Small background vote from the full fetched price path; it cannot
         // override current candle and recent live-candle structure.
+        // Full-history map is background context only; the fresh live setup
+        // retains priority so an old one-day trend cannot drown a new turn.
         bias+=historyContextBias*0.55;
+        bias+=clamp(historyFifteenMinBias*1.2,-1.2,1.2);
+        bias+=clamp(historyOneHourBias*0.45,-0.45,0.45);
         bias+=clamp((fast-slow)/atr*3.2,-6,6);
         bias+=clamp(slopeFast*8.0,-8,8);
         bias+=clamp(slopeSlow*4.0,-6,6);
@@ -398,14 +437,37 @@ public final class SignalEngine {
             if(trend<0 && bias>0) bias*=0.72;
         }
 
+        // Classify the current behavior by combining the complete-history
+        // regime map with the recent live structure and the current forming bar.
+        // A transition label is retained when evidence is mixed; no fixed
+        // candle-count pattern is required for a behavior switch.
+        boolean bearishTurn=turnBias< -0.55 || exhaustionBias< -0.48
+                || liquiditySweep<0 || failedBreak<0;
+        boolean bullishTurn=turnBias>0.55 || exhaustionBias>0.48
+                || liquiditySweep>0 || failedBreak>0;
+        boolean falseBreakBehavior=liquiditySweep!=0 || failedBreak!=0;
+        boolean lateEntryRisk=Math.abs(recentMove)>atr*1.65
+                && ((recentMove>0 && (exhaustionBias< -0.30 || turnBias< -0.45
+                    || upperWick>last.bodyAbs()*0.65))
+                || (recentMove<0 && (exhaustionBias>0.30 || turnBias>0.45
+                    || lowerWick>last.bodyAbs()*0.65)));
+        // Soften only the already-extended side when the move is losing force.
+        if(lateEntryRisk && Math.signum(bias)==Math.signum(recentMove)) bias*=0.72;
+
         String regime;
-        if(adx>=20 && Math.abs(slopeSlow)>=0.12) regime="TRENDING";
-        else if(adx<13 && Math.abs(slopeSlow)<0.10) regime="RANGE";
-        else if(Math.abs(pressure)<0.16 && Math.abs(persistence)<0.18) regime="CHOPPY";
+        if(falseBreakBehavior && (bullishTurn || bearishTurn)) regime="FALSE_BREAK / SWEEP";
+        else if(trend>0 && bearishTurn || trend<0 && bullishTurn) regime="REVERSAL ATTEMPT";
+        else if(pullback!=0) regime="PULLBACK";
+        else if(bullBreak || bearBreak) regime="BREAKOUT";
+        else if(adx>=20 && Math.abs(slopeSlow)>=0.12) regime="TRENDING";
+        else if(adx<13 && Math.abs(slopeSlow)<0.10
+                || historyChopScore>=0.58 && Math.abs(slopeSlow)<0.14) regime="RANGE";
+        else if(historyChopScore>=0.62
+                || Math.abs(pressure)<0.16 && Math.abs(persistence)<0.18) regime="CHOPPY";
         else regime="TRANSITION";
 
-        // In ranges, use location and rejection behaviour. In choppy markets,
-        // use the freshest pressure/slope rather than freezing on WAIT.
+        // In ranges, favor defended boundaries, not the middle of the box.
+        // In choppy markets, only the newest pressure/rejection gets extra say.
         if("RANGE".equals(regime)) {
             if(nearSupport || (closePos<0.24 && lowerWick>upperWick)) bias+=7;
             if(nearResistance || (closePos>0.76 && upperWick>lowerWick)) bias-=7;
