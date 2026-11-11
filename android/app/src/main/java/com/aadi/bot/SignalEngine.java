@@ -25,8 +25,10 @@ public final class SignalEngine {
     }
 
     private static final int FAST=9, SLOW=21, RSI_PERIOD=14, MOMENTUM=5;
-    private static final int MIN_CANDLES=30;
-    private static final int MIN_RECENT_CONSECUTIVE=5;
+    // 24 genuine chart candles cover the longest core indicator period.
+    // Do not impose an extra run of 5 contiguous timestamps: sparse/missing
+    // exchange history must not freeze signals when a fresh live tick exists.
+    private static final int MIN_CANDLES=24;
     private static final long FRAME_SECONDS=10;
 
     private static final class Candle {
@@ -273,13 +275,9 @@ public final class SignalEngine {
         // the current OHLC once, while normal decisions use completed candles.
         if(cs.size()<MIN_CANDLES)
             return snapshot("WAIT","Collecting genuine closed-candle history");
-        int consecutive=1;
-        for(int i=cs.size()-1;i>0&&consecutive<MIN_RECENT_CONSECUTIVE;i--) {
-            if(cs.get(i).time-cs.get(i-1).time!=FRAME_SECONDS) break;
-            consecutive++;
-        }
-        if(consecutive<MIN_RECENT_CONSECUTIVE)
-            return snapshot("WAIT","Waiting for 5 consecutive genuine live 10-second candles");
+        // The latest live candle is already included in this scan. Historical
+        // timestamp gaps do not justify another 5-candle wait; the current
+        // live tick plus valid OHLC context is sufficient to evaluate the setup.
 
         List<Double> values=new ArrayList<>();
         for(Candle c:cs) values.add(c.close);
