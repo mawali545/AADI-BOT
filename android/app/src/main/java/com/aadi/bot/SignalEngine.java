@@ -94,6 +94,8 @@ public final class SignalEngine {
             liveCandle=null;
             lockedSignalBucket=-1;
             lockedDirectionalResult=null;
+            lockedNextCandleResult=null;
+            previewedCandleTime=-1;
         }
         // Ignore out-of-order exchange ticks so an old packet cannot roll
         // the current price or forming candle backwards.
@@ -103,19 +105,35 @@ public final class SignalEngine {
         long bucket=(ts/FRAME_SECONDS)*FRAME_SECONDS;
         if(liveCandle==null || bucket>liveBucket) {
             if(liveCandle!=null) appendClosedLiveCandle(liveCandle);
-            // A new candle is the only point where a fresh direction may be issued.
-            lockedSignalBucket=-1;
-            lockedDirectionalResult=null;
+            // The signal previewed during the previous candle's final second
+            // is the entry decision for this new 10-second candle.
+            Result issued=lockedNextCandleResult;
+            if(issued==null) {
+                latestHistoryResult=snapshot("WAIT","WAIT: no reliable final-second preview for this candle");
+            } else {
+                latestHistoryResult=new Result(asset,issued.signal,issued.reason,price,
+                        issued.emaFast,issued.emaSlow,issued.rsi,issued.momentum,
+                        issued.score,issued.closedCandles);
+            }
+            lockedNextCandleResult=null;
+            previewedCandleTime=-1;
+            lockedSignalBucket=bucket;
+            lockedDirectionalResult=latestHistoryResult;
             liveBucket=bucket;
             liveCandle=new Candle(bucket,price,price,price,price);
         } else if(bucket==liveBucket) {
             liveCandle=new Candle(liveBucket,liveCandle.open,
                     Math.max(liveCandle.high,price),Math.min(liveCandle.low,price),price);
         }
-        // WAIT may improve as ticks arrive, but the first directional result
-        // is locked for this candle so CALL/PUT cannot flip repeatedly.
-        latestHistoryResult=calculateAndLockForCurrentCandle();
-        return latestHistoryResult;
+
+        // Do not issue a direction from the first tick. Evaluate exactly once
+        // in the final second (exchange timestamp second 9 of each 10s bar),
+        // using the completed live OHLC so the result is for the NEXT bar.
+        if((ts%FRAME_SECONDS)>=FRAME_SECONDS-1 && previewedCandleTime!=liveBucket) {
+            lockedNextCandleResult=calculateWithLiveCandle();
+            previewedCandleTime=liveBucket;
+        }
+        return latestHistoryResult!=null?latestHistoryResult:currentResult();
     }
 
     private void appendClosedLiveCandle(Candle completed) {
@@ -131,17 +149,6 @@ public final class SignalEngine {
         while(liveCandles.size()>15) liveCandles.removeFirst();
         totalClosed=candles.size();
         refreshHistoryContext();
-    }
-
-    private Result calculateAndLockForCurrentCandle() {
-        if (lockedDirectionalResult!=null && lockedSignalBucket==liveBucket)
-            return lockedDirectionalResult;
-        Result candidate=calculateWithLiveCandle();
-        if ("CALL".equals(candidate.signal) || "PUT".equals(candidate.signal)) {
-            lockedSignalBucket=liveBucket;
-            lockedDirectionalResult=candidate;
-        }
-        return candidate;
     }
 
     private Result calculateWithLiveCandle() {
@@ -222,8 +229,8 @@ public final class SignalEngine {
         for(Candle candle:merged.values()) candles.addLast(candle);
         totalClosed=candles.size();
         refreshHistoryContext();
-        // Never derive a directional signal from historical candles alone.
-        if(changed>0 && liveCandle!=null) latestHistoryResult=calculateAndLockForCurrentCandle();
+        // Imported history refreshes context only. Direction is evaluated
+        // from genuine live OHLC in the final second of its current 10s bar.
         return changed;
     }
 
