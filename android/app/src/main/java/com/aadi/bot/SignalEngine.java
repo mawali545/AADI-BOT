@@ -253,16 +253,22 @@ public final class SignalEngine {
             historyChopScore=0;
             return;
         }
-        // The complete available QX history (up to the imported one-day cap)
-        // is summarized across nested horizons. This is cached on history
-        // import / candle close, never recalculated for every incoming tick.
-        historyDayBias=historyEfficiencyBias(candles.size());
-        historyFourHourBias=historyEfficiencyBias(Math.min(1440,candles.size()));
-        historyOneHourBias=historyEfficiencyBias(Math.min(360,candles.size()));
-        historyFifteenMinBias=historyEfficiencyBias(Math.min(90,candles.size()));
-        historyContextBias=clamp(historyDayBias*0.10+historyFourHourBias*0.20
-                +historyOneHourBias*0.30+historyFifteenMinBias*0.40,-1.0,1.0);
-        historyChopScore=historyAlternationScore(Math.min(90,candles.size()));
+        // Partition the imported history into NON-OVERLAPPING horizons.
+        // Nested rolling windows double-count recent candles and exaggerate trend agreement.
+        int size=candles.size();
+        int p15=Math.max(0,size-90), p1h=Math.max(0,size-360), p4h=Math.max(0,size-1440);
+        List<Candle> all=new ArrayList<>(candles);
+        historyDayBias=historyEfficiencyBiasRange(all,0,p4h);
+        historyFourHourBias=historyEfficiencyBiasRange(all,p4h,p1h);
+        historyOneHourBias=historyEfficiencyBiasRange(all,p1h,p15);
+        historyFifteenMinBias=historyEfficiencyBiasRange(all,p15,size);
+        double weighted=0,availableWeight=0;
+        if(p4h>=8){weighted+=historyDayBias*0.10;availableWeight+=0.10;}
+        if(p1h-p4h>=8){weighted+=historyFourHourBias*0.20;availableWeight+=0.20;}
+        if(p15-p1h>=8){weighted+=historyOneHourBias*0.30;availableWeight+=0.30;}
+        if(size-p15>=8){weighted+=historyFifteenMinBias*0.40;availableWeight+=0.40;}
+        historyContextBias=availableWeight>0?clamp(weighted/availableWeight,-1.0,1.0):0;
+        historyChopScore=historyAlternationScore(Math.min(90,size));
     }
 
     /** Alternation with weak net progress indicates a choppy/ranging history. */
@@ -290,15 +296,13 @@ public final class SignalEngine {
         return clamp(alternation*(1.0-clamp(efficiency,0,1)),0,1);
     }
 
-    private double historyEfficiencyBias(int requested) {
-        int count=Math.min(requested,candles.size());
-        if(count<8) return 0;
-        int skip=candles.size()-count;
+    private double historyEfficiencyBiasRange(List<Candle> source,int from,int to) {
+        int start=Math.max(0,from), end=Math.min(to,source.size());
+        if(end-start<8) return 0;
         Candle first=null,previous=null,last=null;
         double travel=0,high=Double.NEGATIVE_INFINITY,low=Double.POSITIVE_INFINITY;
-        int i=0;
-        for(Candle c:candles) {
-            if(i++<skip) continue;
+        for(int i=start;i<end;i++) {
+            Candle c=source.get(i);
             if(first==null) first=c;
             if(previous!=null) travel+=Math.abs(c.close-previous.close);
             previous=c;
@@ -338,12 +342,12 @@ public final class SignalEngine {
 
         // Separate the broad regime from the immediate candle behaviour.
         // Long history is context, not a command to blindly follow its trend.
-        double longBias=0.35*historyContextBias
-                +0.20*historyFourHourBias
-                +0.15*historyOneHourBias
-                +0.15*structure
-                +0.15*clamp(slowMove/(atr*2.5),-1,1);
-        longBias=clamp(longBias,-1,1);
+        // The aggregate already contains all disjoint horizons; do not add
+        // its component history scores again.
+        double longBias=0.50*historyContextBias
+                +0.25*structure
+                +0.25*clamp(slowMove/(atr*2.5),-1,1);
+        longBias=clamp(longBias*(1.0-0.45*historyChopScore),-1,1);
 
         // Activate the indicator implementations in the final decision.
         // Each vote is normalized by ATR so it scales across OTC instruments.
@@ -428,25 +432,33 @@ public final class SignalEngine {
 
         // Independent evidence of absorption/rejection can outweigh the old
         // trend. This is the key protection against "green pressure = CALL".
-        if(bearishAbsorption) forecast=Math.min(forecast,-0.27);
-        if(bullishAbsorption) forecast=Math.max(forecast,0.27);
+        // Opposing absorption flags mean conflicting evidence, not a
+        // directional tie-break in favour of whichever condition runs last.
+        boolean absorptionConflict=bearishAbsorption&&bullishAbsorption;
+        if(absorptionConflict) forecast*=0.35;
+        else if(bearishAbsorption) forecast=Math.min(forecast,-0.27);
+        else if(bullishAbsorption) forecast=Math.max(forecast,0.27);
 
         String regime;
-        if(bearishAbsorption) regime="BEARISH ABSORPTION / REJECTION";
+        if(absorptionConflict) regime="CONFLICTING ABSORPTION";
+        else if(bearishAbsorption) regime="BEARISH ABSORPTION / REJECTION";
         else if(bullishAbsorption) regime="BULLISH ABSORPTION / REJECTION";
         else if(longBias>0.28&&reversalBias> -0.15) regime="UPTREND WITH PULLBACK CHECK";
         else if(longBias< -0.28&&reversalBias<0.15) regime="DOWNTREND WITH BOUNCE CHECK";
         else if(Math.abs(longBias)<0.18&&historyChopScore>0.35) regime="MIXED / CHOP";
         else regime="TRANSITION / MIXED";
 
+        // A choppy recent regime requires slightly stronger agreement, without
+        // imposing a fixed candle-count delay.
+        double entryThreshold=0.22+0.06*historyChopScore;
         // No artificial certainty: conflicting evidence means WAIT.
-        if(forecast>0.22) {
+        if(forecast>entryThreshold) {
             int score=(int)Math.round(clamp(54+Math.abs(forecast)*34,54,88));
             String why="CALL forecast • "+regime+" • trend, live flow and reversal checks agree";
             return new Result(asset,"CALL",why,last.close,ema(closes,9),ema(closes,21),
                     rsiWilder(closes,14),fastMove,score,totalClosed);
         }
-        if(forecast< -0.22) {
+        if(forecast< -entryThreshold) {
             int score=(int)Math.round(clamp(54+Math.abs(forecast)*34,54,88));
             String why="PUT forecast • "+regime+" • trend, live flow and reversal checks agree";
             return new Result(asset,"PUT",why,last.close,ema(closes,9),ema(closes,21),
