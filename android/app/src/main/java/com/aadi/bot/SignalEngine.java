@@ -370,11 +370,12 @@ public final class SignalEngine {
         int pullback=pullbackContinuation(cs,trend,atr);
 
         double reversalBias=clamp(
-                0.28*clamp(pattern/1.5,-1,1)
-                +0.25*clamp(exhaustion/1.5,-1,1)
-                +0.18*clamp(turning/1.5,-1,1)
-                +0.12*clamp(multiScale/1.8,-1,1)
-                +0.09*sweep+0.08*failedBreak,-1,1);
+                0.22*clamp(pattern/1.5,-1,1)
+                +0.22*clamp(exhaustion/1.5,-1,1)
+                +0.14*clamp(turning/1.5,-1,1)
+                +0.10*clamp(multiScale/1.8,-1,1)
+                +0.20*clamp(flowBias/1.5,-1,1)
+                +0.06*sweep+0.06*failedBreak,-1,1);
 
         // A shallow counter-candle that holds the swing is a pullback, not a
         // trend reversal. But a failed breakout, sweep or strong rejection
@@ -390,14 +391,16 @@ public final class SignalEngine {
         double lower=Math.min(last.open,last.close)-last.low;
         boolean bearishAbsorption=(trend>=0)
                 && ((sweep<0||failedBreak<0)
+                    || (flowBias< -0.72&&exhaustion< -0.22)
                     || (pattern< -0.55&&exhaustion< -0.35)
                     || (upper>Math.max(last.bodyAbs()*1.15,atr*0.16)&&closePos<0.42
-                        && exhaustion< -0.35));
+                        && (exhaustion< -0.25||flowBias< -0.55)));
         boolean bullishAbsorption=(trend<=0)
                 && ((sweep>0||failedBreak>0)
+                    || (flowBias>0.72&&exhaustion>0.22)
                     || (pattern>0.55&&exhaustion>0.35)
                     || (lower>Math.max(last.bodyAbs()*1.15,atr*0.16)&&closePos>0.58
-                        && exhaustion>0.35));
+                        && (exhaustion>0.25||flowBias>0.55)));
 
         // Independent evidence of absorption/rejection can outweigh the old
         // trend. This is the key protection against "green pressure = CALL".
@@ -626,74 +629,85 @@ public final class SignalEngine {
     private double shortTermFlowBias(List<Candle> cs,double atr) {
         int n=cs.size();
         if(n<7||atr<=0) return 0;
-        Candle a=cs.get(n-5),b=cs.get(n-4),c=cs.get(n-3),
-               d=cs.get(n-2),e=cs.get(n-1);
+        Candle last=cs.get(n-1),prev=cs.get(n-2);
         double vote=0;
 
-        // Establish the immediate impulse before the newest two candles.
-        double impulse=c.close-a.open;
-        int impulseDir=impulse>atr*0.10?1:impulse< -atr*0.10?-1:0;
-        double impulseSize=Math.abs(impulse);
+        // Read the prior price path, not a fixed count of same-colour bars.
+        // The lookback is a rolling context window; candle colours are never
+        // used as a 2/3/4-candle trigger.
+        int window=Math.min(12,n-2);
+        int from=n-1-window;
+        double net=prev.close-cs.get(from).open;
+        double travel=0;
+        for(int i=from+1;i<n-1;i++)
+            travel+=Math.abs(cs.get(i).close-cs.get(i-1).close);
+        double efficiency=travel>0?Math.abs(net)/travel:0;
+        int direction=net>atr*0.20?1:net< -atr*0.20?-1:0;
 
-        // A one/two-candle counter-move is a pullback unless it breaks the
-        // nearby micro swing or retraces a meaningful share of the impulse.
-        if(impulseDir>0) {
-            double pullback=Math.max(0,c.close-Math.min(d.low,e.low));
-            boolean brokeMicroLow=e.close<Math.min(c.low,d.low);
-            boolean deepRetrace=pullback>Math.max(atr*0.30,impulseSize*0.58);
-            boolean sellerFollowThrough=d.close<c.close && e.close<d.close;
-            if(brokeMicroLow && (deepRetrace||sellerFollowThrough)) vote-=1.05;
-            else if(deepRetrace && sellerFollowThrough) vote-=0.72;
-            else if((d.close<d.open||e.close<e.open) && e.low>Math.min(a.low,b.low))
-                vote+=0.22; // controlled dip; buyers still defend the staircase
-        } else if(impulseDir<0) {
-            double pullback=Math.max(0,Math.max(d.high,e.high)-c.close);
-            boolean brokeMicroHigh=e.close>Math.max(c.high,d.high);
-            boolean deepRetrace=pullback>Math.max(atr*0.30,impulseSize*0.58);
-            boolean buyerFollowThrough=d.close>c.close && e.close>d.close;
-            if(brokeMicroHigh && (deepRetrace||buyerFollowThrough)) vote+=1.05;
-            else if(deepRetrace && buyerFollowThrough) vote+=0.72;
-            else if((d.close>d.open||e.close>e.open) && e.high<Math.max(a.high,b.high))
-                vote-=0.22; // controlled bounce; sellers still defend lower highs
+        if(direction!=0) {
+            int split=from+Math.max(2,window/2);
+            double early=0,late=0;
+            for(int i=from+1;i<=split&&i<n-1;i++)
+                early+=cs.get(i).close-cs.get(i-1).close;
+            for(int i=Math.max(split+1,from+1);i<n-1;i++)
+                late+=cs.get(i).close-cs.get(i-1).close;
+            double earlyRate=early/Math.max(1,split-from);
+            double lateRate=late/Math.max(1,(n-2)-Math.max(split,from));
+            // Loss of directional displacement is an early warning, not an
+            // automatic reversal. It becomes meaningful with rejection or
+            // a developing break in nearby structure.
+            boolean decelerating=earlyRate*direction>atr*0.012
+                    && lateRate*direction<earlyRate*direction*0.58;
+            if(decelerating) vote-=0.24*direction*clamp(efficiency+0.25,0.35,1.0);
+
+            double priorHigh=Double.NEGATIVE_INFINITY,priorLow=Double.POSITIVE_INFINITY;
+            for(int i=from;i<n-1;i++) {
+                priorHigh=Math.max(priorHigh,cs.get(i).high);
+                priorLow=Math.min(priorLow,cs.get(i).low);
+            }
+            double range=Math.max(last.range(),1e-12);
+            double closePos=(last.close-last.low)/range;
+            double upper=last.high-Math.max(last.open,last.close);
+            double lower=Math.min(last.open,last.close)-last.low;
+            boolean rejectedHigh=direction>0
+                    && last.high>=priorHigh-atr*0.025
+                    && upper>Math.max(last.bodyAbs()*0.85,atr*0.12)
+                    && closePos<0.48;
+            boolean rejectedLow=direction<0
+                    && last.low<=priorLow+atr*0.025
+                    && lower>Math.max(last.bodyAbs()*0.85,atr*0.12)
+                    && closePos>0.52;
+            if(rejectedHigh) vote-=0.62;
+            if(rejectedLow) vote+=0.62;
+
+            // A live close through the nearby micro swing is stronger than
+            // a colour change: it shows that the opposing side took control.
+            boolean brokeDown=direction>0
+                    && last.close<Math.min(prev.low,cs.get(n-3).low);
+            boolean brokeUp=direction<0
+                    && last.close>Math.max(prev.high,cs.get(n-3).high);
+            if(brokeDown) vote-=0.72;
+            if(brokeUp) vote+=0.72;
+
+            // A fresh extreme that cannot hold outside the old range is a
+            // failed extension / liquidity trap.
+            boolean bullTrap=direction>0&&last.high>priorHigh&&last.close<priorHigh;
+            boolean bearTrap=direction<0&&last.low<priorLow&&last.close>priorLow;
+            if(bullTrap) vote-=0.58;
+            if(bearTrap) vote+=0.58;
         }
 
-        // Two consecutive opposite closes matter more when they displace price
-        // through the prior candle's extreme, not merely because their colour changed.
-        boolean twoDown=d.close<d.open && e.close<e.open;
-        boolean twoUp=d.close>d.open && e.close>e.open;
-        if(twoDown && e.close<d.low && (d.open-e.close)>atr*0.22) vote-=0.48;
-        if(twoUp && e.close>d.high && (e.close-d.open)>atr*0.22) vote+=0.48;
+        // A single opposite-colour bar is not enough by itself. Its body,
+        // displacement and close location must show genuine opposing control.
+        double range=Math.max(last.range(),1e-12);
+        double closePos=(last.close-last.low)/range;
+        if(last.close<last.open && last.bodyAbs()>atr*0.16
+                && last.close<prev.close && closePos<0.38) vote-=0.28;
+        if(last.close>last.open && last.bodyAbs()>atr*0.16
+                && last.close>prev.close && closePos>0.62) vote+=0.28;
 
-        // Exhaustion: a fresh extreme followed by a close back inside with a
-        // dominant rejection wick warns against following the old direction.
-        double eRange=Math.max(e.range(),1e-12);
-        double eUpper=e.high-Math.max(e.open,e.close);
-        double eLower=Math.min(e.open,e.close)-e.low;
-        double eClosePos=(e.close-e.low)/eRange;
-        boolean rejectedHigh=e.high>Math.max(c.high,d.high)
-                && eUpper>Math.max(e.bodyAbs()*1.15,atr*0.16) && eClosePos<0.48;
-        boolean rejectedLow=e.low<Math.min(c.low,d.low)
-                && eLower>Math.max(e.bodyAbs()*1.15,atr*0.16) && eClosePos>0.52;
-        if(rejectedHigh) vote-=0.82;
-        if(rejectedLow) vote+=0.82;
-
-        // Do not chase a three-candle burst if the latest candle has lost
-        // body strength and closes away from its extreme.
-        Candle[] recent={c,d,e};
-        int up=0,down=0;
-        for(Candle x:recent) {
-            if(x.close>x.open) up++;
-            else if(x.close<x.open) down++;
-        }
-        if(up>=2 && e.close<e.open && e.bodyAbs()<d.bodyAbs()*0.75
-                && eClosePos<0.62) vote-=0.28;
-        if(down>=2 && e.close>e.open && e.bodyAbs()<d.bodyAbs()*0.75
-                && eClosePos>0.38) vote+=0.28;
-
-        // Clamp to a bounded vote; a lone colour flip can never dominate.
         return clamp(vote,-1.5,1.5);
     }
-
 
     /**
      * Adaptive candle-by-candle exhaustion/reversal reading.
