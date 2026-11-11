@@ -4,9 +4,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
-import java.util.TreeMap;
 import org.json.JSONArray;
-import org.json.JSONObject;
 
 /**
  * Conservative real-tick 10-second market scanner.
@@ -25,10 +23,8 @@ public final class SignalEngine {
     }
 
     private static final int FAST=9, SLOW=21, RSI_PERIOD=14, MOMENTUM=5;
-    // 24 genuine chart candles cover the longest core indicator period.
-    // Do not impose an extra run of 5 contiguous timestamps: sparse/missing
-    // exchange history must not freeze signals when a fresh live tick exists.
-    private static final int MIN_CANDLES=24;
+    // Warm up from 15 genuine live 10-second candles only.
+    private static final int MIN_CANDLES=15;
     private static final long FRAME_SECONDS=10;
 
     private static final class Candle {
@@ -42,15 +38,8 @@ public final class SignalEngine {
         double bodyAbs() { return Math.abs(close-open); }
     }
 
-    private final Deque<Candle> candles = new ArrayDeque<>();
-    // Only exchange ticks received after app startup populate this short live window.
+    // Only genuine live candles received after app startup are used for signals.
     private final Deque<Candle> liveCandles = new ArrayDeque<>();
-    // Cached once per history import / completed live bar, never scanned per tick.
-    private double historyContextBias=0;
-    // Cached multi-horizon regime map from the complete imported QX history.
-    private double historyDayBias=0, historyFourHourBias=0;
-    private double historyOneHourBias=0, historyFifteenMinBias=0;
-    private double historyChopScore=0;
     private String asset;
     private double lastPrice;
     private int totalClosed=0;
@@ -79,11 +68,7 @@ public final class SignalEngine {
         if (ts <= 0) return currentResult();
         if (asset == null || !asset.equals(symbol)) {
             asset=symbol;
-            candles.clear();
             liveCandles.clear();
-            historyContextBias=0;
-            historyDayBias=historyFourHourBias=historyOneHourBias=historyFifteenMinBias=0;
-            historyChopScore=0;
             totalClosed=0;
             latestHistoryResult=null;
             latestFeedTime=-1;
@@ -140,189 +125,59 @@ public final class SignalEngine {
     }
 
     private void appendClosedLiveCandle(Candle completed) {
-        if(!candles.isEmpty() && candles.peekLast().time==completed.time) {
-            candles.removeLast();
-        } else if(!candles.isEmpty() && candles.peekLast().time>completed.time) {
+        if(!liveCandles.isEmpty() && liveCandles.peekLast().time==completed.time) {
+            liveCandles.removeLast();
+        } else if(!liveCandles.isEmpty() && liveCandles.peekLast().time>completed.time) {
             return;
         }
-        candles.addLast(completed);
-        while(candles.size()>8640) candles.removeFirst();
-        if(!liveCandles.isEmpty() && liveCandles.peekLast().time==completed.time) liveCandles.removeLast();
         liveCandles.addLast(completed);
         while(liveCandles.size()>15) liveCandles.removeFirst();
-        totalClosed=candles.size();
-        refreshHistoryContext();
+        totalClosed=liveCandles.size();
     }
 
     private Result calculateWithLiveCandle() {
-        // Use the latest imported chart history as the broad market map, then
-        // overlay genuine live candles and the current forming exchange candle.
-        // The full imported day is also summarized in historyContextBias by
-        // refreshHistoryContext(); this bounded window keeps per-tick work light.
-        TreeMap<Long,Candle> window=new TreeMap<>();
-        int skip=Math.max(0,candles.size()-180);
-        int index=0;
-        for(Candle c:candles) {
-            if(index++>=skip) window.put(c.time,c);
+        // Strict live-only window: imported chart history never enters the forecast.
+        List<Candle> window=new ArrayList<>(liveCandles);
+        if(liveCandle!=null) {
+            if(!window.isEmpty() && window.get(window.size()-1).time==liveCandle.time)
+                window.set(window.size()-1,liveCandle);
+            else window.add(liveCandle);
         }
-        for(Candle c:liveCandles) window.put(c.time,c);
-        if(liveCandle!=null) window.put(liveCandle.time,liveCandle);
-        return calculateFromCandles(new ArrayList<>(window.values()));
+        return calculateFromCandles(window);
     }
 
-    /** Uses current live candle with prior historical context when available. */
-    public synchronized Result currentResult() {
-        return latestHistoryResult!=null ? latestHistoryResult
-                : snapshot("WAIT","Waiting for genuine Market-QX history and live ticks");
-    }
-
-    /**
-     * Imports genuine 10-second OHLC candles from Market-QX history responses.
-     * The live tick timestamp is used only to exclude the still-forming candle;
-     * this engine never aggregates ticks into replacement candles.
-     */
+    /** Historical chart packets are intentionally ignored by this live-only engine. */
     public synchronized int importHistoricalCandles(String symbol, JSONArray rows) {
-        if (symbol == null || symbol.trim().isEmpty() || rows == null) return 0;
-        if (asset!=null && !asset.equals(symbol)) {
-            candles.clear();
-            liveCandles.clear();
-            historyContextBias=0;
-            historyDayBias=historyFourHourBias=historyOneHourBias=historyFifteenMinBias=0;
-            historyChopScore=0;
-            totalClosed=0;
-            latestHistoryResult=null;
-            latestFeedTime=-1;
-            liveBucket=-1;
-            liveCandle=null;
-            liveTickCount=0;
-            pendingNextCandleResult=null;
-            previewedBucket=-1;
-        }
-        asset=symbol;
-        TreeMap<Long,Candle> incoming = new TreeMap<>();
-        long liveBucket=latestFeedTime>0
-                ? (latestFeedTime/FRAME_SECONDS)*FRAME_SECONDS : Long.MAX_VALUE;
-        for (int i=0; i<rows.length(); i++) {
-            JSONObject row=rows.optJSONObject(i);
-            if (row==null) continue;
-            long t=(long)row.optDouble("timestamp",row.optDouble("time",row.optDouble("ts",0)));
-            if (t>10000000000L) t/=1000L;
-            if (t<=0) continue;
-            double o=number(row,"open","o"), h=number(row,"high","h");
-            double l=number(row,"low","l"), c=number(row,"close","c");
-            if (!Double.isFinite(o)||!Double.isFinite(h)||!Double.isFinite(l)||!Double.isFinite(c)
-                    || o<=0||h<=0||l<=0||c<=0||h<Math.max(o,c)||l>Math.min(o,c)||h<l) continue;
-            long bucket=(t/FRAME_SECONDS)*FRAME_SECONDS;
-            // A chart candle is eligible only after the exchange clock has moved
-            // into the next 10-second bucket. Do not compare against phone time.
-            if (liveBucket!=Long.MAX_VALUE && bucket>=liveBucket) continue;
-            incoming.put(bucket,new Candle(bucket,o,h,l,c));
-        }
-        if (liveBucket==Long.MAX_VALUE && !incoming.isEmpty()) {
-            // Without a trustworthy exchange timestamp, treat the newest
-            // returned chart candle as still forming and do not evaluate it.
-            incoming.pollLastEntry();
-        }
-        if (incoming.isEmpty()) return 0;
-        TreeMap<Long,Candle> merged=new TreeMap<>();
-        for(Candle old:candles) merged.put(old.time,old);
-        int changed=0;
-        for(java.util.Map.Entry<Long,Candle> entry:incoming.entrySet()) {
-            Candle old=merged.get(entry.getKey());
-            Candle fresh=entry.getValue();
-            if(old==null || old.open!=fresh.open || old.high!=fresh.high
-                    || old.low!=fresh.low || old.close!=fresh.close) changed++;
-            merged.put(entry.getKey(),fresh);
-        }
-        while(merged.size()>8640) merged.pollFirstEntry();
-        // Ignore duplicate history packets; do not rescan a full day of candles.
-        if(changed==0) return 0;
-        candles.clear();
-        for(Candle candle:merged.values()) candles.addLast(candle);
-        totalClosed=candles.size();
-        refreshHistoryContext();
-        // Imported history refreshes context only. Direction is evaluated
-        // from genuine live OHLC in the final second of its current 10s bar.
-        return changed;
+        return 0;
     }
 
-    private void refreshHistoryContext() {
-        if(candles.size()<30) {
-            historyContextBias=0;
-            historyDayBias=historyFourHourBias=historyOneHourBias=historyFifteenMinBias=0;
-            historyChopScore=0;
-            return;
-        }
-        // Partition the imported history into NON-OVERLAPPING horizons.
-        // Nested rolling windows double-count recent candles and exaggerate trend agreement.
-        int size=candles.size();
-        int p15=Math.max(0,size-90), p1h=Math.max(0,size-360), p4h=Math.max(0,size-1440);
-        List<Candle> all=new ArrayList<>(candles);
-        historyDayBias=historyEfficiencyBiasRange(all,0,p4h);
-        historyFourHourBias=historyEfficiencyBiasRange(all,p4h,p1h);
-        historyOneHourBias=historyEfficiencyBiasRange(all,p1h,p15);
-        historyFifteenMinBias=historyEfficiencyBiasRange(all,p15,size);
-        double weighted=0,availableWeight=0;
-        if(p4h>=8){weighted+=historyDayBias*0.10;availableWeight+=0.10;}
-        if(p1h-p4h>=8){weighted+=historyFourHourBias*0.20;availableWeight+=0.20;}
-        if(p15-p1h>=8){weighted+=historyOneHourBias*0.30;availableWeight+=0.30;}
-        if(size-p15>=8){weighted+=historyFifteenMinBias*0.40;availableWeight+=0.40;}
-        historyContextBias=availableWeight>0?clamp(weighted/availableWeight,-1.0,1.0):0;
-        historyChopScore=historyAlternationScore(Math.min(90,size));
-    }
-
-    /** Alternation with weak net progress indicates a choppy/ranging history. */
-    private double historyAlternationScore(int requested) {
-        int count=Math.min(requested,candles.size());
-        if(count<12) return 0;
-        int skip=candles.size()-count, changes=0, previous=0, seen=0;
+    /** Measures chop using only the most recent live candles in this calculation. */
+    private double liveChopScore(List<Candle> cs) {
+        int count=Math.min(12,cs.size());
+        if(count<6) return 0;
+        int from=cs.size()-count, changes=0, previous=0;
         double travel=0;
-        Candle first=null, last=null, prior=null;
-        for(Candle c:candles) {
-            if(seen++<skip) continue;
-            if(first==null) first=c;
-            last=c;
+        Candle first=cs.get(from), last=cs.get(cs.size()-1), prior=null;
+        for(int i=from;i<cs.size();i++) {
+            Candle c=cs.get(i);
             int direction=c.close>c.open?1:c.close<c.open?-1:0;
             if(direction!=0) {
-                if(previous!=0&&direction!=previous) changes++;
+                if(previous!=0 && direction!=previous) changes++;
                 previous=direction;
             }
             if(prior!=null) travel+=Math.abs(c.close-prior.close);
             prior=c;
         }
-        if(first==null||last==null||travel<=0) return 0;
+        if(travel<=0) return 0;
         double efficiency=Math.abs(last.close-first.open)/travel;
         double alternation=changes/(double)Math.max(1,count-1);
         return clamp(alternation*(1.0-clamp(efficiency,0,1)),0,1);
     }
 
-    private double historyEfficiencyBiasRange(List<Candle> source,int from,int to) {
-        int start=Math.max(0,from), end=Math.min(to,source.size());
-        if(end-start<8) return 0;
-        Candle first=null,previous=null,last=null;
-        double travel=0,high=Double.NEGATIVE_INFINITY,low=Double.POSITIVE_INFINITY;
-        for(int i=start;i<end;i++) {
-            Candle c=source.get(i);
-            if(first==null) first=c;
-            if(previous!=null) travel+=Math.abs(c.close-previous.close);
-            previous=c;
-            last=c;
-            high=Math.max(high,c.high);
-            low=Math.min(low,c.low);
-        }
-        if(first==null||last==null||travel<=0||high<=low) return 0;
-        double net=last.close-first.open;
-        double efficiency=clamp(net/travel,-1.0,1.0);
-        double rangePosition=clamp(((last.close-low)/(high-low)-0.5)*2.0,-1.0,1.0);
-        return clamp(efficiency*0.75+rangePosition*0.25,-1.0,1.0);
+    public synchronized Result currentResult() {
+        return latestHistoryResult!=null ? latestHistoryResult
+                : snapshot("WAIT","Waiting for 15 genuine live QX candles");
     }
-
-    private double number(JSONObject row,String longKey,String shortKey) {
-        double v=row.has(longKey)?row.optDouble(longKey,Double.NaN):row.optDouble(shortKey,Double.NaN);
-        return v;
-    }
-
-
 
     private Result calculateFromCandles(List<Candle> cs) {
         if (cs.size() < MIN_CANDLES)
@@ -344,10 +199,10 @@ public final class SignalEngine {
         // Long history is context, not a command to blindly follow its trend.
         // The aggregate already contains all disjoint horizons; do not add
         // its component history scores again.
-        double longBias=0.50*historyContextBias
-                +0.25*structure
-                +0.25*clamp(slowMove/(atr*2.5),-1,1);
-        longBias=clamp(longBias*(1.0-0.45*historyChopScore),-1,1);
+        double chopScore=liveChopScore(cs);
+        double longBias=clamp(0.55*structure
+                +0.45*clamp(slowMove/(atr*2.5),-1,1),-1,1);
+        longBias=clamp(longBias*(1.0-0.35*chopScore),-1,1);
 
         // Activate the indicator implementations in the final decision.
         // Each vote is normalized by ATR so it scales across OTC instruments.
@@ -444,12 +299,12 @@ public final class SignalEngine {
         else if(bullishAbsorption) regime="BULLISH ABSORPTION / REJECTION";
         else if(longBias>0.28&&reversalBias> -0.15) regime="UPTREND WITH PULLBACK CHECK";
         else if(longBias< -0.28&&reversalBias<0.15) regime="DOWNTREND WITH BOUNCE CHECK";
-        else if(Math.abs(longBias)<0.18&&historyChopScore>0.35) regime="MIXED / CHOP";
+        else if(Math.abs(longBias)<0.18&&chopScore>0.35) regime="MIXED / CHOP";
         else regime="TRANSITION / MIXED";
 
         // A choppy recent regime requires slightly stronger agreement, without
         // imposing a fixed candle-count delay.
-        double entryThreshold=0.22+0.06*historyChopScore;
+        double entryThreshold=0.25+0.08*chopScore;
         // No artificial certainty: conflicting evidence means WAIT.
         if(forecast>entryThreshold) {
             int score=(int)Math.round(clamp(54+Math.abs(forecast)*34,54,88));
@@ -1154,6 +1009,6 @@ public final class SignalEngine {
 
     private Result snapshot(String sig,String why) {
         return new Result(asset,sig,why,lastPrice,Double.NaN,Double.NaN,Double.NaN,
-            Double.NaN,0,totalClosed);
+            Double.NaN,0,liveCandles.size());
     }
 }
