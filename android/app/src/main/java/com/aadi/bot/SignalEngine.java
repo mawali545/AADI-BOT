@@ -131,7 +131,7 @@ public final class SignalEngine {
             return;
         }
         liveCandles.addLast(completed);
-        while(liveCandles.size()>200) liveCandles.removeFirst();
+        while(liveCandles.size()>800) liveCandles.removeFirst();
         totalClosed=liveCandles.size();
     }
 
@@ -221,7 +221,7 @@ public final class SignalEngine {
         // expanding genuine-live window. EMA100/200 mature as live candles accrue.
         double e9=ema(closes,9), e20=ema(closes,20), e50=ema(closes,50);
         double e100=ema(closes,100), e200=ema(closes,200);
-        double emaStackVote=emaStackBias(e9,e20,e50,e100,e200,atr);
+        double emaStackVote=emaStackBias(e9,e20,e50,e100,e200,atr,n);
         // Fast RSI7 and standard RSI14; 30/50/70 are context levels, not
         // automatic reversal commands. Momentum and level agreement are blended.
         double rsi7=rsiWilder(closes,7), rsi14=rsiWilder(closes,14);
@@ -305,8 +305,8 @@ public final class SignalEngine {
         // Conflicting absorption means WAIT pressure, not a forced tie-break.
         boolean absorptionConflict=bearishAbsorption&&bullishAbsorption;
         if(absorptionConflict) forecast*=0.35;
-        else if(bearishAbsorption) forecast=Math.min(forecast,-0.27);
-        else if(bullishAbsorption) forecast=Math.max(forecast,0.27);
+        else if(bearishAbsorption) forecast=clamp(forecast-0.12,-1,1);
+        else if(bullishAbsorption) forecast=clamp(forecast+0.12,-1,1);
 
         String regime;
         if(absorptionConflict) regime="CONFLICTING ABSORPTION";
@@ -319,15 +319,19 @@ public final class SignalEngine {
 
         // A choppy recent regime requires slightly stronger agreement, without
         // imposing a fixed candle-count delay.
-        double entryThreshold=0.25+0.08*chopScore;
-        // No artificial certainty: conflicting evidence means WAIT.
-        if(forecast>entryThreshold) {
+        double entryThreshold=0.32+0.10*chopScore;
+        // Require agreement from at least two of the three broad, recent and
+        // reversal layers. A strong opposing layer blocks the trade entirely.
+        int bullishVotes=(longBias>0.12?1:0)+(recentBias>0.12?1:0)+(reversalBias>0.12?1:0);
+        int bearishVotes=(longBias< -0.12?1:0)+(recentBias< -0.12?1:0)+(reversalBias< -0.12?1:0);
+        // No absorption event can manufacture a directional signal by itself.
+        if(forecast>entryThreshold && bullishVotes>=2 && bearishVotes==0) {
             int score=(int)Math.round(clamp(54+Math.abs(forecast)*34,54,88));
             String why="CALL forecast • "+regime+" • trend, live flow and reversal checks agree";
             return new Result(asset,"CALL",why,last.close,ema(closes,9),ema(closes,21),
                     rsiWilder(closes,14),fastMove,score,totalClosed);
         }
-        if(forecast< -entryThreshold) {
+        if(forecast< -entryThreshold && bearishVotes>=2 && bullishVotes==0) {
             int score=(int)Math.round(clamp(54+Math.abs(forecast)*34,54,88));
             String why="PUT forecast • "+regime+" • trend, live flow and reversal checks agree";
             return new Result(asset,"PUT",why,last.close,ema(closes,9),ema(closes,21),
