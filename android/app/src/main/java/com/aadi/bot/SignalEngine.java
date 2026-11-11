@@ -85,6 +85,8 @@ public final class SignalEngine {
             candles.clear();
             liveCandles.clear();
             historyContextBias=0;
+            historyDayBias=historyFourHourBias=historyOneHourBias=historyFifteenMinBias=0;
+            historyChopScore=0;
             totalClosed=0;
             latestHistoryResult=null;
             latestFeedTime=-1;
@@ -459,6 +461,7 @@ public final class SignalEngine {
         else if(trend>0 && bearishTurn || trend<0 && bullishTurn) regime="REVERSAL ATTEMPT";
         else if(pullback!=0) regime="PULLBACK";
         else if(bullBreak || bearBreak) regime="BREAKOUT";
+        else if(Math.abs(recentMove)>atr*1.35 && bodyRatio>=0.62) regime="IMPULSE";
         else if(adx>=20 && Math.abs(slopeSlow)>=0.12) regime="TRENDING";
         else if(adx<13 && Math.abs(slopeSlow)<0.10
                 || historyChopScore>=0.58 && Math.abs(slopeSlow)<0.14) regime="RANGE";
