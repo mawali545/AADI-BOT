@@ -25,7 +25,8 @@ public final class SignalEngine {
     }
 
     private static final int FAST=9, SLOW=21, RSI_PERIOD=14, MOMENTUM=5;
-    private static final int MIN_CANDLES=13;
+    private static final int MIN_CANDLES=30;
+    private static final int MIN_RECENT_CONSECUTIVE=5;
     private static final long FRAME_SECONDS=10;
 
     private static final class Candle {
@@ -136,15 +137,19 @@ public final class SignalEngine {
     }
 
     private Result calculateWithLiveCandle() {
-        // Direction uses ONLY up to 15 closed live candles plus the current forming candle.
-        // Imported history is context, never a direct signal trigger.
-        List<Candle> combined=new ArrayList<>(liveCandles);
-        if(liveCandle!=null) {
-            if(!combined.isEmpty() && combined.get(combined.size()-1).time==liveCandle.time)
-                combined.set(combined.size()-1,liveCandle);
-            else combined.add(liveCandle);
+        // Use the latest imported chart history as the broad market map, then
+        // overlay genuine live candles and the current forming exchange candle.
+        // The full imported day is also summarized in historyContextBias by
+        // refreshHistoryContext(); this bounded window keeps per-tick work light.
+        TreeMap<Long,Candle> window=new TreeMap<>();
+        int skip=Math.max(0,candles.size()-180);
+        int index=0;
+        for(Candle c:candles) {
+            if(index++>=skip) window.put(c.time,c);
         }
-        return calculateFromCandles(combined);
+        for(Candle c:liveCandles) window.put(c.time,c);
+        if(liveCandle!=null) window.put(liveCandle.time,liveCandle);
+        return calculateFromCandles(new ArrayList<>(window.values()));
     }
 
     /** Uses current live candle with prior historical context when available. */
@@ -216,11 +221,38 @@ public final class SignalEngine {
 
     private void refreshHistoryContext() {
         if(candles.size()<30) { historyContextBias=0; return; }
-        Candle first=candles.peekFirst(), last=candles.peekLast();
-        double hi=Double.NEGATIVE_INFINITY, lo=Double.POSITIVE_INFINITY;
-        for(Candle c:candles) { hi=Math.max(hi,c.high); lo=Math.min(lo,c.low); }
-        double span=hi-lo;
-        historyContextBias=span>0?clamp((last.close-first.close)/span,-1.0,1.0):0;
+        // Read the entire fetched history through several nested horizons.
+        // Net displacement is measured against actual path travel, so a
+        // red/green alternating sequence is not mistaken for a clean trend.
+        double day=historyEfficiencyBias(candles.size());
+        double fourHour=historyEfficiencyBias(Math.min(1440,candles.size()));
+        double oneHour=historyEfficiencyBias(Math.min(360,candles.size()));
+        double fifteenMin=historyEfficiencyBias(Math.min(90,candles.size()));
+        historyContextBias=clamp(day*0.10+fourHour*0.20
+                +oneHour*0.30+fifteenMin*0.40,-1.0,1.0);
+    }
+
+    private double historyEfficiencyBias(int requested) {
+        int count=Math.min(requested,candles.size());
+        if(count<8) return 0;
+        int skip=candles.size()-count;
+        Candle first=null,previous=null,last=null;
+        double travel=0,high=Double.NEGATIVE_INFINITY,low=Double.POSITIVE_INFINITY;
+        int i=0;
+        for(Candle c:candles) {
+            if(i++<skip) continue;
+            if(first==null) first=c;
+            if(previous!=null) travel+=Math.abs(c.close-previous.close);
+            previous=c;
+            last=c;
+            high=Math.max(high,c.high);
+            low=Math.min(low,c.low);
+        }
+        if(first==null||last==null||travel<=0||high<=low) return 0;
+        double net=last.close-first.open;
+        double efficiency=clamp(net/travel,-1.0,1.0);
+        double rangePosition=clamp(((last.close-low)/(high-low)-0.5)*2.0,-1.0,1.0);
+        return clamp(efficiency*0.75+rangePosition*0.25,-1.0,1.0);
     }
 
     private double number(JSONObject row,String longKey,String shortKey) {
@@ -242,12 +274,12 @@ public final class SignalEngine {
         if(cs.size()<MIN_CANDLES)
             return snapshot("WAIT","Collecting genuine closed-candle history");
         int consecutive=1;
-        for(int i=cs.size()-1;i>0&&consecutive<MIN_CANDLES;i--) {
+        for(int i=cs.size()-1;i>0&&consecutive<MIN_RECENT_CONSECUTIVE;i--) {
             if(cs.get(i).time-cs.get(i-1).time!=FRAME_SECONDS) break;
             consecutive++;
         }
-        if(consecutive<MIN_CANDLES)
-            return snapshot("WAIT","Need consecutive real 10-second candles");
+        if(consecutive<MIN_RECENT_CONSECUTIVE)
+            return snapshot("WAIT","Waiting for 5 consecutive genuine live 10-second candles");
 
         List<Double> values=new ArrayList<>();
         for(Candle c:cs) values.add(c.close);
