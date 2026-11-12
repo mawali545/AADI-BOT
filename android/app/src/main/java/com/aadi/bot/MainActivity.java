@@ -215,6 +215,13 @@ public class MainActivity extends Activity {
                 String event = packet.optString("event", "unknown");
                 long received = packet.optLong("receivedAt", 0);
                 Object raw = packet.opt("payload");
+                // #124 depth/change samples may be [asset, scalar]. Use only as a provisional signal vote.
+                if ("depth/change".equals(event) && raw instanceof JSONArray) {
+                    JSONArray depth = (JSONArray) raw;
+                    if (depth.length() >= 2 && depth.opt(1) instanceof Number) {
+                        engine.onDepthChange(asset, depth.optDouble(1, Double.NaN), received);
+                    }
+                }
                 String payload = raw == null ? "null" : String.valueOf(raw);
                 if (raw instanceof JSONObject || raw instanceof JSONArray) payload = raw.toString();
                 if (payload.length() > 2400) payload = payload.substring(0, 2400) + "…[truncated]";
