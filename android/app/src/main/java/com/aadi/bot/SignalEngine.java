@@ -43,6 +43,24 @@ public final class SignalEngine {
     private String asset;
     private double lastPrice;
     private int totalClosed=0;
+    // Provisional depth/change scalar trend; protocol meaning is unverified.
+    private double previousDepthScalar=Double.NaN;
+    private double depthChangeBias=0;
+    private long lastDepthAt=0;
+
+    public synchronized void onDepthChange(String symbol,double scalar,long timestampMs) {
+        if(symbol==null||symbol.trim().isEmpty()||!Double.isFinite(scalar)) return;
+        if(asset!=null&&!asset.equals(symbol)) return;
+        if(Double.isFinite(previousDepthScalar)) {
+            double delta=scalar-previousDepthScalar;
+            double step=Math.max(1.0,Math.abs(previousDepthScalar)*0.02);
+            double vote=Math.max(-1.0,Math.min(1.0,delta/step));
+            depthChangeBias=0.65*depthChangeBias+0.35*vote;
+        }
+        previousDepthScalar=scalar;
+        lastDepthAt=timestampMs;
+    }
+
 
     private long latestFeedTime=-1;
     private Result latestHistoryResult=null;
@@ -249,11 +267,15 @@ public final class SignalEngine {
         double flowBias=shortTermFlowBias(cs,atr);
         double stairBias=stairStepBias(cs,3);
         double alternatingBias=alternatingProgressBias(cs,Math.min(12,n),atr);
-        double recentBias=clamp(0.30*fastBias+0.20*pressure
-                +0.35*clamp(flowBias/1.5,-1,1)
-                +0.15*stairBias,-1,1);
-        // Alternating red/green candles can still make directional progress.
-        recentBias=clamp(recentBias+0.10*clamp(alternatingBias/1.5,-1,1),-1,1);
+        double recentBias=clamp(0.27*fastBias+0.18*pressure
+                +0.32*clamp(flowBias/1.5,-1,1)
+                +0.13*stairBias,-1,1);
+        // Experimental scalar trend vote only; not verified bid/ask liquidity.
+        double freshDepthBias=(lastDepthAt>0 && latestFeedTime>0
+                && Math.abs(latestFeedTime*1000L-lastDepthAt)<=15000L)
+                ? depthChangeBias : 0;
+        recentBias=clamp(recentBias+0.10*freshDepthBias
+                +0.10*clamp(alternatingBias/1.5,-1,1),-1,1);
 
         // These reversal readers were previously disconnected from the final
         // decision. They now actively test whether the current pressure is
