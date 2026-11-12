@@ -130,6 +130,13 @@ public final class SignalEngine {
 
     private void closeCurrentCandle() {
         if (forming==null) return;
+        if (liveTickCount<2) {
+            // A lone price update cannot establish a reliable OHLC bar or
+            // settle a next-candle prediction.
+            if (activePrediction!=null && activePrediction.targetBucket==forming.time)
+                activePrediction=null;
+            return;
+        }
         settlePrediction(forming, liveTickCount);
         if (candles.isEmpty() || candles.peekLast().time<forming.time) {
             candles.addLast(forming);
