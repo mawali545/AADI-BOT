@@ -270,10 +270,12 @@ public final class SignalEngine {
     }
 
     private Result copyAtPrice(Result r,double price) {
+        double accuracy=outcomes.size()>=ACCURACY_MIN_SAMPLE
+                ? 100.0*wins/outcomes.size() : -1.0;
         return new Result(r.asset,r.signal,r.reason,r.regime,price,r.emaFast,r.emaSlow,
                 r.rsi,r.momentum,r.trendScore,r.priceActionScore,r.patternScore,
-                r.momentumScore,r.score,r.closedCandles,r.accuracyPct,
-                r.accuracySamples,r.accuracyWins);
+                r.momentumScore,r.score,r.closedCandles,accuracy,
+                outcomes.size(),wins);
     }
 
     private double trendLayer(List<Candle> cs,double atr,double e9,double e21,double e50) {
