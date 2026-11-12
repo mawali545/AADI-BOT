@@ -63,6 +63,22 @@ public class SignalEngineTest {
         assertEquals(100.0, result.accuracyPct, 0.0001);
     }
 
+    @Test public void singleTickBarIsNotUsedToScoreAccuracy() {
+        SignalEngine engine = new SignalEngine();
+        double p = 1.0800;
+        for (int i = 0; i < 65; i++) {
+            double close = p + 0.00018;
+            feedCandle(engine, i, p, close + 0.00002, p - 0.00002, close);
+            p = close;
+        }
+        int before = engine.currentResult().accuracySamples;
+        long oneTickBucket = 1_800_000_000L + 65 * 10L;
+        engine.onTick(ASSET, p, oneTickBucket + 1);
+        engine.onTick(ASSET, p + 0.00018, oneTickBucket + 11);
+        SignalEngine.Result result = engine.currentResult();
+        assertEquals(before, result.accuracySamples);
+    }
+
     @Test public void assetChangeResetsAccuracyAndCandleHistory() {
         SignalEngine engine = new SignalEngine();
         double p = 1.0800;
