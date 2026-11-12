@@ -24,7 +24,7 @@ The Android app uses `SignalEngine.java` to evaluate the next 10-second candle f
 
 The finalizer is regime-aware. In a trend it requires trend and price-action agreement plus a third aligned layer; in a range it requires both strong price-action and reversal-pattern evidence. Mixed or weak evidence returns WAIT.
 
-The accuracy display is not a prediction-confidence score. It is calculated only from completed CALL/PUT predictions versus the actual next 10-second candle close direction, using a rolling window of up to 100 outcomes. It is hidden as a percentage until 20 outcomes have been evaluated. Single-tick bars are excluded. Accuracy does not guarantee future results.
+The accuracy display is not a prediction-confidence score. It is calculated only from completed CALL/PUT predictions versus the actual next 10-second candle close direction, using a rolling window of up to 100 outcomes. It is hidden as a percentage until 20 outcomes have been evaluated. Single-tick bars are excluded. Observed accuracy is retrospective and does not guarantee future results.
 
 The engine warms up on 50 completed live candles. It does not fabricate missing candles, use unverified order-book scalars as Level-2 data, or place trades. Android JVM tests cover warm-up, flat-market WAIT behavior, sustained-trend agreement, measured outcomes, and exclusion of incomplete candles.
 
