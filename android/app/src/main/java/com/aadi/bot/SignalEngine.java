@@ -47,6 +47,15 @@ public final class SignalEngine {
     private double previousDepthScalar=Double.NaN;
     private double depthChangeBias=0;
     private long lastDepthAt=0;
+    // Verified two-sided price-level book, distinct from the unverified scalar feed.
+    private double orderBookImbalance=0;
+    private long lastOrderBookAt=0;
+    public synchronized void onOrderBook(String symbol,double imbalance,long timestampMs) {
+        if(symbol==null||symbol.trim().isEmpty()||!Double.isFinite(imbalance)) return;
+        if(asset!=null&&!asset.equals(symbol)) return;
+        orderBookImbalance=Math.max(-1,Math.min(1,imbalance));
+        lastOrderBookAt=timestampMs;
+    }
 
     public synchronized void onDepthChange(String symbol,double scalar,long timestampMs) {
         if(symbol==null||symbol.trim().isEmpty()||!Double.isFinite(scalar)) return;
@@ -95,6 +104,11 @@ public final class SignalEngine {
             liveTickCount=0;
             pendingNextCandleResult=null;
             previewedBucket=-1;
+            previousDepthScalar=Double.NaN;
+            depthChangeBias=0;
+            lastDepthAt=0;
+            orderBookImbalance=0;
+            lastOrderBookAt=0;
         }
         // Ignore out-of-order exchange ticks so an old packet cannot roll
         // the current price or forming candle backwards.
@@ -271,10 +285,13 @@ public final class SignalEngine {
                 +0.32*clamp(flowBias/1.5,-1,1)
                 +0.13*stairBias,-1,1);
         // Experimental scalar trend vote only; not verified bid/ask liquidity.
-        double freshDepthBias=(lastDepthAt>0 && latestFeedTime>0
+        boolean freshBook=(lastOrderBookAt>0 && latestFeedTime>0
+                && Math.abs(latestFeedTime*1000L-lastOrderBookAt)<=15000L);
+        double freshDepthBias=(!freshBook && lastDepthAt>0 && latestFeedTime>0
                 && Math.abs(latestFeedTime*1000L-lastDepthAt)<=15000L)
                 ? depthChangeBias : 0;
-        recentBias=clamp(recentBias+0.10*freshDepthBias
+        double bookVote=freshBook?orderBookImbalance:0;
+        recentBias=clamp(recentBias+(freshBook?0.14*bookVote:0.10*freshDepthBias)
                 +0.10*clamp(alternatingBias/1.5,-1,1),-1,1);
 
         // These reversal readers were previously disconnected from the final

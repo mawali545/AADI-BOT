@@ -43,7 +43,7 @@ public class MainActivity extends Activity {
         "(function(){'use strict';" +
         "if(window.__AADI_HOOKED__)return;window.__AADI_HOOKED__=true;" +
         "const NativeWS=window.WebSocket;let activeAsset=null,chartWs=null,pendingBinaryPacket=null,depthRequestedAsset=null;function depthTap(ev,payload){try{const raw=JSON.stringify(payload);const txt=String(ev||'')+' '+raw.slice(0,12000);if(/depth|order.?book|book|bids|asks/i.test(txt)){AadiNative.onDepthMessage(JSON.stringify({asset:activeAsset||'',event:String(ev||'unknown'),receivedAt:Date.now(),payload:payload}));}}catch(e){}}function followDepth(){try{if(!chartWs||chartWs.readyState!==1||!activeAsset||depthRequestedAsset===activeAsset)return;depthRequestedAsset=activeAsset;chartWs.send('42[\"depth/follow\",'+JSON.stringify(activeAsset)+']');AadiNative.onDepthStatus('depth/follow sent • '+activeAsset);}catch(e){depthRequestedAsset=null;AadiNative.onDepthStatus('depth/follow send failed');}}" +
-        "function normTime(v){let n=Number(v);if(!Number.isFinite(n)||n<=0)return 0;if(n>1e12)n/=1000;return n;}" +
+        "function networkTap(source,url,text){try{if(!/json/i.test(String(text).slice(0,80))&&!/bid|ask|depth|book/i.test(String(text).slice(0,3000)))return;const obj=JSON.parse(text);depthTap('network:'+source+':'+String(url||'').slice(-180),obj);}catch(e){}}try{const nativeFetch=window.fetch;if(nativeFetch)window.fetch=function(){const args=arguments;return nativeFetch.apply(this,args).then(function(response){try{const clone=response.clone();clone.text().then(function(t){networkTap('fetch',args[0]&&args[0].url||args[0],t);}).catch(function(){});}catch(e){}return response;});};}catch(e){}try{const xo=XMLHttpRequest.prototype.open,xs=XMLHttpRequest.prototype.send;XMLHttpRequest.prototype.open=function(m,u){this.__aadiUrl=u;return xo.apply(this,arguments);};XMLHttpRequest.prototype.send=function(){this.addEventListener('load',function(){try{if(this.responseType===''||this.responseType==='text')networkTap('xhr',this.__aadiUrl,this.responseText);}catch(e){};});return xs.apply(this,arguments);};}catch(e){}function normTime(v){let n=Number(v);if(!Number.isFinite(n)||n<=0)return 0;if(n>1e12)n/=1000;return n;}" +
         "function emit(price,asset,time){price=Number(price);if(!Number.isFinite(price)||price<=0||!asset||!activeAsset||String(asset)!==String(activeAsset))return;const feedTime=normTime(time);if(!feedTime)return;const now=Date.now()/1000;if(feedTime<now-45||feedTime>now+8)return;try{AadiNative.onTick(JSON.stringify({price:price,asset:String(asset),timestamp:feedTime}));}catch(e){}}" +
         "function walkTicks(x,d){if(d>10||x==null)return;if(Array.isArray(x)){if(x.length>=3&&typeof x[0]==='string'&&Number.isFinite(Number(x[1]))&&Number(x[1])>1000000000&&Number.isFinite(Number(x[2]))&&Number(x[2])>0){emit(x[2],x[0],x[1]);return;}for(const v of x)walkTicks(v,d+1);return;}if(typeof x!=='object')return;const asset=x.asset||x.symbol||x.pair||x.instrument||x.assetName||x.ticker||x.active;const time=x.timestamp||x.time||x.ts||x.created_at;for(const [k,v] of Object.entries(x)){if(/^(price|currentprice|lastprice|closeprice|rate|quote)$/i.test(k)&&asset&&(typeof v==='number'||typeof v==='string')&&Number(v)>0){emit(v,asset,time);return;}}for(const v of Object.values(x))if(v&&typeof v==='object')walkTicks(v,d+1);}" +
         "function parse(s){try{let q=String(s).trim();if(q.startsWith('451-')){pendingBinaryPacket=JSON.parse(q.slice(4));return;}if(pendingBinaryPacket){if(q.charCodeAt(0)===4)q=q.slice(1);const attachment=JSON.parse(q),packet=pendingBinaryPacket;pendingBinaryPacket=null;function hydrate(x){if(!x||typeof x!=='object')return x;if(Array.isArray(x))return x.map(hydrate);if(x._placeholder===true)return attachment;const z={};for(const [k,v] of Object.entries(x))z[k]=hydrate(v);return z;}const rebuilt=[packet[0],hydrate(packet[1])];const ev=String(rebuilt[0]);depthTap(ev,rebuilt[1]);if(ev!=='history/load'&&ev!=='history'&&ev!=='candles/load')walkTicks(rebuilt[1],0);return;}if(q.startsWith('42')&&(q[2]==='['||q[2]==='{'))q=q.slice(2);else if(q.charCodeAt(0)===4)q=q.slice(1);const o=JSON.parse(q);if(Array.isArray(o)&&typeof o[0]==='string'){const ev=String(o[0]);depthTap(ev,o[1]);if(ev!=='history/load'&&ev!=='history'&&ev!=='candles/load')walkTicks(o[1],0);}else walkTicks(o,0);}catch(e){}}" +
@@ -215,6 +215,10 @@ public class MainActivity extends Activity {
                 String event = packet.optString("event", "unknown");
                 long received = packet.optLong("receivedAt", 0);
                 Object raw = packet.opt("payload");
+                OrderBookSnapshot book = OrderBookSnapshot.parse(raw);
+                if (book != null && received > 0) {
+                    engine.onOrderBook(asset, book.imbalance, received);
+                }
                 // #124 depth/change samples may be [asset, scalar]. Use only as a provisional signal vote.
                 if ("depth/change".equals(event) && raw instanceof JSONArray) {
                     JSONArray depth = (JSONArray) raw;
@@ -247,6 +251,13 @@ public class MainActivity extends Activity {
                     display.append("candidate bid/ask + price + size fields (schema still requires validation)");
                 } else {
                     display.append("NOT CONFIRMED • waiting for explicit bid/ask price and quantity levels");
+                }
+                if (book != null) {
+                    display.append("\\nVALIDATED BID/ASK LEVELS • ").append(book.bidLevels.size())
+                           .append(" bids / ").append(book.askLevels.size()).append(" asks")
+                           .append("\\nSpread: ").append(String.format(java.util.Locale.US,"%.8f",book.spread))
+                           .append(" • Imbalance: ").append(String.format(java.util.Locale.US,"%+.1f%%",book.imbalance*100))
+                           .append("\\nHEATMAP (price × size)\\n").append(book.heatmap());
                 }
                 display.append("\\n--- LAST DEPTH MESSAGES ---");
                 synchronized (depthRecent) {
