@@ -74,7 +74,7 @@ public class MainActivity extends Activity {
         signalView = new TextView(this);
         signalView.setTextColor(Color.WHITE);
         signalView.setTextSize(14);
-        signalView.setLines(2);
+        signalView.setLines(4);
         signalView.setEllipsize(TextUtils.TruncateAt.END);
         signalView.setPadding(14, 4, 14, 10);
         signalView.setText("SIGNAL: WAIT • Waiting for real candles");
@@ -139,8 +139,18 @@ public class MainActivity extends Activity {
     }
 
     private void showSignal(SignalEngine.Result result, double tickTimestamp) {
-        String display="SIGNAL: " + result.signal + "\\n"
-                + result.reason + "  |  Live candles: " + result.closedCandles;
+        String accuracy = result.accuracySamples >= 20
+                ? String.format(java.util.Locale.US, "Observed accuracy: %.1f%% (%d/%d)",
+                    result.accuracyPct, result.accuracyWins, result.accuracySamples)
+                : "Accuracy learning: " + result.accuracySamples + "/20 completed signals";
+        String layers = "Trend " + String.format(java.util.Locale.US,"%+.2f",result.trendScore)
+                + " | Price action " + String.format(java.util.Locale.US,"%+.2f",result.priceActionScore)
+                + " | Pattern " + String.format(java.util.Locale.US,"%+.2f",result.patternScore)
+                + " | Momentum " + String.format(java.util.Locale.US,"%+.2f",result.momentumScore);
+        String display = "SIGNAL: " + result.signal + "\n"
+                + result.reason + "\n"
+                + layers + "\n"
+                + accuracy + " • " + result.closedCandles + " closed candles";
         boolean directional="CALL".equals(result.signal) || "PUT".equals(result.signal);
         if(!directional) {
             if(signalColorReset!=null) uiHandler.removeCallbacks(signalColorReset);
@@ -168,9 +178,6 @@ public class MainActivity extends Activity {
             };
             uiHandler.postDelayed(signalColorReset,2000L);
         }
-
-        // Repeated ticks carrying the same candle's locked signal do not
-        // restart the timer. Each new 10-second candle gets its own 2s flash.
         if(now<signalFlashUntil) {
             SpannableString styled=new SpannableString(display);
             int color="CALL".equals(result.signal)
