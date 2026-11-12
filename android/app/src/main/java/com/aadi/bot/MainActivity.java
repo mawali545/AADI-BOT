@@ -21,9 +21,12 @@ import android.view.ViewGroup;
 import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
 import org.json.JSONObject;
+import org.json.JSONArray;
 
 public class MainActivity extends Activity {
     private TextView status, lastTick, signalView, depthView;
+    private long depthEventCount = 0;
+    private final java.util.ArrayDeque<String> depthRecent = new java.util.ArrayDeque<>();
     private boolean botActive = false;
     private SignalEngine engine = new SignalEngine();
     private WebView web;
@@ -82,7 +85,7 @@ public class MainActivity extends Activity {
         depthView.setTextColor(Color.rgb(115, 220, 205));
         depthView.setTextSize(11);
         depthView.setPadding(14, 10, 14, 10);
-        depthView.setMaxLines(7);
+        depthView.setMaxLines(22);
         depthView.setText("ORDER BOOK • Waiting for live depth response");
         root.addView(depthView);
         signalView.setText("WAIT");
@@ -211,16 +214,41 @@ public class MainActivity extends Activity {
                 String asset = packet.optString("asset", "unknown");
                 String event = packet.optString("event", "unknown");
                 long received = packet.optLong("receivedAt", 0);
-                String payload = packet.optJSONObject("payload") != null
-                        ? packet.optJSONObject("payload").toString()
-                        : String.valueOf(packet.opt("payload"));
-                if (payload.length() > 850) payload = payload.substring(0, 850) + "…";
-                final String display = "ORDER BOOK RESPONSE • " + asset + "\\nEvent: " + event
-                        + "\\nReceived: " + (received > 0 ? new java.text.SimpleDateFormat("HH:mm:ss.SSS", java.util.Locale.US).format(new java.util.Date(received)) : "unknown")
-                        + "\\nRaw depth payload: " + payload;
-                runOnUiThread(() -> depthView.setText(display));
+                Object raw = packet.opt("payload");
+                String payload = raw == null ? "null" : String.valueOf(raw);
+                if (raw instanceof JSONObject || raw instanceof JSONArray) payload = raw.toString();
+                if (payload.length() > 2400) payload = payload.substring(0, 2400) + "…[truncated]";
+                String stamp = received > 0
+                        ? new java.text.SimpleDateFormat("HH:mm:ss.SSS", java.util.Locale.US).format(new java.util.Date(received))
+                        : "unknown";
+                final String line = "#" + (++depthEventCount) + " " + stamp + " " + event
+                        + " • " + asset + "\\n" + payload;
+                synchronized (depthRecent) {
+                    depthRecent.addFirst(line);
+                    while (depthRecent.size() > 8) depthRecent.removeLast();
+                }
+                StringBuilder display = new StringBuilder("ORDER BOOK STREAM • ")
+                        .append(asset).append("\\nEvents captured: ").append(depthEventCount)
+                        .append("\\nLEVEL 2 VALIDATION: ");
+                String lower = payload.toLowerCase(java.util.Locale.US);
+                boolean bidAsk = (lower.contains("bid") || lower.contains("buy"))
+                        && (lower.contains("ask") || lower.contains("sell"));
+                boolean hasPrice = lower.contains("price") || lower.contains("rate");
+                boolean hasSize = lower.contains("volume") || lower.contains("quantity")
+                        || lower.contains("amount") || lower.contains("size");
+                if (bidAsk && hasPrice && hasSize) {
+                    display.append("candidate bid/ask + price + size fields (schema still requires validation)");
+                } else {
+                    display.append("NOT CONFIRMED • waiting for explicit bid/ask price and quantity levels");
+                }
+                display.append("\\n--- LAST DEPTH MESSAGES ---");
+                synchronized (depthRecent) {
+                    for (String item : depthRecent) display.append("\\n\\n").append(item);
+                }
+                final String text = display.toString();
+                runOnUiThread(() -> depthView.setText(text));
             } catch (Exception e) {
-                runOnUiThread(() -> depthView.setText("ORDER BOOK • Depth message parse error"));
+                runOnUiThread(() -> depthView.setText("ORDER BOOK • Depth message parse error: " + e.getClass().getSimpleName()));
             }
         }
 
