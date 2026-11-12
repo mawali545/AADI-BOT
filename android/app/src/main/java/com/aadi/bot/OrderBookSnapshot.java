@@ -85,9 +85,9 @@ public final class OrderBookSnapshot {
         for(Level l:bidLevels)max=Math.max(max,l.size);
         for(Level l:askLevels)max=Math.max(max,l.size);
         s.append("ASK ↑");
-        for(int i=0;i<Math.min(5,askLevels.size());i++){Level l=askLevels.get(i);s.append("\\nA ").append(String.format(java.util.Locale.US,"%.6f",l.price)).append("  ").append(bar(l.size,max)).append(" ").append(l.size);}
-        s.append("\\nBID ↓");
-        for(int i=0;i<Math.min(5,bidLevels.size());i++){Level l=bidLevels.get(i);s.append("\\nB ").append(String.format(java.util.Locale.US,"%.6f",l.price)).append("  ").append(bar(l.size,max)).append(" ").append(l.size);}
+        for(int i=0;i<Math.min(5,askLevels.size());i++){Level l=askLevels.get(i);s.append("\nA ").append(String.format(java.util.Locale.US,"%.6f",l.price)).append("  ").append(bar(l.size,max)).append(" ").append(l.size);}
+        s.append("\nBID ↓");
+        for(int i=0;i<Math.min(5,bidLevels.size());i++){Level l=bidLevels.get(i);s.append("\nB ").append(String.format(java.util.Locale.US,"%.6f",l.price)).append("  ").append(bar(l.size,max)).append(" ").append(l.size);}
         return s.toString();
     }
     private String bar(double v,double max) {

@@ -1,0 +1,56 @@
+name: Build AADI Android APK
+on:
+  push:
+    branches: [ android-webview-app ]
+    paths: [ 'android/**', '.github/workflows/android-apk.yml' ]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.9
+      - name: Restore stable development signing key
+        uses: actions/cache@v4
+        with:
+          path: android/.android-signing
+          key: aadi-bot-stable-debug-signing-v2
+      - name: Prepare stable development signing key
+        working-directory: android
+        run: |
+          mkdir -p .android-signing
+          if [ ! -f .android-signing/aadi-debug.keystore ]; then
+            keytool -genkeypair -v \
+              -keystore .android-signing/aadi-debug.keystore \
+              -storepass aadi-debug-store \
+              -keypass aadi-debug-store \
+              -alias aadi-debug \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=AADI Bot Development, OU=Debug, O=AADI, L=NA, S=NA, C=PK"
+          fi
+      - name: Install Android SDK packages
+        run: |
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | head -n 1)"
+          test -n "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses
+          "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0"
+      - name: Build debug APK
+        working-directory: android
+        run: gradle --no-daemon assembleDebug
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: AADI-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error

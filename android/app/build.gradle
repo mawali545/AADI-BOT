@@ -1,0 +1,33 @@
+plugins { id 'com.android.application' }
+
+android {
+    namespace 'com.aadi.bot'
+    compileSdk 35
+    defaultConfig {
+        // Separate stable package so the existing app stays installed.
+        applicationId 'com.aadi.bot.v2.stable'
+        minSdk 23
+        targetSdk 35
+        versionCode 5
+        versionName '2.3.0'
+    }
+
+    signingConfigs {
+        stableDebug {
+            storeFile file("${rootProject.projectDir}/.android-signing/aadi-debug.keystore")
+            storePassword 'aadi-debug-store'
+            keyAlias 'aadi-debug'
+            keyPassword 'aadi-debug-store'
+        }
+    }
+
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.stableDebug
+        }
+    }
+}
+
+dependencies {
+    implementation 'androidx.webkit:webkit:1.12.1'
+}
