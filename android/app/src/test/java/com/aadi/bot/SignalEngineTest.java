@@ -71,12 +71,12 @@ public class SignalEngineTest {
             feedCandle(engine, i, p, close + 0.00002, p - 0.00002, close);
             p = close;
         }
-        int before = engine.currentResult().accuracySamples;
         long oneTickBucket = 1_800_000_000L + 65 * 10L;
-        engine.onTick(ASSET, p, oneTickBucket + 1);
-        engine.onTick(ASSET, p + 0.00018, oneTickBucket + 11);
+        engine.onTick(ASSET, p, oneTickBucket + 1); // settles the previous full bar
+        int afterPreviousBar = engine.currentResult().accuracySamples;
+        engine.onTick(ASSET, p + 0.00018, oneTickBucket + 11); // next bucket closes a one-tick bar
         SignalEngine.Result result = engine.currentResult();
-        assertEquals(before, result.accuracySamples);
+        assertEquals(afterPreviousBar, result.accuracySamples);
     }
 
     @Test public void assetChangeResetsAccuracyAndCandleHistory() {
