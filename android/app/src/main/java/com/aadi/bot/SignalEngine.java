@@ -130,15 +130,20 @@ public final class SignalEngine {
 
     private void closeCurrentCandle() {
         if (forming==null) return;
-        settlePrediction(forming);
+        settlePrediction(forming, liveTickCount);
         if (candles.isEmpty() || candles.peekLast().time<forming.time) {
             candles.addLast(forming);
             while (candles.size()>MAX_CANDLES) candles.removeFirst();
         }
     }
 
-    private void settlePrediction(Candle completed) {
+    private void settlePrediction(Candle completed,int completedTickCount) {
         if (activePrediction==null || activePrediction.targetBucket!=completed.time) return;
+        // Do not score a candle whose close is based on a single isolated tick.
+        if (completedTickCount<2) {
+            activePrediction=null;
+            return;
+        }
         // A flat close is scored as a loss: a directional binary outcome did not occur.
         boolean up=completed.close>completed.open;
         boolean down=completed.close<completed.open;
