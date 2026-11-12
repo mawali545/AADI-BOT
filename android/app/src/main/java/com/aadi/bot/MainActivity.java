@@ -83,7 +83,7 @@ public class MainActivity extends Activity {
         depthView.setTextSize(11);
         depthView.setPadding(14, 10, 14, 10);
         depthView.setMaxLines(7);
-        depthView.setText(\"ORDER BOOK • Waiting for live depth response\");
+        depthView.setText("ORDER BOOK • Waiting for live depth response");
         root.addView(depthView);
         signalView.setText("WAIT");
         signalView.setTextColor(Color.WHITE);
@@ -202,25 +202,25 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface public void onDepthStatus(String message) {
-            runOnUiThread(() -> depthView.setText(\"ORDER BOOK • \" + message));
+            runOnUiThread(() -> depthView.setText("ORDER BOOK • " + message));
         }
 
         @JavascriptInterface public void onDepthMessage(String json) {
             try {
                 JSONObject packet = new JSONObject(json);
-                String asset = packet.optString(\"asset\", \"unknown\");
-                String event = packet.optString(\"event\", \"unknown\");
-                long received = packet.optLong(\"receivedAt\", 0);
-                String payload = packet.optJSONObject(\"payload\") != null
-                        ? packet.optJSONObject(\"payload\").toString()
-                        : String.valueOf(packet.opt(\"payload\"));
-                if (payload.length() > 850) payload = payload.substring(0, 850) + \"…\";
-                final String display = \"ORDER BOOK RESPONSE • \" + asset + \"\\nEvent: \" + event
-                        + \"\\nReceived: \" + (received > 0 ? new java.text.SimpleDateFormat(\"HH:mm:ss.SSS\", java.util.Locale.US).format(new java.util.Date(received)) : \"unknown\")
-                        + \"\\nRaw depth payload: \" + payload;
+                String asset = packet.optString("asset", "unknown");
+                String event = packet.optString("event", "unknown");
+                long received = packet.optLong("receivedAt", 0);
+                String payload = packet.optJSONObject("payload") != null
+                        ? packet.optJSONObject("payload").toString()
+                        : String.valueOf(packet.opt("payload"));
+                if (payload.length() > 850) payload = payload.substring(0, 850) + "…";
+                final String display = "ORDER BOOK RESPONSE • " + asset + "\\nEvent: " + event
+                        + "\\nReceived: " + (received > 0 ? new java.text.SimpleDateFormat("HH:mm:ss.SSS", java.util.Locale.US).format(new java.util.Date(received)) : "unknown")
+                        + "\\nRaw depth payload: " + payload;
                 runOnUiThread(() -> depthView.setText(display));
             } catch (Exception e) {
-                runOnUiThread(() -> depthView.setText(\"ORDER BOOK • Depth message parse error\"));
+                runOnUiThread(() -> depthView.setText("ORDER BOOK • Depth message parse error"));
             }
         }
 
