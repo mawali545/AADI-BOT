@@ -218,13 +218,13 @@ public class MainActivity extends Activity {
             });
         }
 
-        @JavascriptInterface public void onAssetChanged(String asset) {
+        @JavascriptInterface public synchronized void onAssetChanged(String asset) {
             if (asset == null || asset.trim().isEmpty()) return;
+            engine = new SignalEngine();
+            fiveSecondEngine.reset(asset);
+            dailyContext.resetAsset(asset);
+            receivedTicks = 0;
             runOnUiThread(() -> {
-                engine = new SignalEngine();
-                fiveSecondEngine.reset(asset);
-                dailyContext.resetAsset(asset);
-                receivedTicks = 0;
                 lastSignalFlashBucket = Long.MIN_VALUE;
                 lastSignalFlashAsset = asset;
                 lastTick.setText(asset + " • refreshing full history and daily reference");
@@ -300,7 +300,7 @@ public class MainActivity extends Activity {
             }
         }
 
-        @JavascriptInterface public void onHistory(String json) {
+        @JavascriptInterface public synchronized void onHistory(String json) {
             try {
                 JSONObject packet = new JSONObject(json);
                 String asset = packet.optString("asset", "");
@@ -317,7 +317,7 @@ public class MainActivity extends Activity {
             }
         }
 
-        @JavascriptInterface public void onTick(String json) {
+        @JavascriptInterface public synchronized void onTick(String json) {
             try {
                 JSONObject o = new JSONObject(json);
                 String asset = o.optString("asset", "");
