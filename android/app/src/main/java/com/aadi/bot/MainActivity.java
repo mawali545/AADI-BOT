@@ -103,7 +103,7 @@ public class MainActivity extends Activity {
         depthView.setText("ORDER BOOK • Waiting for live depth response");
         root.addView(depthView);
         Button auditButton=new Button(this);
-        auditButton.setText("OPEN SIGNAL AUDIT • LAST 100 EVENTS");
+        auditButton.setText("OPEN SIGNAL AUDIT • LAST 30 EVENTS");
         auditButton.setOnClickListener(v -> showAuditLog());
         root.addView(auditButton);
         signalView.setText("WAIT");
@@ -148,7 +148,7 @@ public class MainActivity extends Activity {
                 if(item!=null) saved.put(item);
             }
             JSONArray trimmed=new JSONArray();
-            int start=Math.max(0,saved.length()-100);
+            int start=Math.max(0,saved.length()-30);
             for(int i=start;i<saved.length();i++) {
                 JSONObject item=saved.optJSONObject(i);
                 if(item!=null) trimmed.put(item);
