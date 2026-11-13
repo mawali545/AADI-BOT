@@ -83,9 +83,31 @@ public final class FiveSecondSignalEngine {
                 else {settled++;if(win)wins++;lastOutcome="5s "+(win?"WIN":"LOSS")+" • "+pending.side+(pending.held?"":" • crossed entry during hold")+" • "+String.format(Locale.US,"%.6f → %.6f",pending.price,expiryPrice);}
                 pending=null;
             } else if(expiryQuote!=null&&!pending.feedContinuous){
+                JSONObject unverified=new JSONObject();
+                try {
+                    unverified.put("type","UNVERIFIED");unverified.put("asset",asset);
+                    unverified.put("signal",pending.side);unverified.put("entryTimeMs",pending.at);
+                    unverified.put("entryPrice",pending.price);unverified.put("expiryTimeMs",expiryAt);
+                    unverified.put("feedContinuous",false);unverified.put("reason","Live tick stream had a gap over 1.5 seconds");
+                    unverified.put("baseSignal",pending.baseSignal);unverified.put("dailyBias",pending.dailyBias);
+                    unverified.put("dailySummary",pending.dailySummary);unverified.put("baseAnalysis",pending.baseAnalysis);
+                    unverified.put("microMove3s",pending.move);unverified.put("microMove1s",pending.recent);
+                } catch(Exception ignored) {}
+                audit.put(unverified);
                 lastOutcome="5s UNVERIFIED • live tick stream had a gap over 1.5s";
                 pending=null;
             } else if(timeMs>expiryAt+1500L){
+                JSONObject unverified=new JSONObject();
+                try {
+                    unverified.put("type","UNVERIFIED");unverified.put("asset",asset);
+                    unverified.put("signal",pending.side);unverified.put("entryTimeMs",pending.at);
+                    unverified.put("entryPrice",pending.price);unverified.put("expiryTimeMs",expiryAt);
+                    unverified.put("feedContinuous",pending.feedContinuous);unverified.put("reason","No quote within 1 second of expiry");
+                    unverified.put("baseSignal",pending.baseSignal);unverified.put("dailyBias",pending.dailyBias);
+                    unverified.put("dailySummary",pending.dailySummary);unverified.put("baseAnalysis",pending.baseAnalysis);
+                    unverified.put("microMove3s",pending.move);unverified.put("microMove1s",pending.recent);
+                } catch(Exception ignored) {}
+                audit.put(unverified);
                 lastOutcome="5s UNVERIFIED • no quote within 1s of expiry";
                 pending=null;
             }
