@@ -30,7 +30,10 @@ public class FiveSecondDailyContextTest {
         FiveSecondSignalEngine.Result r=e.onTick("EURUSD_otc",1.10003,t+3000,"CALL",1,"daily aligned","base trend CALL");
         assertEquals("CALL",r.signal);
         e.onTick("EURUSD_otc",1.10004,t+4000,"CALL",1,"daily aligned","base trend CALL");
-        FiveSecondSignalEngine.Result settled=e.onTick("EURUSD_otc",1.10005,t+5000,"CALL",1,"daily aligned","base trend CALL");
+        e.onTick("EURUSD_otc",1.100045,t+5000,"CALL",1,"daily aligned","base trend CALL");
+        e.onTick("EURUSD_otc",1.100046,t+6000,"CALL",1,"daily aligned","base trend CALL");
+        e.onTick("EURUSD_otc",1.100047,t+7000,"CALL",1,"daily aligned","base trend CALL");
+        FiveSecondSignalEngine.Result settled=e.onTick("EURUSD_otc",1.10005,t+8000,"CALL",1,"daily aligned","base trend CALL");
         assertTrue(settled.analysis.contains("5s WIN"));
     }
 
@@ -42,7 +45,10 @@ public class FiveSecondDailyContextTest {
         e.onTick("EURUSD_otc",1.10002,t+2000,"CALL",1,"daily aligned","base trend CALL");
         e.onTick("EURUSD_otc",1.10003,t+3000,"CALL",1,"daily aligned","base trend CALL");
         e.onTick("EURUSD_otc",1.09999,t+4000,"CALL",1,"daily aligned","base trend CALL");
-        FiveSecondSignalEngine.Result r=e.onTick("EURUSD_otc",1.10005,t+5000,"CALL",1,"daily aligned","base trend CALL");
+        e.onTick("EURUSD_otc",1.10004,t+5000,"CALL",1,"daily aligned","base trend CALL");
+        e.onTick("EURUSD_otc",1.10004,t+6000,"CALL",1,"daily aligned","base trend CALL");
+        e.onTick("EURUSD_otc",1.10004,t+7000,"CALL",1,"daily aligned","base trend CALL");
+        FiveSecondSignalEngine.Result r=e.onTick("EURUSD_otc",1.10005,t+8000,"CALL",1,"daily aligned","base trend CALL");
         assertTrue(r.analysis.contains("5s LOSS"));
         assertTrue(r.analysis.contains("crossed entry during hold"));
     }
