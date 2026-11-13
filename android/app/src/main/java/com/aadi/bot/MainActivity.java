@@ -35,6 +35,8 @@ public class MainActivity extends Activity {
     private FiveSecondSignalEngine fiveSecondEngine = new FiveSecondSignalEngine();
     private WebView web;
     private long receivedTicks = 0;
+    private int sessionWins = 0;
+    private int sessionLosses = 0;
     private volatile long lastUiTickAt = 0;
     private final Handler uiHandler = new Handler(Looper.getMainLooper());
     private Runnable signalColorReset;
@@ -83,14 +85,17 @@ public class MainActivity extends Activity {
         depthView = new TextView(this);
         signalView = new TextView(this);
         signalView.setTextColor(Color.WHITE);
-        signalView.setTextSize(46);
+        signalView.setTextSize(40);
         signalView.setTypeface(null, android.graphics.Typeface.BOLD);
         signalView.setGravity(Gravity.CENTER);
         signalView.setSingleLine(true);
-        signalView.setPadding(12, 18, 12, 18);
+        signalView.setIncludeFontPadding(true);
+        int signalPad = (int) (8 * getResources().getDisplayMetrics().density);
+        signalView.setPadding(signalPad, signalPad, signalPad, signalPad);
+        signalView.setMinHeight((int) (88 * getResources().getDisplayMetrics().density));
         signalView.setText("WAIT");
         root.addView(signalView, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 120));
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         statsView = new TextView(this);
         statsView.setTextColor(Color.WHITE);
@@ -143,7 +148,12 @@ public class MainActivity extends Activity {
             JSONArray saved=new JSONArray(prefs.getString("events","[]"));
             for(int i=0;i<incoming.length();i++) {
                 JSONObject item=incoming.optJSONObject(i);
-                if(item!=null) saved.put(item);
+                if(item==null) continue;
+                saved.put(item);
+                if(!"SETTLED".equals(item.optString("type"))) continue;
+                String outcome=item.optString("outcome");
+                if("WIN".equals(outcome)) sessionWins++;
+                else if("LOSS".equals(outcome)) sessionLosses++;
             }
             JSONArray trimmed=new JSONArray();
             int start=Math.max(0,saved.length()-30);
@@ -158,18 +168,7 @@ public class MainActivity extends Activity {
 
     private void refreshStats() {
         if(statsView==null) return;
-        int wins=0,losses=0;
-        try {
-            JSONArray saved=new JSONArray(getSharedPreferences("aadi_signal_audit",MODE_PRIVATE).getString("events","[]"));
-            for(int i=0;i<saved.length();i++) {
-                JSONObject e=saved.optJSONObject(i);
-                if(e==null||!"SETTLED".equals(e.optString("type"))) continue;
-                String outcome=e.optString("outcome");
-                if("WIN".equals(outcome)) wins++;
-                else if("LOSS".equals(outcome)) losses++;
-            }
-        } catch(Exception ignored) {}
-        statsView.setText("WINS "+wins+"    LOSSES "+losses);
+        statsView.setText("WINS "+sessionWins+"    LOSSES "+sessionLosses);
     }
 
     private void showAuditLog() {
@@ -248,7 +247,7 @@ public class MainActivity extends Activity {
                     fiveSecondEngine.reset("");
                     receivedTicks = 0;
                     lastTick.setText("Chart feed disconnected • waiting for verified reconnect");
-                    signalView.setText("WAIT • FEED DISCONNECTED");
+                    signalView.setText("WAIT");
                     signalView.setTextColor(Color.WHITE);
                 }
             });
@@ -267,7 +266,7 @@ public class MainActivity extends Activity {
                 lastSignalFlashBucket = Long.MIN_VALUE;
                 lastSignalFlashAsset = asset;
                 lastTick.setText(asset + " • refreshing full history and daily reference");
-                signalView.setText("WAIT • NEW ASSET DATA LOADING");
+                signalView.setText("WAIT");
                 signalView.setTextColor(Color.WHITE);
                 analysisView.setText("MARKET TREND • Loading previous day + current day context");
             });
