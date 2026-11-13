@@ -6,6 +6,7 @@ import java.util.Deque;
 import java.util.List;
 import java.util.TreeMap;
 import java.util.Map;
+import java.util.Locale;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -17,11 +18,18 @@ public final class SignalEngine {
     public static final class Result {
         public final String asset, signal, reason;
         public final double price, emaFast, emaSlow, rsi, momentum;
-        public final int score, closedCandles;
+        public final int score, closedCandles, accuracySamples;
+        public final double accuracyPct;
+        public final String analysis;
         Result(String a, String s, String why, double p, double ef, double es,
                double r, double m, int sc, int n) {
+            this(a,s,why,p,ef,es,r,m,sc,n,-1.0,0,"Analysis warming up");
+        }
+        Result(String a, String s, String why, double p, double ef, double es,
+               double r, double m, int sc, int n, double accuracy, int samples, String details) {
             asset=a; signal=s; reason=why; price=p; emaFast=ef; emaSlow=es;
             rsi=r; momentum=m; score=sc; closedCandles=n;
+            accuracyPct=accuracy; accuracySamples=samples; analysis=details;
         }
     }
 
@@ -46,6 +54,8 @@ public final class SignalEngine {
     private String asset;
     private double lastPrice;
     private int totalClosed=0;
+    private final Deque<Boolean> recentOutcomes = new ArrayDeque<>();
+    private int recentWins=0;
     // Provisional depth/change scalar trend; protocol meaning is unverified.
     private double previousDepthScalar=Double.NaN;
     private double depthChangeBias=0;
@@ -100,6 +110,7 @@ public final class SignalEngine {
             asset=symbol;
             liveCandles.clear();
             totalClosed=0;
+            recentOutcomes.clear(); recentWins=0;
             latestHistoryResult=null;
             latestFeedTime=-1;
             liveBucket=-1;
@@ -122,6 +133,7 @@ public final class SignalEngine {
         if(liveCandle==null || bucket>liveBucket) {
             if(liveCandle!=null) {
                 appendClosedLiveCandle(liveCandle);
+                settlePrediction(liveCandle);
                 // If no tick arrived in the final second, use the now-completed
                 // genuine candle as a fallback forecast before starting the next.
                 if(pendingNextCandleResult==null) {
@@ -134,7 +146,7 @@ public final class SignalEngine {
                 Result issued=pendingNextCandleResult;
                 latestHistoryResult=new Result(asset,issued.signal,issued.reason,price,
                         issued.emaFast,issued.emaSlow,issued.rsi,issued.momentum,
-                        issued.score,issued.closedCandles);
+                        issued.score,issued.closedCandles,accuracyPct(),recentOutcomes.size(),refreshAccuracyLine(issued.analysis));
             } else {
                 latestHistoryResult=snapshot("WAIT","WAIT: no reliable next-candle forecast");
             }
@@ -157,6 +169,40 @@ public final class SignalEngine {
             previewedBucket=liveBucket;
         }
         return currentResult();
+    }
+
+    private void settlePrediction(Candle actual) {
+        Result forecast = latestHistoryResult;
+        if (forecast == null || actual == null) return;
+        boolean win;
+        if ("CALL".equals(forecast.signal)) win = actual.close > actual.open;
+        else if ("PUT".equals(forecast.signal)) win = actual.close < actual.open;
+        else return;
+        recentOutcomes.addLast(win);
+        if (win) recentWins++;
+        while (recentOutcomes.size() > 100) {
+            if (recentOutcomes.removeFirst()) recentWins--;
+        }
+    }
+
+    private double accuracyPct() {
+        return recentOutcomes.size() >= 10
+                ? 100.0 * recentWins / recentOutcomes.size() : -1.0;
+    }
+
+    private String accuracyLabel() {
+        double pct = accuracyPct();
+        return pct < 0
+                ? "Not enough settled signals (" + recentOutcomes.size() + "/10)"
+                : String.format(Locale.US, "%.1f%% from %d settled signals",
+                        pct, recentOutcomes.size());
+    }
+
+    private String refreshAccuracyLine(String analysis) {
+        String base = analysis == null ? "" : analysis;
+        int at = base.indexOf("\\nOBSERVED ACCURACY:");
+        if (at >= 0) base = base.substring(0, at);
+        return base + "\\nOBSERVED ACCURACY: " + accuracyLabel();
     }
 
     private void appendClosedLiveCandle(Candle completed) {
@@ -202,7 +248,7 @@ public final class SignalEngine {
         }
         if (incoming.isEmpty()) return 0;
         if (asset!=null && !asset.equals(symbol)) {
-            liveCandles.clear(); totalClosed=0; latestHistoryResult=null;
+            liveCandles.clear(); totalClosed=0; recentOutcomes.clear(); recentWins=0; latestHistoryResult=null;
             latestFeedTime=-1; liveBucket=-1; liveCandle=null; liveTickCount=0;
             pendingNextCandleResult=null; previewedBucket=-1;
             previousDepthScalar=Double.NaN; depthChangeBias=0; lastDepthAt=0;
@@ -408,6 +454,29 @@ public final class SignalEngine {
         else if(Math.abs(longBias)<0.18&&chopScore>0.35) regime="MIXED / CHOP";
         else regime="TRANSITION / MIXED";
 
+        String trendLabel = trend>0 ? "UPTREND" : trend<0 ? "DOWNTREND" : "SIDEWAYS / UNCLEAR";
+        String actionLabel = sweep>0 ? "BULLISH LIQUIDITY SWEEP"
+                : sweep<0 ? "BEARISH LIQUIDITY SWEEP"
+                : failedBreak>0 ? "BULLISH FAILED BREAKOUT"
+                : failedBreak<0 ? "BEARISH FAILED BREAKOUT"
+                : pullback>0 ? "BULLISH PULLBACK"
+                : pullback<0 ? "BEARISH PULLBACK"
+                : structure>0 ? "HIGHER-HIGH / HIGHER-LOW"
+                : structure<0 ? "LOWER-HIGH / LOWER-LOW" : "NO CLEAR STRUCTURE";
+        String patternLabel = pattern>0.20 ? "BULLISH CANDLE PATTERN"
+                : pattern< -0.20 ? "BEARISH CANDLE PATTERN" : "NO STRONG CANDLE PATTERN";
+        String momentumLabel = String.format(Locale.US,
+                "RSI14 %.1f | MACD %s | ADX %.1f | EMA stack %s",
+                rsi14, macdVote>0.08?"BULLISH":macdVote< -0.08?"BEARISH":"NEUTRAL",
+                dmi[2], emaStackVote>0.1?"BULLISH":emaStackVote< -0.1?"BEARISH":"MIXED");
+        String analysisText = "MARKET TREND: "+trendLabel+" ("+regime+")"
+                + "\\nPRICE ACTION: "+actionLabel
+                + "\\nPATTERN: "+patternLabel
+                + "\\nMOMENTUM: "+momentumLabel
+                + String.format(Locale.US,"\\nFINAL CHECK: forecast %+.2f | threshold %.2f | votes bull %d / bear %d",
+                        forecast,entryThreshold,bullishVotes,bearishVotes)
+                + "\\nOBSERVED ACCURACY: "+accuracyLabel();
+
         // A choppy recent regime requires slightly stronger agreement, without
         // imposing a fixed candle-count delay.
         double entryThreshold=0.32+0.10*chopScore;
@@ -420,7 +489,7 @@ public final class SignalEngine {
             int score=(int)Math.round(clamp(54+Math.abs(forecast)*34,54,88));
             String why="CALL forecast • "+regime+" • trend, live flow and reversal checks agree";
             return new Result(asset,"CALL",why,last.close,ema(closes,9),ema(closes,21),
-                    rsiWilder(closes,14),fastMove,score,totalClosed);
+                    rsiWilder(closes,14),fastMove,score,totalClosed,accuracyPct(),recentOutcomes.size(),analysisText);
         }
         if(forecast< -entryThreshold && bearishVotes>=2 && bullishVotes==0) {
             int score=(int)Math.round(clamp(54+Math.abs(forecast)*34,54,88));
@@ -430,7 +499,7 @@ public final class SignalEngine {
         }
         String why="WAIT • "+regime+" • pressure and candle-reversal evidence conflict";
         return new Result(asset,"WAIT",why,last.close,ema(closes,9),ema(closes,21),
-                rsiWilder(closes,14),fastMove,0,totalClosed);
+                rsiWilder(closes,14),fastMove,0,totalClosed,accuracyPct(),recentOutcomes.size(),analysisText);
     }
 
     /**
