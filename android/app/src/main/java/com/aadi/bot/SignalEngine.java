@@ -460,7 +460,7 @@ public final class SignalEngine {
 
         // A choppy recent regime requires slightly stronger agreement, without
         // imposing a fixed candle-count delay.
-        double entryThreshold=0.32+0.10*chopScore;
+        double entryThreshold=0.24+0.08*chopScore;
         // Require agreement from at least two of the three broad, recent and
         // reversal layers. A strong opposing layer blocks the trade entirely.
         int bullishVotes=(longBias>0.12?1:0)+(recentBias>0.12?1:0)+(reversalBias>0.12?1:0);
@@ -525,13 +525,13 @@ public final class SignalEngine {
                 + "\nOBSERVED ACCURACY: "+accuracyLabel();
 
         // No absorption event can manufacture a directional signal by itself.
-        if(forecast>entryThreshold && bullishVotes>=2 && bearishVotes==0) {
+        if(forecast>entryThreshold && bullishVotes>=2 && bearishVotes<=1) {
             int score=(int)Math.round(clamp(54+Math.abs(forecast)*34,54,88));
             String why="CALL forecast • "+regime+" • trend, live flow and reversal checks agree";
             return new Result(asset,"CALL",why,last.close,ema(closes,9),ema(closes,21),
                     rsiWilder(closes,14),fastMove,score,totalClosed,accuracyPct(),recentOutcomes.size(),analysisText);
         }
-        if(forecast< -entryThreshold && bearishVotes>=2 && bullishVotes==0) {
+        if(forecast< -entryThreshold && bearishVotes>=2 && bullishVotes<=1) {
             int score=(int)Math.round(clamp(54+Math.abs(forecast)*34,54,88));
             String why="PUT forecast • "+regime+" • trend, live flow and reversal checks agree";
             return new Result(asset,"PUT",why,last.close,ema(closes,9),ema(closes,21),
