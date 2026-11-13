@@ -33,7 +33,6 @@ public class MainActivity extends Activity {
     private boolean botActive = false;
     private SignalEngine engine = new SignalEngine();
     private FiveSecondSignalEngine fiveSecondEngine = new FiveSecondSignalEngine();
-    private DailyContextTracker 
     private WebView web;
     private long receivedTicks = 0;
     private volatile long lastUiTickAt = 0;
