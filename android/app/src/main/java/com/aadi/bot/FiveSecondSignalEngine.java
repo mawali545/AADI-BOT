@@ -45,7 +45,7 @@ public final class FiveSecondSignalEngine {
         if(!ticks.isEmpty()&&timeMs<ticks.peekLast().t)return latest;
         JSONArray audit=new JSONArray();
         ticks.addLast(new Tick(timeMs,price));
-        while(!ticks.isEmpty()&&timeMs-ticks.peekFirst().t>12000L)ticks.removeFirst();
+        while(!ticks.isEmpty()&&timeMs-ticks.peekFirst().t>10000L)ticks.removeFirst();
         if(pending!=null){
             if(timeMs-pending.lastSeenAt>1500L) pending.feedContinuous=false;
             pending.lastSeenAt=timeMs;
@@ -121,17 +121,18 @@ public final class FiveSecondSignalEngine {
 
         Tick old=null,near=null;
         for(Tick t:ticks){
-            if(timeMs-t.t>=2200L&&timeMs-t.t<=3800L)old=t;
-            if(timeMs-t.t>=700L&&timeMs-t.t<=1700L)near=t;
+            if(timeMs-t.t>=1800L&&timeMs-t.t<=3200L)old=t;
+            if(timeMs-t.t>=400L&&timeMs-t.t<=1300L)near=t;
         }
         int side="CALL".equals(baseSignal)?1:"PUT".equals(baseSignal)?-1:0;
-        boolean dailyReady=dailyBias!=0;
-        boolean microReady=old!=null&&near!=null&&ticks.size()>=4;
+        // Daily bias is recorded as context, not used as a hard veto: OTC daily
+        // references can be mixed/incomplete while short-term live momentum is clear.
+        boolean microReady=old!=null&&near!=null&&ticks.size()>=3;
         double move=old==null?0:price-old.p;
         double recent=near==null?0:price-near.p;
         boolean microAgree=side>0?move>0&&recent>0:side<0&&move<0&&recent<0;
-        boolean eligible=side!=0&&dailyReady&&dailyBias==side&&microReady&&microAgree
-                &&timeMs-lastIssued>=5000L;
+        boolean eligible=side!=0&&microReady&&microAgree
+                &&timeMs-lastIssued>=2500L;
         if(eligible){
             pending=new Pending(side>0?"CALL":"PUT",timeMs,price,baseSignal,dailyBias,dailySummary,baseAnalysis,move,recent,ticks.size());
             lastIssued=timeMs;
@@ -146,14 +147,13 @@ public final class FiveSecondSignalEngine {
                 issuedEvent.put("tickCountAtEntry",ticks.size());issuedEvent.put("expirySeconds",5);
             } catch(Exception ignored) {}
             audit.put(issuedEvent);
-            latest=new Result(pending.side,"5-second signal • base trend, daily context and live tick momentum aligned",
+            latest=new Result(pending.side,"5-second signal • base trend and live tick momentum aligned",
                     baseAnalysis+"\n"+dailySummary+"\n5s MOMENTUM: "+String.format(Locale.US,"net %+.6f / last-second %+.6f",move,recent)
                     +"\n5s ENTRY: "+String.format(Locale.US,"%.6f",price)+" | expiry 5 seconds\n"+lastOutcome,
                     audit.toString());
         } else {
-            String why=side==0?"Base trend is WAIT":!dailyReady?"Previous-day reference incomplete or daily direction mixed"
-                    :dailyBias!=side?"Daily context conflicts with base trend"
-                    :!microReady?"Collecting 3-second tick window":"Short-term ticks do not confirm direction";
+            String why=side==0?"Base trend is WAIT"
+                    :!microReady?"Collecting short live tick window":"Short-term ticks do not confirm direction";
             latest=new Result("WAIT","WAIT • "+why,
                     baseAnalysis+"\n"+dailySummary+"\n5s CHECK: "+why+"\n"+lastOutcome
                     +" | settled "+settled+" | wins "+wins
