@@ -46,7 +46,7 @@ public final class FiveSecondSignalEngine {
         }
         if(pending!=null){
             latest=new Result(pending.side,"5-second trade active • expiry check in progress",
-                    dailySummary+"\n5s ENTRY: "+String.format(Locale.US,"%.6f",pending.price)+" | expiry in "+Math.max(0,5000-(timeMs-pending.at))+"ms\n"+lastOutcome);
+                    baseAnalysis+"\n"+dailySummary+"\n5s ENTRY: "+String.format(Locale.US,"%.6f",pending.price)+" | expiry in "+Math.max(0,5000-(timeMs-pending.at))+"ms\n"+lastOutcome);
             return latest;
         }
 
@@ -67,14 +67,14 @@ public final class FiveSecondSignalEngine {
             pending=new Pending(side>0?"CALL":"PUT",timeMs,price);
             lastIssued=timeMs;
             latest=new Result(pending.side,"5-second signal • base trend, daily context and live tick momentum aligned",
-                    dailySummary+"\n5s MOMENTUM: "+String.format(Locale.US,"net %+.6f / last-second %+.6f",move,recent)
+                    baseAnalysis+"\n"+dailySummary+"\n5s MOMENTUM: "+String.format(Locale.US,"net %+.6f / last-second %+.6f",move,recent)
                     +"\n5s ENTRY: "+String.format(Locale.US,"%.6f",price)+" | expiry 5 seconds\n"+lastOutcome);
         } else {
             String why=side==0?"Base trend is WAIT":!dailyReady?"Previous-day reference incomplete or daily direction mixed"
                     :dailyBias!=side?"Daily context conflicts with base trend"
                     :!microReady?"Collecting 3-second tick window":"Short-term ticks do not confirm direction";
             latest=new Result("WAIT","WAIT • "+why,
-                    dailySummary+"\n5s CHECK: "+why+"\n"+lastOutcome
+                    baseAnalysis+"\n"+dailySummary+"\n5s CHECK: "+why+"\n"+lastOutcome
                     +" | settled "+settled+" | wins "+wins
                     +(settled>=5?String.format(Locale.US," | observed %.1f%%",100.0*wins/settled):""));
         }
