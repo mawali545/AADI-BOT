@@ -166,7 +166,7 @@ public final class SignalEngine {
             return;
         }
         liveCandles.addLast(completed);
-        while(liveCandles.size()>800) liveCandles.removeFirst();
+        while(liveCandles.size()>2160) liveCandles.removeFirst();
         totalClosed=liveCandles.size();
     }
 
@@ -202,8 +202,11 @@ public final class SignalEngine {
         }
         if (incoming.isEmpty()) return 0;
         if (asset!=null && !asset.equals(symbol)) {
-            liveCandles.clear(); totalClosed=0; candleTime=-1;
-            awaitingLiveCandle=false; lockedNextCandleResult=null;
+            liveCandles.clear(); totalClosed=0; latestHistoryResult=null;
+            latestFeedTime=-1; liveBucket=-1; liveCandle=null; liveTickCount=0;
+            pendingNextCandleResult=null; previewedBucket=-1;
+            previousDepthScalar=Double.NaN; depthChangeBias=0; lastDepthAt=0;
+            orderBookImbalance=0; lastOrderBookAt=0;
         }
         asset=symbol;
         TreeMap<Long,Candle> merged=new TreeMap<>();
@@ -214,7 +217,7 @@ public final class SignalEngine {
             merged.put(entry.getKey(),entry.getValue());
         }
         // Retain up to two days of 10-second history for contextual analysis.
-        while(merged.size()>800) merged.pollFirstEntry();
+        while(merged.size()>2160) merged.pollFirstEntry();
         liveCandles.clear();
         for(Candle candle:merged.values()) liveCandles.addLast(candle);
         totalClosed=liveCandles.size();
