@@ -228,6 +228,13 @@ public final class SignalEngine {
     }
 
 
+    private double number(JSONObject row, String longKey, String shortKey) {
+        double value = row.has(longKey)
+                ? row.optDouble(longKey, Double.NaN)
+                : row.optDouble(shortKey, Double.NaN);
+        return value;
+    }
+
     /** Measures chop using only the most recent live candles in this calculation. */
     private double liveChopScore(List<Candle> cs) {
         int count=Math.min(12,cs.size());
