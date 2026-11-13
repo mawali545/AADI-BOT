@@ -39,6 +39,9 @@ public class MainActivity extends Activity {
     private long lastSignalFlashBucket = Long.MIN_VALUE;
     private long signalFlashUntil = 0;
     private String lastSignalFlashAsset = "";
+    private volatile String activeMarketAsset = "";
+    private volatile double latestLivePrice = Double.NaN;
+    private volatile long latestLiveTickMs = 0;
 
     private static final String MARKET_URL = "https://market-qx.trade/en/trade";
     private static final String HOOK =
@@ -221,6 +224,9 @@ public class MainActivity extends Activity {
         @JavascriptInterface public synchronized void onAssetChanged(String asset) {
             if (asset == null || asset.trim().isEmpty()) return;
             engine = new SignalEngine();
+            activeMarketAsset = asset;
+            latestLivePrice = Double.NaN;
+            latestLiveTickMs = 0;
             fiveSecondEngine.reset(asset);
             dailyContext.resetAsset(asset);
             receivedTicks = 0;
@@ -246,7 +252,13 @@ public class MainActivity extends Activity {
                 long received = packet.optLong("receivedAt", 0);
                 Object raw = packet.opt("payload");
                 OrderBookSnapshot book = OrderBookSnapshot.parse(raw);
-                if (book != null && received > 0) {
+                long nowMs = System.currentTimeMillis();
+                boolean sameAsset = asset.equals(activeMarketAsset);
+                boolean freshDepth = received > 0 && Math.abs(nowMs - received) <= 5000L;
+                boolean freshQuote = latestLiveTickMs > 0 && nowMs - latestLiveTickMs <= 3000L;
+                boolean quoteMatch = book != null && book.matchesQuote(latestLivePrice);
+                boolean level2Validated = book != null && sameAsset && freshDepth && freshQuote && quoteMatch;
+                if (level2Validated) {
                     engine.onOrderBook(asset, book.imbalance, received);
                 }
                 // #124 depth/change samples may be [asset, scalar]. Use only as a provisional signal vote.
@@ -283,9 +295,12 @@ public class MainActivity extends Activity {
                     display.append("NOT CONFIRMED • waiting for explicit bid/ask price and quantity levels");
                 }
                 if (book != null) {
-                    display.append("\\nVALIDATED BID/ASK LEVELS • ").append(book.bidLevels.size())
+                    display.append(level2Validated ? "\\nLEVEL 2 VERIFIED • fresh same-asset bid/ask bracket live quote"
+                            : "\\nLEVEL 2 CANDIDATE ONLY • failed asset/freshness/live-quote check");
+                    display.append("\\nBID/ASK LEVELS • ").append(book.bidLevels.size())
                            .append(" bids / ").append(book.askLevels.size()).append(" asks")
-                           .append("\\nSpread: ").append(String.format(java.util.Locale.US,"%.8f",book.spread))
+                           .append("\\nBest bid/ask: ").append(String.format(java.util.Locale.US,"%.8f / %.8f",book.bestBid,book.bestAsk))
+                           .append(" • Spread: ").append(String.format(java.util.Locale.US,"%.8f",book.spread))
                            .append(" • Imbalance: ").append(String.format(java.util.Locale.US,"%+.1f%%",book.imbalance*100))
                            .append("\\nHEATMAP (price × size)\\n").append(book.heatmap());
                 }
@@ -328,6 +343,9 @@ public class MainActivity extends Activity {
                 double wallSeconds = System.currentTimeMillis() / 1000.0;
                 if (feedSeconds <= 0 || feedSeconds < wallSeconds - 45 || feedSeconds > wallSeconds + 8) return;
                 if (!botActive) return;
+                activeMarketAsset = asset;
+                latestLivePrice = price;
+                latestLiveTickMs = System.currentTimeMillis();
                 SignalEngine.Result baseResult = engine.onTick(asset, price, ts);
                 String dailySummary = dailyContext.summary(asset, price, (long)feedSeconds);
                 int dailyBias = dailyContext.bias(asset, price, (long)feedSeconds);
