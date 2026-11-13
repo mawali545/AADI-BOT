@@ -1,6 +1,7 @@
 package com.aadi.bot;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.os.Bundle;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
@@ -8,6 +9,7 @@ import android.webkit.WebResourceRequest;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.LinearLayout;
+import android.widget.Button;
 import android.widget.TextView;
 import android.text.TextUtils;
 import android.graphics.Color;
@@ -100,6 +102,10 @@ public class MainActivity extends Activity {
         depthView.setMaxLines(22);
         depthView.setText("ORDER BOOK • Waiting for live depth response");
         root.addView(depthView);
+        Button auditButton=new Button(this);
+        auditButton.setText("OPEN SIGNAL AUDIT • LAST 100 EVENTS");
+        auditButton.setOnClickListener(v -> showAuditLog());
+        root.addView(auditButton);
         signalView.setText("WAIT");
         signalView.setTextColor(Color.WHITE);
 
@@ -130,6 +136,56 @@ public class MainActivity extends Activity {
         web.loadUrl(MARKET_URL);
     }
 
+
+
+    private void persistAuditEvents(String json) {
+        try {
+            JSONArray incoming=new JSONArray(json==null?"[]":json);
+            android.content.SharedPreferences prefs=getSharedPreferences("aadi_signal_audit",MODE_PRIVATE);
+            JSONArray saved=new JSONArray(prefs.getString("events","[]"));
+            for(int i=0;i<incoming.length();i++) {
+                JSONObject item=incoming.optJSONObject(i);
+                if(item!=null) saved.put(item);
+            }
+            JSONArray trimmed=new JSONArray();
+            int start=Math.max(0,saved.length()-100);
+            for(int i=start;i<saved.length();i++) {
+                JSONObject item=saved.optJSONObject(i);
+                if(item!=null) trimmed.put(item);
+            }
+            prefs.edit().putString("events",trimmed.toString()).apply();
+        } catch(Exception ignored) {}
+    }
+
+    private void showAuditLog() {
+        try {
+            JSONArray saved=new JSONArray(getSharedPreferences("aadi_signal_audit",MODE_PRIVATE).getString("events","[]"));
+            StringBuilder out=new StringBuilder();
+            int start=Math.max(0,saved.length()-30);
+            for(int i=saved.length()-1;i>=start;i--) {
+                JSONObject e=saved.optJSONObject(i);
+                if(e==null) continue;
+                long stamp=e.optLong("entryTimeMs",0);
+                out.append("#").append(i+1).append(" • ").append(e.optString("type"))
+                    .append(" • ").append(e.optString("asset")).append(" • ").append(e.optString("signal"));
+                if("SETTLED".equals(e.optString("type")))
+                    out.append(" • ").append(e.optString("outcome")).append(" • entry ")
+                       .append(e.optDouble("entryPrice")).append(" → expiry ").append(e.optDouble("expiryPrice"));
+                else out.append(" • entry ").append(e.optDouble("entryPrice"));
+                if(stamp>0) out.append(" • ").append(new java.text.SimpleDateFormat("HH:mm:ss",java.util.Locale.US).format(new java.util.Date(stamp)));
+                out.append("\\n").append(e.optString("baseAnalysis")).append("\\n")
+                    .append(e.optString("dailySummary")).append("\\n")
+                    .append("5s momentum: ").append(e.optDouble("microMove3s")).append(" / ").append(e.optDouble("microMove1s"))
+                    .append("\\n\\n------------------------------\\n\\n");
+            }
+            if(out.length()==0) out.append("No audit records yet. New signals will be recorded when issued and settled.");
+            new AlertDialog.Builder(this).setTitle("AADI • SIGNAL AUDIT")
+                .setMessage(out.toString()).setPositiveButton("CLOSE",null).show();
+        } catch(Exception e) {
+            new AlertDialog.Builder(this).setTitle("AADI • SIGNAL AUDIT")
+                .setMessage("Audit log could not be read.").setPositiveButton("CLOSE",null).show();
+        }
+    }
 
     private boolean marketLoginDetected = false;
 
@@ -351,6 +407,7 @@ public class MainActivity extends Activity {
                 int dailyBias = dailyContext.bias(asset, price, (long)feedSeconds);
                 FiveSecondSignalEngine.Result result = fiveSecondEngine.onTick(asset, price,
                         (long)(feedSeconds*1000.0), baseResult.signal, dailyBias, dailySummary, baseResult.analysis);
+                if(!"[]".equals(result.auditEvents)) persistAuditEvents(result.auditEvents);
                 long count = ++receivedTicks;
                 String line = asset + "  " + price + "  • TICK #" + count + "  |  REAL FEED";
                 long uiNow=SystemClock.uptimeMillis();
