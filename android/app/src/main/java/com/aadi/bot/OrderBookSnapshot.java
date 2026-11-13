@@ -14,10 +14,11 @@ public final class OrderBookSnapshot {
         Level(double p,double s){price=p;size=s;}
     }
     public final List<Level> bidLevels, askLevels;
-    public final double spread, imbalance;
+    public final double spread, imbalance, bestBid, bestAsk;
     private OrderBookSnapshot(List<Level> b,List<Level> a) {
         bidLevels=b; askLevels=a;
-        spread=a.get(0).price-b.get(0).price;
+        bestBid=b.get(0).price; bestAsk=a.get(0).price;
+        spread=bestAsk-bestBid;
         double bs=0,as=0;
         for(Level l:b)bs+=l.size;
         for(Level l:a)as+=l.size;
@@ -79,6 +80,11 @@ public final class OrderBookSnapshot {
         try {double d=v instanceof Number?((Number)v).doubleValue():Double.parseDouble(String.valueOf(v));return d;}
         catch(Exception e){return Double.NaN;}
     }
+    /** True only when the latest live quote is bracketed by the captured best bid/ask. */
+    public boolean matchesQuote(double quote) {
+        return Double.isFinite(quote) && quote > 0 && bestBid <= quote && quote <= bestAsk;
+    }
+
     public String heatmap() {
         StringBuilder s=new StringBuilder();
         double max=0;
