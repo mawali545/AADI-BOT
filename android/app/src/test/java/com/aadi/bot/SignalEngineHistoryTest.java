@@ -58,4 +58,26 @@ public class SignalEngineHistoryTest {
         engine.importHistoricalCandles("GBPUSD_otc", rows);
         assertEquals(20, engine.currentResult().closedCandles);
     }
+
+    @Test public void importedHistoryWarmsForecastBeforeFifteenNewLiveCandles() throws Exception {
+        SignalEngine engine = new SignalEngine();
+        JSONArray rows = new JSONArray();
+        long currentBucket = (System.currentTimeMillis() / 10000L) * 10L;
+        for (int i = 0; i < 30; i++) {
+            double open = 1.10000 + i * 0.00010;
+            double close = open + 0.00008;
+            rows.put(new JSONObject()
+                    .put("timestamp", currentBucket - (30 - i) * 10L)
+                    .put("open", open)
+                    .put("high", close + 0.00002)
+                    .put("low", open - 0.00002)
+                    .put("close", close));
+        }
+        assertEquals(30, engine.importHistoricalCandles("EURUSD_otc", rows));
+        engine.onTick("EURUSD_otc", 1.10310, currentBucket + 1);
+        engine.onTick("EURUSD_otc", 1.10320, currentBucket + 9);
+        SignalEngine.Result nextBar = engine.onTick("EURUSD_otc", 1.10320, currentBucket + 10);
+        assertTrue("Forecast must complete analysis using imported history",
+                nextBar.analysis != null && nextBar.analysis.contains("FINAL CHECK:"));
+    }
 }
