@@ -78,6 +78,9 @@ public class MainActivity extends Activity {
         lastTick.setEllipsize(TextUtils.TruncateAt.END);
         lastTick.setPadding(14, 4, 14, 10);
         lastTick.setText("No real tick received");
+        // Retain internal diagnostic sinks without adding them to the compact screen.
+        analysisView = new TextView(this);
+        depthView = new TextView(this);
         signalView = new TextView(this);
         signalView.setTextColor(Color.WHITE);
         signalView.setTextSize(46);
@@ -207,7 +210,6 @@ public class MainActivity extends Activity {
         if (enabled) {
             engine = new SignalEngine();
             fiveSecondEngine = new FiveSecondSignalEngine();
-            dailyContext = new DailyContextTracker();
             receivedTicks = 0;
             status.setText("AADI • LOGIN DETECTED — AUTO ANALYSIS ACTIVE");
             lastTick.setText("Collecting real ticks from logged-in chart");
