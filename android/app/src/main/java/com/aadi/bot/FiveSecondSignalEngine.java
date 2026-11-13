@@ -36,13 +36,23 @@ public final class FiveSecondSignalEngine {
         while(!ticks.isEmpty()&&timeMs-ticks.peekFirst().t>12000L)ticks.removeFirst();
 
         if(pending!=null&&timeMs>=pending.at+5000L){
-            long late=timeMs-(pending.at+5000L);
-            if(late<=1800L){
-                boolean win="CALL".equals(pending.side)?price>pending.price:price<pending.price;
-                if(price==pending.price)lastOutcome="5s FLAT • not counted";
-                else {settled++;if(win)wins++;lastOutcome="5s "+(win?"WIN":"LOSS")+" • "+pending.side+" • "+String.format(Locale.US,"%.6f → %.6f",pending.price,price);}
-            } else lastOutcome="5s UNVERIFIED • quote gap "+late+"ms";
-            pending=null;
+            long expiryAt=pending.at+5000L;
+            Tick expiryQuote=null;
+            long bestGap=Long.MAX_VALUE;
+            for(Tick t:ticks){
+                long gap=Math.abs(t.t-expiryAt);
+                if(gap<=1000L&&gap<bestGap){bestGap=gap;expiryQuote=t;}
+            }
+            if(expiryQuote!=null){
+                double expiryPrice=expiryQuote.p;
+                boolean win="CALL".equals(pending.side)?expiryPrice>pending.price:expiryPrice<pending.price;
+                if(expiryPrice==pending.price)lastOutcome="5s FLAT • not counted";
+                else {settled++;if(win)wins++;lastOutcome="5s "+(win?"WIN":"LOSS")+" • "+pending.side+" • "+String.format(Locale.US,"%.6f → %.6f",pending.price,expiryPrice);}
+                pending=null;
+            } else if(timeMs>expiryAt+1500L){
+                lastOutcome="5s UNVERIFIED • no quote within 1s of expiry";
+                pending=null;
+            }
         }
         if(pending!=null){
             latest=new Result(pending.side,"5-second trade active • expiry check in progress",
