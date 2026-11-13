@@ -11,7 +11,7 @@ public final class FiveSecondSignalEngine {
         Result(String s,String r,String a){signal=s;reason=r;analysis=a;}
     }
     private static final class Tick { final long t; final double p; Tick(long t,double p){this.t=t;this.p=p;} }
-    private static final class Pending { final String side; final long at; final double price; Pending(String s,long t,double p){side=s;at=t;price=p;} }
+    private static final class Pending { final String side; final long at; final double price; boolean held=true; Pending(String s,long t,double p){side=s;at=t;price=p;} }
     private final Deque<Tick> ticks=new ArrayDeque<>();
     private String asset="";
     private Pending pending;
@@ -34,6 +34,10 @@ public final class FiveSecondSignalEngine {
         if(!ticks.isEmpty()&&timeMs<ticks.peekLast().t)return latest;
         ticks.addLast(new Tick(timeMs,price));
         while(!ticks.isEmpty()&&timeMs-ticks.peekFirst().t>12000L)ticks.removeFirst();
+        if(pending!=null){
+            if(("CALL".equals(pending.side)&&price<=pending.price)
+                    ||("PUT".equals(pending.side)&&price>=pending.price)) pending.held=false;
+        }
 
         if(pending!=null&&timeMs>=pending.at+5000L){
             long expiryAt=pending.at+5000L;
@@ -45,9 +49,10 @@ public final class FiveSecondSignalEngine {
             }
             if(expiryQuote!=null){
                 double expiryPrice=expiryQuote.p;
-                boolean win="CALL".equals(pending.side)?expiryPrice>pending.price:expiryPrice<pending.price;
+                boolean finalSide="CALL".equals(pending.side)?expiryPrice>pending.price:expiryPrice<pending.price;
+                boolean win=pending.held&&finalSide;
                 if(expiryPrice==pending.price)lastOutcome="5s FLAT • not counted";
-                else {settled++;if(win)wins++;lastOutcome="5s "+(win?"WIN":"LOSS")+" • "+pending.side+" • "+String.format(Locale.US,"%.6f → %.6f",pending.price,expiryPrice);}
+                else {settled++;if(win)wins++;lastOutcome="5s "+(win?"WIN":"LOSS")+" • "+pending.side+(pending.held?"":" • crossed entry during hold")+" • "+String.format(Locale.US,"%.6f → %.6f",pending.price,expiryPrice);}
                 pending=null;
             } else if(timeMs>expiryAt+1500L){
                 lastOutcome="5s UNVERIFIED • no quote within 1s of expiry";
