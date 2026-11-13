@@ -29,7 +29,7 @@ public class FiveSecondDailyContextTest {
         e.onTick("EURUSD_otc",1.10002,t+2000,"CALL",1,"daily aligned","base trend CALL");
         FiveSecondSignalEngine.Result r=e.onTick("EURUSD_otc",1.10003,t+3000,"CALL",1,"daily aligned","base trend CALL");
         assertEquals("CALL",r.signal);
-        FiveSecondSignalEngine.Result settled=e.onTick("EURUSD_otc",1.10005,t+8000,"CALL",1,"daily aligned","base trend CALL");
+        FiveSecondSignalEngine.Result settled=e.onTick("EURUSD_otc",1.10005,t+5000,"CALL",1,"daily aligned","base trend CALL");
         assertTrue(settled.analysis.contains("5s WIN"));
     }
 
