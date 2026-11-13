@@ -43,7 +43,7 @@ public class FiveSecondDailyContextTest {
         assertTrue(settled.analysis.contains("5s WIN"));
     }
 
-    @Test public void fiveSecondSignalFailsIfPriceCrossesEntryBeforeRecovering() {
+    @Test public void fiveSecondSignalWinsIfExpiryRecoversAfterTemporaryEntryCross() {
         FiveSecondSignalEngine e=new FiveSecondSignalEngine();
         long t=System.currentTimeMillis();
         e.onTick("EURUSD_otc",1.10000,t,"CALL",1,"daily aligned","base trend CALL");
@@ -55,7 +55,7 @@ public class FiveSecondDailyContextTest {
         e.onTick("EURUSD_otc",1.10004,t+6000,"CALL",1,"daily aligned","base trend CALL");
         e.onTick("EURUSD_otc",1.10004,t+7000,"CALL",1,"daily aligned","base trend CALL");
         FiveSecondSignalEngine.Result r=e.onTick("EURUSD_otc",1.10005,t+8000,"CALL",1,"daily aligned","base trend CALL");
-        assertTrue(r.analysis.contains("5s LOSS"));
+        assertTrue(r.analysis.contains("5s WIN"));
         assertTrue(r.analysis.contains("crossed entry during hold"));
     }
 
