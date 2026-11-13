@@ -24,22 +24,22 @@ public class FiveSecondDailyContextTest {
     @Test public void fiveSecondSignalRequiresTrendDailyAndTickAgreement() {
         FiveSecondSignalEngine e=new FiveSecondSignalEngine();
         long t=System.currentTimeMillis();
-        e.onTick("EURUSD_otc",1.10000,t,"CALL",1,"daily aligned");
-        e.onTick("EURUSD_otc",1.10001,t+1000,"CALL",1,"daily aligned");
-        e.onTick("EURUSD_otc",1.10002,t+2000,"CALL",1,"daily aligned");
-        FiveSecondSignalEngine.Result r=e.onTick("EURUSD_otc",1.10003,t+3000,"CALL",1,"daily aligned");
+        e.onTick("EURUSD_otc",1.10000,t,"CALL",1,"daily aligned","base trend CALL");
+        e.onTick("EURUSD_otc",1.10001,t+1000,"CALL",1,"daily aligned","base trend CALL");
+        e.onTick("EURUSD_otc",1.10002,t+2000,"CALL",1,"daily aligned","base trend CALL");
+        FiveSecondSignalEngine.Result r=e.onTick("EURUSD_otc",1.10003,t+3000,"CALL",1,"daily aligned","base trend CALL");
         assertEquals("CALL",r.signal);
-        FiveSecondSignalEngine.Result settled=e.onTick("EURUSD_otc",1.10005,t+8000,"CALL",1,"daily aligned");
+        FiveSecondSignalEngine.Result settled=e.onTick("EURUSD_otc",1.10005,t+8000,"CALL",1,"daily aligned","base trend CALL");
         assertTrue(settled.analysis.contains("5s WIN"));
     }
 
     @Test public void dailyConflictBlocksFiveSecondCall() {
         FiveSecondSignalEngine e=new FiveSecondSignalEngine();
         long t=System.currentTimeMillis();
-        e.onTick("EURUSD_otc",1.1,t,"CALL",-1,"daily bearish");
-        e.onTick("EURUSD_otc",1.1001,t+1000,"CALL",-1,"daily bearish");
-        e.onTick("EURUSD_otc",1.1002,t+2000,"CALL",-1,"daily bearish");
-        FiveSecondSignalEngine.Result r=e.onTick("EURUSD_otc",1.1003,t+3000,"CALL",-1,"daily bearish");
+        e.onTick("EURUSD_otc",1.1,t,"CALL",-1,"daily bearish","base trend CALL");
+        e.onTick("EURUSD_otc",1.1001,t+1000,"CALL",-1,"daily bearish","base trend CALL");
+        e.onTick("EURUSD_otc",1.1002,t+2000,"CALL",-1,"daily bearish","base trend CALL");
+        FiveSecondSignalEngine.Result r=e.onTick("EURUSD_otc",1.1003,t+3000,"CALL",-1,"daily bearish","base trend CALL");
         assertEquals("WAIT",r.signal);
         assertTrue(r.reason.contains("Daily context conflicts"));
     }
