@@ -284,7 +284,9 @@ public class MainActivity extends Activity {
             } catch (Exception e) {
                 runOnUiThread(() -> status.setText("AADI • Historical candle parse error"));
             }
-        }\n\n        @JavascriptInterface public void onTick(String json) {
+        }
+
+        @JavascriptInterface public void onTick(String json) {
             try {
                 JSONObject o = new JSONObject(json);
                 String asset = o.optString("asset", "");
