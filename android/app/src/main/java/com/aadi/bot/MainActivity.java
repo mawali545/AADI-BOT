@@ -290,7 +290,7 @@ public class MainActivity extends Activity {
                     fiveSecondEngine.reset("");
                     receivedTicks = 0;
                     lastTick.setText("Chart feed disconnected • waiting for verified reconnect");
-                    signalView.setText("WAIT • FEED DISCONNECTED");
+                    signalView.setText("WAIT");
                     signalView.setTextColor(Color.WHITE);
                 }
             });
@@ -309,7 +309,7 @@ public class MainActivity extends Activity {
                 lastSignalFlashBucket = Long.MIN_VALUE;
                 lastSignalFlashAsset = asset;
                 lastTick.setText(asset + " • refreshing full history and daily reference");
-                signalView.setText("WAIT • NEW ASSET DATA LOADING");
+                signalView.setText("WAIT");
                 signalView.setTextColor(Color.WHITE);
                 analysisView.setText("MARKET TREND • Loading previous day + current day context");
             });
