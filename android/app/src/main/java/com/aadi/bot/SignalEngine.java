@@ -4,7 +4,10 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
+import java.util.TreeMap;
+import java.util.Map;
 import org.json.JSONArray;
+import org.json.JSONObject;
 
 /**
  * Conservative real-tick 10-second market scanner.
@@ -178,10 +181,49 @@ public final class SignalEngine {
         return calculateFromCandles(window);
     }
 
-    /** Historical chart packets are intentionally ignored by this live-only engine. */
     public synchronized int importHistoricalCandles(String symbol, JSONArray rows) {
-        return 0;
+        if (symbol == null || symbol.trim().isEmpty() || rows == null) return 0;
+        TreeMap<Long,Candle> incoming = new TreeMap<>();
+        for (int i=0; i<rows.length(); i++) {
+            JSONObject row=rows.optJSONObject(i);
+            if (row==null) continue;
+            long t=(long)row.optDouble("timestamp",row.optDouble("time",row.optDouble("ts",0)));
+            if (t>10000000000L) t/=1000L;
+            if (t<=0) continue;
+            double o=number(row,"open","o"), h=number(row,"high","h");
+            double l=number(row,"low","l"), c=number(row,"close","c");
+            if (!Double.isFinite(o)||!Double.isFinite(h)||!Double.isFinite(l)||!Double.isFinite(c)
+                    || o<=0||h<=0||l<=0||c<=0||h<Math.max(o,c)||l>Math.min(o,c)||h<l) continue;
+            long bucket=(t/FRAME_SECONDS)*FRAME_SECONDS;
+            // Never import the currently forming 10-second candle as closed history.
+            long now=System.currentTimeMillis()/1000L;
+            if (bucket >= (now/FRAME_SECONDS)*FRAME_SECONDS) continue;
+            incoming.put(bucket,new Candle(bucket,o,h,l,c));
+        }
+        if (incoming.isEmpty()) return 0;
+        if (asset!=null && !asset.equals(symbol)) {
+            liveCandles.clear(); totalClosed=0; candleTime=-1;
+            awaitingLiveCandle=false; lockedNextCandleResult=null;
+        }
+        asset=symbol;
+        TreeMap<Long,Candle> merged=new TreeMap<>();
+        for(Candle old:liveCandles) merged.put(old.time,old);
+        int added=0;
+        for(java.util.Map.Entry<Long,Candle> entry:incoming.entrySet()) {
+            if(!merged.containsKey(entry.getKey())) added++;
+            merged.put(entry.getKey(),entry.getValue());
+        }
+        // Retain up to two days of 10-second history for contextual analysis.
+        while(merged.size()>800) merged.pollFirstEntry();
+        liveCandles.clear();
+        for(Candle candle:merged.values()) liveCandles.addLast(candle);
+        totalClosed=liveCandles.size();
+        if (liveCandle==null) {
+            latestHistoryResult=snapshot("WAIT","Verified history loaded; waiting for live tick confirmation");
+        }
+        return added;
     }
+
 
     /** Measures chop using only the most recent live candles in this calculation. */
     private double liveChopScore(List<Candle> cs) {
