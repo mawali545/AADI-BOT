@@ -9,7 +9,8 @@ public class FiveSecondDailyContextTest {
     @Test public void previousDayAndTodayReferencesNeedCompleteHistory() throws Exception {
         DailyContextTracker tracker=new DailyContextTracker();
         long now=System.currentTimeMillis()/1000L;
-        long today=(now/86400L)*86400L;
+        long offset=java.util.TimeZone.getDefault().getOffset(now*1000L)/1000L;
+        long today=Math.floorDiv(now+offset,86400L)*86400L-offset;
         JSONArray rows=new JSONArray();
         rows.put(candle(today-86400L,1.1000,1.1010,1.0990,1.1005));
         rows.put(candle(today-10L,1.1005,1.1020,1.1000,1.1015));
