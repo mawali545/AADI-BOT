@@ -64,7 +64,7 @@ public final class FiveSecondSignalEngine {
             if(expiryQuote!=null&&pending.feedContinuous){
                 double expiryPrice=expiryQuote.p;
                 boolean finalSide="CALL".equals(pending.side)?expiryPrice>pending.price:expiryPrice<pending.price;
-                boolean win=pending.held&&finalSide;
+                boolean win=finalSide;
                 JSONObject settledEvent=new JSONObject();
                 try {
                     settledEvent.put("type","SETTLED");settledEvent.put("asset",asset);
@@ -132,7 +132,7 @@ public final class FiveSecondSignalEngine {
         double recent=near==null?0:price-near.p;
         boolean microAgree=side>0?move>0&&recent>0:side<0&&move<0&&recent<0;
         boolean eligible=side!=0&&microReady&&microAgree
-                &&timeMs-lastIssued>=2500L;
+                &&timeMs-lastIssued>=7000L;
         if(eligible){
             pending=new Pending(side>0?"CALL":"PUT",timeMs,price,baseSignal,dailyBias,dailySummary,baseAnalysis,move,recent,ticks.size());
             lastIssued=timeMs;
