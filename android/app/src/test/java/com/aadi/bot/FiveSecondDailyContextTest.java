@@ -12,9 +12,15 @@ public class FiveSecondDailyContextTest {
         long offset=java.util.TimeZone.getDefault().getOffset(now*1000L)/1000L;
         long today=Math.floorDiv(now+offset,86400L)*86400L-offset;
         JSONArray rows=new JSONArray();
-        rows.put(candle(today-86400L,1.1000,1.1010,1.0990,1.1005));
-        rows.put(candle(today-10L,1.1005,1.1020,1.1000,1.1015));
-        rows.put(candle(today,1.1015,1.1020,1.1010,1.1018));
+        double lastClose=1.1000;
+        for(int i=0;i<8640;i++){
+            long stamp=today-86400L+i*10L;
+            double open=1.1000+i*0.0000001;
+            double close=open+0.00000005;
+            rows.put(candle(stamp,open,close+0.00000002,open-0.00000002,close));
+            lastClose=close;
+        }
+        rows.put(candle(today,lastClose,lastClose+0.0001,lastClose-0.0001,lastClose+0.00005));
         tracker.importHistory("EURUSD_otc",rows);
         assertTrue(tracker.isReady("EURUSD_otc",now));
         assertEquals(1,tracker.bias("EURUSD_otc",1.1020,now));
