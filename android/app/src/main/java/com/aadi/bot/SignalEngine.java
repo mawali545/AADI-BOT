@@ -200,9 +200,9 @@ public final class SignalEngine {
 
     private String refreshAccuracyLine(String analysis) {
         String base = analysis == null ? "" : analysis;
-        int at = base.indexOf("\\nOBSERVED ACCURACY:");
+        int at = base.indexOf("\nOBSERVED ACCURACY:");
         if (at >= 0) base = base.substring(0, at);
-        return base + "\\nOBSERVED ACCURACY: " + accuracyLabel();
+        return base + "\nOBSERVED ACCURACY: " + accuracyLabel();
     }
 
     private void appendClosedLiveCandle(Candle completed) {
@@ -454,6 +454,14 @@ public final class SignalEngine {
         else if(Math.abs(longBias)<0.18&&chopScore>0.35) regime="MIXED / CHOP";
         else regime="TRANSITION / MIXED";
 
+
+        // A choppy recent regime requires slightly stronger agreement, without
+        // imposing a fixed candle-count delay.
+        double entryThreshold=0.32+0.10*chopScore;
+        // Require agreement from at least two of the three broad, recent and
+        // reversal layers. A strong opposing layer blocks the trade entirely.
+        int bullishVotes=(longBias>0.12?1:0)+(recentBias>0.12?1:0)+(reversalBias>0.12?1:0);
+        int bearishVotes=(longBias< -0.12?1:0)+(recentBias< -0.12?1:0)+(reversalBias< -0.12?1:0);
         String trendLabel = trend>0 ? "UPTREND" : trend<0 ? "DOWNTREND" : "SIDEWAYS / UNCLEAR";
         String actionLabel = sweep>0 ? "BULLISH LIQUIDITY SWEEP"
                 : sweep<0 ? "BEARISH LIQUIDITY SWEEP"
@@ -470,20 +478,13 @@ public final class SignalEngine {
                 rsi14, macdVote>0.08?"BULLISH":macdVote< -0.08?"BEARISH":"NEUTRAL",
                 dmi[2], emaStackVote>0.1?"BULLISH":emaStackVote< -0.1?"BEARISH":"MIXED");
         String analysisText = "MARKET TREND: "+trendLabel+" ("+regime+")"
-                + "\\nPRICE ACTION: "+actionLabel
-                + "\\nPATTERN: "+patternLabel
-                + "\\nMOMENTUM: "+momentumLabel
-                + String.format(Locale.US,"\\nFINAL CHECK: forecast %+.2f | threshold %.2f | votes bull %d / bear %d",
+                + "\nPRICE ACTION: "+actionLabel
+                + "\nPATTERN: "+patternLabel
+                + "\nMOMENTUM: "+momentumLabel
+                + String.format(Locale.US,"\nFINAL CHECK: forecast %+.2f | threshold %.2f | votes bull %d / bear %d",
                         forecast,entryThreshold,bullishVotes,bearishVotes)
-                + "\\nOBSERVED ACCURACY: "+accuracyLabel();
+                + "\nOBSERVED ACCURACY: "+accuracyLabel();
 
-        // A choppy recent regime requires slightly stronger agreement, without
-        // imposing a fixed candle-count delay.
-        double entryThreshold=0.32+0.10*chopScore;
-        // Require agreement from at least two of the three broad, recent and
-        // reversal layers. A strong opposing layer blocks the trade entirely.
-        int bullishVotes=(longBias>0.12?1:0)+(recentBias>0.12?1:0)+(reversalBias>0.12?1:0);
-        int bearishVotes=(longBias< -0.12?1:0)+(recentBias< -0.12?1:0)+(reversalBias< -0.12?1:0);
         // No absorption event can manufacture a directional signal by itself.
         if(forecast>entryThreshold && bullishVotes>=2 && bearishVotes==0) {
             int score=(int)Math.round(clamp(54+Math.abs(forecast)*34,54,88));
