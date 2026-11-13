@@ -83,14 +83,18 @@ public class MainActivity extends Activity {
         depthView = new TextView(this);
         signalView = new TextView(this);
         signalView.setTextColor(Color.WHITE);
-        signalView.setTextSize(46);
+        signalView.setTextSize(40);
         signalView.setTypeface(null, android.graphics.Typeface.BOLD);
         signalView.setGravity(Gravity.CENTER);
         signalView.setSingleLine(true);
-        signalView.setPadding(12, 18, 12, 18);
+        signalView.setIncludeFontPadding(true);
+        float density = getResources().getDisplayMetrics().density;
+        signalView.setPadding((int)(8*density), (int)(6*density),
+                (int)(8*density), (int)(6*density));
+        signalView.setMinHeight((int)(88*density));
         signalView.setText("WAIT");
         root.addView(signalView, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 120));
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         statsView = new TextView(this);
         statsView.setTextColor(Color.WHITE);
@@ -141,34 +145,72 @@ public class MainActivity extends Activity {
             JSONArray incoming=new JSONArray(json==null?"[]":json);
             android.content.SharedPreferences prefs=getSharedPreferences("aadi_signal_audit",MODE_PRIVATE);
             JSONArray saved=new JSONArray(prefs.getString("events","[]"));
+            int wins=prefs.getInt("total_wins",0);
+            int losses=prefs.getInt("total_losses",0);
+            JSONArray counted=new JSONArray(prefs.getString("counted_settlements","[]"));
+            java.util.HashSet<String> countedKeys=new java.util.HashSet<>();
+            for(int i=0;i<counted.length();i++) countedKeys.add(counted.optString(i));
+            if(!prefs.getBoolean("stats_initialized",false)) {
+                wins=0; losses=0;
+                for(int i=0;i<saved.length();i++) {
+                    JSONObject e=saved.optJSONObject(i);
+                    if(e==null||!"SETTLED".equals(e.optString("type"))) continue;
+                    String outcome=e.optString("outcome");
+                    if("WIN".equals(outcome)) wins++;
+                    else if("LOSS".equals(outcome)) losses++;
+                    String key=e.optString("asset")+"|"+e.optLong("entryTimeMs")+"|"+e.optString("signal");
+                    if(countedKeys.add(key)) counted.put(key);
+                }
+            }
             for(int i=0;i<incoming.length();i++) {
                 JSONObject item=incoming.optJSONObject(i);
-                if(item!=null) saved.put(item);
+                if(item==null) continue;
+                saved.put(item);
+                if(!"SETTLED".equals(item.optString("type"))) continue;
+                String key=item.optString("asset")+"|"+item.optLong("entryTimeMs")+"|"+item.optString("signal");
+                if(!countedKeys.add(key)) continue;
+                counted.put(key);
+                String outcome=item.optString("outcome");
+                if("WIN".equals(outcome)) wins++;
+                else if("LOSS".equals(outcome)) losses++;
             }
-            JSONArray trimmed=new JSONArray();
+            JSONArray trimmedEvents=new JSONArray();
             int start=Math.max(0,saved.length()-30);
             for(int i=start;i<saved.length();i++) {
                 JSONObject item=saved.optJSONObject(i);
-                if(item!=null) trimmed.put(item);
+                if(item!=null) trimmedEvents.put(item);
             }
-            prefs.edit().putString("events",trimmed.toString()).apply();
+            JSONArray trimmedKeys=new JSONArray();
+            int keyStart=Math.max(0,counted.length()-2000);
+            for(int i=keyStart;i<counted.length();i++) trimmedKeys.put(counted.optString(i));
+            prefs.edit().putString("events",trimmedEvents.toString())
+                .putInt("total_wins",wins).putInt("total_losses",losses)
+                .putString("counted_settlements",trimmedKeys.toString())
+                .putBoolean("stats_initialized",true).apply();
             runOnUiThread(() -> refreshStats());
         } catch(Exception ignored) {}
     }
 
     private void refreshStats() {
         if(statsView==null) return;
-        int wins=0,losses=0;
-        try {
-            JSONArray saved=new JSONArray(getSharedPreferences("aadi_signal_audit",MODE_PRIVATE).getString("events","[]"));
-            for(int i=0;i<saved.length();i++) {
-                JSONObject e=saved.optJSONObject(i);
-                if(e==null||!"SETTLED".equals(e.optString("type"))) continue;
-                String outcome=e.optString("outcome");
-                if("WIN".equals(outcome)) wins++;
-                else if("LOSS".equals(outcome)) losses++;
-            }
-        } catch(Exception ignored) {}
+        android.content.SharedPreferences prefs=getSharedPreferences("aadi_signal_audit",MODE_PRIVATE);
+        int wins=prefs.getInt("total_wins",-1);
+        int losses=prefs.getInt("total_losses",-1);
+        if(wins<0||losses<0||!prefs.getBoolean("stats_initialized",false)) {
+            wins=0; losses=0;
+            try {
+                JSONArray saved=new JSONArray(prefs.getString("events","[]"));
+                for(int i=0;i<saved.length();i++) {
+                    JSONObject e=saved.optJSONObject(i);
+                    if(e==null||!"SETTLED".equals(e.optString("type"))) continue;
+                    String outcome=e.optString("outcome");
+                    if("WIN".equals(outcome)) wins++;
+                    else if("LOSS".equals(outcome)) losses++;
+                }
+                prefs.edit().putInt("total_wins",wins).putInt("total_losses",losses)
+                    .putBoolean("stats_initialized",true).apply();
+            } catch(Exception ignored) {}
+        }
         statsView.setText("WINS "+wins+"    LOSSES "+losses);
     }
 
