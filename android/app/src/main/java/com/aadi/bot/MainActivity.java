@@ -87,7 +87,7 @@ public class MainActivity extends Activity {
         analysisView.setTextColor(Color.rgb(190, 205, 220));
         analysisView.setTextSize(10);
         analysisView.setPadding(14, 4, 14, 8);
-        analysisView.setMaxLines(7);
+        analysisView.setMaxLines(12);
         analysisView.setText("MARKET TREND • Waiting for verified candles");
         root.addView(analysisView);
         depthView = new TextView(this);
@@ -332,7 +332,7 @@ public class MainActivity extends Activity {
                 String dailySummary = dailyContext.summary(asset, price, (long)feedSeconds);
                 int dailyBias = dailyContext.bias(asset, price, (long)feedSeconds);
                 FiveSecondSignalEngine.Result result = fiveSecondEngine.onTick(asset, price,
-                        (long)(feedSeconds*1000.0), baseResult.signal, dailyBias, dailySummary);
+                        (long)(feedSeconds*1000.0), baseResult.signal, dailyBias, dailySummary, baseResult.analysis);
                 long count = ++receivedTicks;
                 String line = asset + "  " + price + "  • TICK #" + count + "  |  REAL FEED";
                 long uiNow=SystemClock.uptimeMillis();
