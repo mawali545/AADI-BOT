@@ -24,7 +24,7 @@ import org.json.JSONObject;
 import org.json.JSONArray;
 
 public class MainActivity extends Activity {
-    private TextView status, lastTick, signalView, depthView;
+    private TextView status, lastTick, signalView, analysisView, depthView;
     private long depthEventCount = 0;
     private final java.util.ArrayDeque<String> depthRecent = new java.util.ArrayDeque<>();
     private boolean botActive = false;
@@ -81,6 +81,13 @@ public class MainActivity extends Activity {
         root.addView(status);
         root.addView(lastTick);
         root.addView(signalView);
+        analysisView = new TextView(this);
+        analysisView.setTextColor(Color.rgb(190, 205, 220));
+        analysisView.setTextSize(10);
+        analysisView.setPadding(14, 4, 14, 8);
+        analysisView.setMaxLines(7);
+        analysisView.setText("MARKET TREND • Waiting for verified candles");
+        root.addView(analysisView);
         depthView = new TextView(this);
         depthView.setTextColor(Color.rgb(115, 220, 205));
         depthView.setTextSize(11);
@@ -131,6 +138,7 @@ public class MainActivity extends Activity {
             lastTick.setText("Collecting real ticks from logged-in chart");
             signalView.setText("WAIT");
             signalView.setTextColor(Color.WHITE);
+            analysisView.setText("MARKET TREND • Waiting for verified candles");
         } else {
             status.setText("AADI • Logged out — analysis paused");
             signalView.setText("WAIT");
@@ -141,6 +149,7 @@ public class MainActivity extends Activity {
     private void showSignal(SignalEngine.Result result, double tickTimestamp) {
         String display="SIGNAL: " + result.signal + "\\n"
                 + result.reason + "  |  Live candles: " + result.closedCandles;
+        analysisView.setText(result.analysis == null ? "Analysis unavailable" : result.analysis);
         boolean directional="CALL".equals(result.signal) || "PUT".equals(result.signal);
         if(!directional) {
             if(signalColorReset!=null) uiHandler.removeCallbacks(signalColorReset);
