@@ -11,7 +11,7 @@ public final class FiveSecondSignalEngine {
         Result(String s,String r,String a){signal=s;reason=r;analysis=a;}
     }
     private static final class Tick { final long t; final double p; Tick(long t,double p){this.t=t;this.p=p;} }
-    private static final class Pending { final String side; final long at; final double price; boolean held=true; Pending(String s,long t,double p){side=s;at=t;price=p;} }
+    private static final class Pending { final String side; final long at; final double price; boolean held=true,feedContinuous=true; long lastSeenAt; Pending(String s,long t,double p){side=s;at=t;price=p;lastSeenAt=t;} }
     private final Deque<Tick> ticks=new ArrayDeque<>();
     private String asset="";
     private Pending pending;
@@ -35,6 +35,8 @@ public final class FiveSecondSignalEngine {
         ticks.addLast(new Tick(timeMs,price));
         while(!ticks.isEmpty()&&timeMs-ticks.peekFirst().t>12000L)ticks.removeFirst();
         if(pending!=null){
+            if(timeMs-pending.lastSeenAt>1500L) pending.feedContinuous=false;
+            pending.lastSeenAt=timeMs;
             if(("CALL".equals(pending.side)&&price<=pending.price)
                     ||("PUT".equals(pending.side)&&price>=pending.price)) pending.held=false;
         }
@@ -47,12 +49,15 @@ public final class FiveSecondSignalEngine {
                 long gap=Math.abs(t.t-expiryAt);
                 if(gap<=1000L&&gap<bestGap){bestGap=gap;expiryQuote=t;}
             }
-            if(expiryQuote!=null){
+            if(expiryQuote!=null&&pending.feedContinuous){
                 double expiryPrice=expiryQuote.p;
                 boolean finalSide="CALL".equals(pending.side)?expiryPrice>pending.price:expiryPrice<pending.price;
                 boolean win=pending.held&&finalSide;
                 if(expiryPrice==pending.price)lastOutcome="5s FLAT • not counted";
                 else {settled++;if(win)wins++;lastOutcome="5s "+(win?"WIN":"LOSS")+" • "+pending.side+(pending.held?"":" • crossed entry during hold")+" • "+String.format(Locale.US,"%.6f → %.6f",pending.price,expiryPrice);}
+                pending=null;
+            } else if(expiryQuote!=null&&!pending.feedContinuous){
+                lastOutcome="5s UNVERIFIED • live tick stream had a gap over 1.5s";
                 pending=null;
             } else if(timeMs>expiryAt+1500L){
                 lastOutcome="5s UNVERIFIED • no quote within 1s of expiry";
