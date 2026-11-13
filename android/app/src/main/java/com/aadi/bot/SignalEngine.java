@@ -34,7 +34,8 @@ public final class SignalEngine {
     }
 
     private static final int FAST=9, SLOW=21, RSI_PERIOD=14, MOMENTUM=5;
-    // Warm up from 15 genuine live 10-second candles only.
+    // Warm up from at least 15 validated 10-second candles. Imported chart history
+    // is the initial context; genuine live ticks build and advance the current candle.
     private static final int MIN_CANDLES=15;
     private static final long FRAME_SECONDS=10;
 
@@ -49,7 +50,8 @@ public final class SignalEngine {
         double bodyAbs() { return Math.abs(close-open); }
     }
 
-    // Only genuine live candles received after app startup are used for signals.
+    // Validated closed candles: imported Market-QX history first, then completed live candles.
+    // The forming candle is held separately and can only be updated by live ticks.
     private final Deque<Candle> liveCandles = new ArrayDeque<>();
     private String asset;
     private double lastPrice;
@@ -217,7 +219,8 @@ public final class SignalEngine {
     }
 
     private Result calculateWithLiveCandle() {
-        // Strict live-only window: imported chart history never enters the forecast.
+        // Use imported closed chart history plus completed live candles as context.
+        // Only the final forming candle is sourced from current live exchange ticks.
         List<Candle> window=new ArrayList<>(liveCandles);
         if(liveCandle!=null) {
             if(!window.isEmpty() && window.get(window.size()-1).time==liveCandle.time)
@@ -281,7 +284,7 @@ public final class SignalEngine {
         return value;
     }
 
-    /** Measures chop using only the most recent live candles in this calculation. */
+    /** Measures chop using the most recent candles in the combined validated analysis window. */
     private double liveChopScore(List<Candle> cs) {
         int count=Math.min(12,cs.size());
         if(count<6) return 0;
