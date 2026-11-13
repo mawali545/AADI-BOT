@@ -270,7 +270,21 @@ public class MainActivity extends Activity {
             }
         }
 
-        @JavascriptInterface public void onHistory(String json) { try { JSONObject packet=new JSONObject(json); String asset=packet.optString(\"asset\",\"\"); JSONArray rows=packet.optJSONArray(\"candles\"); if(asset.isEmpty()||rows==null||!botActive)return; int imported=engine.importHistoricalCandles(asset,rows); if(imported>0)runOnUiThread(() -> { lastTick.setText(asset+\" • IMPORTED \"+imported+\" VERIFIED HISTORICAL 10s CANDLES\"); status.setText(\"AADI • HISTORY READY | \"+engine.currentResult().closedCandles+\" candles\"); }); } catch(Exception e) { runOnUiThread(() -> status.setText(\"AADI • Historical candle parse error\")); } }\n\n        @JavascriptInterface public void onTick(String json) {
+        @JavascriptInterface public void onHistory(String json) {
+            try {
+                JSONObject packet = new JSONObject(json);
+                String asset = packet.optString("asset", "");
+                JSONArray rows = packet.optJSONArray("candles");
+                if (asset.isEmpty() || rows == null || !botActive) return;
+                int imported = engine.importHistoricalCandles(asset, rows);
+                if (imported > 0) runOnUiThread(() -> {
+                    lastTick.setText(asset + " • IMPORTED " + imported + " VERIFIED HISTORICAL 10s CANDLES");
+                    status.setText("AADI • HISTORY READY | " + engine.currentResult().closedCandles + " candles");
+                });
+            } catch (Exception e) {
+                runOnUiThread(() -> status.setText("AADI • Historical candle parse error"));
+            }
+        }\n\n        @JavascriptInterface public void onTick(String json) {
             try {
                 JSONObject o = new JSONObject(json);
                 String asset = o.optString("asset", "");
