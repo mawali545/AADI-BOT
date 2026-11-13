@@ -463,14 +463,38 @@ public final class SignalEngine {
         int bullishVotes=(longBias>0.12?1:0)+(recentBias>0.12?1:0)+(reversalBias>0.12?1:0);
         int bearishVotes=(longBias< -0.12?1:0)+(recentBias< -0.12?1:0)+(reversalBias< -0.12?1:0);
         String trendLabel = trend>0 ? "UPTREND" : trend<0 ? "DOWNTREND" : "SIDEWAYS / UNCLEAR";
-        String actionLabel = sweep>0 ? "BULLISH LIQUIDITY SWEEP"
+        int srFrom=Math.max(0,n-25);
+        double resistance=Double.NEGATIVE_INFINITY, support=Double.POSITIVE_INFINITY;
+        for(int k=srFrom;k<n-1;k++) {
+            resistance=Math.max(resistance,cs.get(k).high);
+            support=Math.min(support,cs.get(k).low);
+        }
+        double paRange=Math.max(last.range(),1e-12);
+        double bodyRatio=last.bodyAbs()/paRange;
+        double closePosition=(last.close-last.low)/paRange;
+        double upperWick=last.high-Math.max(last.open,last.close);
+        double lowerWick=Math.min(last.open,last.close)-last.low;
+        boolean bullBreakout=last.close>resistance && last.close>last.open;
+        boolean bearBreakout=last.close<support && last.close<last.open;
+        boolean bullRetest=last.low<=resistance+atr*0.12 && last.close>resistance && last.close>last.open;
+        boolean bearRetest=last.high>=support-atr*0.12 && last.close<support && last.close<last.open;
+        String structureLabel = sweep>0 ? "BULLISH LIQUIDITY SWEEP"
                 : sweep<0 ? "BEARISH LIQUIDITY SWEEP"
                 : failedBreak>0 ? "BULLISH FAILED BREAKOUT"
                 : failedBreak<0 ? "BEARISH FAILED BREAKOUT"
+                : bullRetest ? "BULLISH BREAKOUT RETEST"
+                : bearRetest ? "BEARISH BREAKDOWN RETEST"
+                : bullBreakout ? "BULLISH BREAKOUT"
+                : bearBreakout ? "BEARISH BREAKDOWN"
                 : pullback>0 ? "BULLISH PULLBACK"
                 : pullback<0 ? "BEARISH PULLBACK"
                 : structure>0 ? "HIGHER-HIGH / HIGHER-LOW"
                 : structure<0 ? "LOWER-HIGH / LOWER-LOW" : "NO CLEAR STRUCTURE";
+        String wickLabel=lowerWick>upperWick*1.5 ? "LOWER-WICK REJECTION"
+                : upperWick>lowerWick*1.5 ? "UPPER-WICK REJECTION" : "BALANCED WICKS";
+        String actionLabel=String.format(Locale.US,
+                "%s | body %.0f%% | close %.0f%% | %s | S/R %.5f / %.5f",
+                structureLabel,bodyRatio*100.0,closePosition*100.0,wickLabel,support,resistance);
         String patternLabel = pattern>0.20 ? "BULLISH CANDLE PATTERN"
                 : pattern< -0.20 ? "BEARISH CANDLE PATTERN" : "NO STRONG CANDLE PATTERN";
         String momentumLabel = String.format(Locale.US,
