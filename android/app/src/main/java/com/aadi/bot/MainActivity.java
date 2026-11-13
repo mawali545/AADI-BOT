@@ -20,19 +20,20 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.view.ViewGroup;
+import android.view.Gravity;
 import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
 import org.json.JSONObject;
 import org.json.JSONArray;
 
 public class MainActivity extends Activity {
-    private TextView status, lastTick, signalView, analysisView, depthView;
+    private TextView status, lastTick, signalView, analysisView, depthView, statsView;
     private long depthEventCount = 0;
     private final java.util.ArrayDeque<String> depthRecent = new java.util.ArrayDeque<>();
     private boolean botActive = false;
     private SignalEngine engine = new SignalEngine();
     private FiveSecondSignalEngine fiveSecondEngine = new FiveSecondSignalEngine();
-    private DailyContextTracker dailyContext = new DailyContextTracker();
+    private DailyContextTracker 
     private WebView web;
     private long receivedTicks = 0;
     private volatile long lastUiTickAt = 0;
@@ -80,34 +81,28 @@ public class MainActivity extends Activity {
         lastTick.setText("No real tick received");
         signalView = new TextView(this);
         signalView.setTextColor(Color.WHITE);
-        signalView.setTextSize(14);
-        signalView.setLines(2);
-        signalView.setEllipsize(TextUtils.TruncateAt.END);
-        signalView.setPadding(14, 4, 14, 10);
-        signalView.setText("SIGNAL: WAIT • Waiting for real candles");
-        root.addView(status);
-        root.addView(lastTick);
-        root.addView(signalView);
-        analysisView = new TextView(this);
-        analysisView.setTextColor(Color.rgb(190, 205, 220));
-        analysisView.setTextSize(10);
-        analysisView.setPadding(14, 4, 14, 8);
-        analysisView.setMaxLines(12);
-        analysisView.setText("MARKET TREND • Waiting for verified candles");
-        root.addView(analysisView);
-        depthView = new TextView(this);
-        depthView.setTextColor(Color.rgb(115, 220, 205));
-        depthView.setTextSize(11);
-        depthView.setPadding(14, 10, 14, 10);
-        depthView.setMaxLines(22);
-        depthView.setText("ORDER BOOK • Waiting for live depth response");
-        root.addView(depthView);
+        signalView.setTextSize(46);
+        signalView.setTypeface(null, android.graphics.Typeface.BOLD);
+        signalView.setGravity(Gravity.CENTER);
+        signalView.setSingleLine(true);
+        signalView.setPadding(12, 18, 12, 18);
+        signalView.setText("WAIT");
+        root.addView(signalView, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 120));
+
+        statsView = new TextView(this);
+        statsView.setTextColor(Color.WHITE);
+        statsView.setTextSize(18);
+        statsView.setGravity(Gravity.CENTER);
+        statsView.setPadding(8, 4, 8, 10);
+        statsView.setText("WINS 0    LOSSES 0");
+        root.addView(statsView, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
         Button auditButton=new Button(this);
         auditButton.setText("OPEN SIGNAL AUDIT • LAST 30 EVENTS");
         auditButton.setOnClickListener(v -> showAuditLog());
         root.addView(auditButton);
-        signalView.setText("WAIT");
-        signalView.setTextColor(Color.WHITE);
 
         web = new WebView(this);
         web.getSettings().setJavaScriptEnabled(true);
@@ -125,6 +120,7 @@ public class MainActivity extends Activity {
         root.addView(web, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
         setContentView(root);
+        refreshStats();
 
         if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
             WebViewCompat.addDocumentStartJavaScript(web, HOOK,
@@ -154,7 +150,24 @@ public class MainActivity extends Activity {
                 if(item!=null) trimmed.put(item);
             }
             prefs.edit().putString("events",trimmed.toString()).apply();
+            runOnUiThread(() -> refreshStats());
         } catch(Exception ignored) {}
+    }
+
+    private void refreshStats() {
+        if(statsView==null) return;
+        int wins=0,losses=0;
+        try {
+            JSONArray saved=new JSONArray(getSharedPreferences("aadi_signal_audit",MODE_PRIVATE).getString("events","[]"));
+            for(int i=0;i<saved.length();i++) {
+                JSONObject e=saved.optJSONObject(i);
+                if(e==null||!"SETTLED".equals(e.optString("type"))) continue;
+                String outcome=e.optString("outcome");
+                if("WIN".equals(outcome)) wins++;
+                else if("LOSS".equals(outcome)) losses++;
+            }
+        } catch(Exception ignored) {}
+        statsView.setText("WINS "+wins+"    LOSSES "+losses);
     }
 
     private void showAuditLog() {
@@ -210,50 +223,13 @@ public class MainActivity extends Activity {
     }
 
     private void showSignal(FiveSecondSignalEngine.Result result, double tickTimestamp, String asset) {
-        String display="SIGNAL: " + result.signal + "\\n"
-                + result.reason;
-        analysisView.setText(result.analysis == null ? "Analysis unavailable" : result.analysis);
-        boolean directional="CALL".equals(result.signal) || "PUT".equals(result.signal);
-        if(!directional) {
-            if(signalColorReset!=null) uiHandler.removeCallbacks(signalColorReset);
-            signalColorReset=null;
-            signalFlashUntil=0;
-            signalView.setText(display);
-            signalView.setTextColor(Color.WHITE);
-            return;
-        }
-
-        long bucket=((long)tickTimestamp/5L)*5L;
-        boolean newSignalEvent=bucket!=lastSignalFlashBucket
-                || !asset.equals(lastSignalFlashAsset);
-        long now=SystemClock.uptimeMillis();
-        if(newSignalEvent) {
-            lastSignalFlashBucket=bucket;
-            lastSignalFlashAsset=asset;
-            if(signalColorReset!=null) uiHandler.removeCallbacks(signalColorReset);
-            signalFlashUntil=now+2000L;
-            final String resetText=display;
-            signalColorReset=() -> {
-                signalView.setText(resetText);
-                signalView.setTextColor(Color.WHITE);
-                signalFlashUntil=0;
-            };
-            uiHandler.postDelayed(signalColorReset,2000L);
-        }
-
-        // Repeated ticks carrying the same candle's locked signal do not
-        // restart the timer. Each new 10-second candle gets its own 2s flash.
-        if(now<signalFlashUntil) {
-            SpannableString styled=new SpannableString(display);
-            int color="CALL".equals(result.signal)
-                    ? Color.rgb(40,230,130) : Color.rgb(255,75,85);
-            styled.setSpan(new ForegroundColorSpan(color),0,result.signal.length(),
-                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            signalView.setText(styled);
-        } else {
-            signalView.setText(display);
-            signalView.setTextColor(Color.WHITE);
-        }
+        String signal=result==null?"WAIT":result.signal;
+        signalView.setText(signal);
+        if("CALL".equals(signal)) signalView.setTextColor(Color.rgb(40,230,130));
+        else if("PUT".equals(signal)) signalView.setTextColor(Color.rgb(255,75,85));
+        else signalView.setTextColor(Color.WHITE);
+        if(result!=null && result.analysis!=null && analysisView!=null)
+            analysisView.setText(result.analysis);
     }
     private class Bridge {
         @JavascriptInterface public void onLoginState(boolean loggedIn) {
@@ -284,7 +260,7 @@ public class MainActivity extends Activity {
             latestLivePrice = Double.NaN;
             latestLiveTickMs = 0;
             fiveSecondEngine.reset(asset);
-            dailyContext.resetAsset(asset);
+            
             receivedTicks = 0;
             runOnUiThread(() -> {
                 lastSignalFlashBucket = Long.MIN_VALUE;
@@ -377,7 +353,7 @@ public class MainActivity extends Activity {
                 String asset = packet.optString("asset", "");
                 JSONArray rows = packet.optJSONArray("candles");
                 if (asset.isEmpty() || rows == null || !botActive) return;
-                dailyContext.importHistory(asset, rows);
+                
                 int imported = engine.importHistoricalCandles(asset, rows);
                 if (imported > 0) runOnUiThread(() -> {
                     lastTick.setText(asset + " • IMPORTED " + imported + " VERIFIED HISTORICAL 10s CANDLES");
@@ -403,8 +379,8 @@ public class MainActivity extends Activity {
                 latestLivePrice = price;
                 latestLiveTickMs = System.currentTimeMillis();
                 SignalEngine.Result baseResult = engine.onTick(asset, price, ts);
-                String dailySummary = dailyContext.summary(asset, price, (long)feedSeconds);
-                int dailyBias = dailyContext.bias(asset, price, (long)feedSeconds);
+                String dailySummary = "CURRENT SESSION • live price action and rolling structure only";
+                int dailyBias = 0;
                 FiveSecondSignalEngine.Result result = fiveSecondEngine.onTick(asset, price,
                         (long)(feedSeconds*1000.0), baseResult.signal, dailyBias, dailySummary, baseResult.analysis);
                 if(!"[]".equals(result.auditEvents)) persistAuditEvents(result.auditEvents);
