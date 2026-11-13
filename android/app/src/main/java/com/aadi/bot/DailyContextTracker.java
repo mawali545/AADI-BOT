@@ -72,7 +72,8 @@ public final class DailyContextTracker {
     private Context context(String asset,long now) {
         TreeMap<Long,Candle> map=byAsset.get(asset);
         if(map==null||map.isEmpty())return null;
-        long today=Math.floorDiv(now,DAY)*DAY, yesterday=today-DAY;
+        long offset=java.util.TimeZone.getDefault().getOffset(now*1000L)/1000L;
+        long today=Math.floorDiv(now+offset,DAY)*DAY-offset, yesterday=today-DAY;
         Map.Entry<Long,Candle> firstPrev=map.ceilingEntry(yesterday);
         Map.Entry<Long,Candle> lastPrev=map.lowerEntry(today);
         Map.Entry<Long,Candle> firstToday=map.ceilingEntry(today);
