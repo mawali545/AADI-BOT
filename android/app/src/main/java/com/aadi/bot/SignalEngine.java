@@ -504,12 +504,24 @@ public final class SignalEngine {
                 "RSI14 %.1f | MACD %s | ADX %.1f | EMA stack %s",
                 rsi14, macdVote>0.08?"BULLISH":macdVote< -0.08?"BEARISH":"NEUTRAL",
                 dmi[2], emaStackVote>0.1?"BULLISH":emaStackVote< -0.1?"BEARISH":"MIXED");
+        String calculationDetail=String.format(Locale.US,
+                "CALC AUDIT: ATR %.8f | longBias %+.3f | indicatorBias %+.3f | recentBias %+.3f | reversalBias %+.3f | forecast %+.3f | threshold %.3f | chop %.3f"
+                +"\\nINDICATORS: EMA9 %.8f / EMA20 %.8f / EMA50 %.8f / EMA100 %.8f / EMA200 %.8f | RSI7 %.2f / RSI14 %.2f | RSIvote %+.3f"
+                +"\\nTREND/FLOW: slope5 %+.3f | slope12 %+.3f | MACDvote %+.3f | DI+ %.2f | DI- %.2f | ADX %.2f | DMIvote %+.3f | Supertrend %d | microStructure %d | dominant %d | EMAstack %+.3f"
+                +"\\nPRICE ACTION: fastMove %+.8f | pressure %+.3f | flow %+.3f | stair %+.3f | alternating %+.3f | pattern %+.3f | exhaustion %+.3f | turning %+.3f | multiScale %+.3f | sweep %d | failedBreak %d | pullback %d"
+                +"\\nLEVELS/FLAGS: support %.8f | resistance %.8f | bearishAbsorption %s | bullishAbsorption %s | bookVote %+.3f | depthVote %+.3f",
+                atr,longBias,indicatorBias,recentBias,reversalBias,forecast,entryThreshold,chopScore,
+                e9,e20,e50,e100,e200,rsi7,rsi14,rsiVote,slopeFast,slopeSlow,macdVote,dmi[0],dmi[1],dmi[2],dmiVote,
+                supertrend,microStructure,dominant,emaStackVote,fastMove,pressure,flowBias,stairBias,alternatingBias,
+                pattern,exhaustion,turning,multiScale,sweep,failedBreak,pullback,support,resistance,
+                bearishAbsorption,bullishAbsorption,bookVote,freshDepthBias);
         String analysisText = "MARKET TREND: "+trendLabel+" ("+regime+")"
                 + "\nPRICE ACTION: "+actionLabel
                 + "\nPATTERN: "+patternLabel
                 + "\nMOMENTUM: "+momentumLabel
                 + String.format(Locale.US,"\nFINAL CHECK: forecast %+.2f | threshold %.2f | votes bull %d / bear %d",
                         forecast,entryThreshold,bullishVotes,bearishVotes)
+                + "\n"+calculationDetail
                 + "\nOBSERVED ACCURACY: "+accuracyLabel();
 
         // No absorption event can manufacture a directional signal by itself.
