@@ -136,24 +136,7 @@ public final class SignalEngine {
             if(liveCandle!=null) {
                 appendClosedLiveCandle(liveCandle);
                 settlePrediction(liveCandle);
-                // If no tick arrived in the final second, use the now-completed
-                // genuine candle as a fallback forecast before starting the next.
-                if(pendingNextCandleResult==null) {
-                    pendingNextCandleResult=calculateWithLiveCandle();
-                }
             }
-            // Publish exactly one decision for this new candle. It remains
-            // fixed until this candle ends; no CALL/PUT flicker inside a bar.
-            if(pendingNextCandleResult!=null) {
-                Result issued=pendingNextCandleResult;
-                latestHistoryResult=new Result(asset,issued.signal,issued.reason,price,
-                        issued.emaFast,issued.emaSlow,issued.rsi,issued.momentum,
-                        issued.score,issued.closedCandles,accuracyPct(),recentOutcomes.size(),refreshAccuracyLine(issued.analysis));
-            } else {
-                latestHistoryResult=snapshot("WAIT","WAIT: no reliable next-candle forecast");
-            }
-            pendingNextCandleResult=null;
-            previewedBucket=-1;
             liveBucket=bucket;
             liveCandle=new Candle(bucket,price,price,price,price);
             liveTickCount=1;
@@ -163,12 +146,14 @@ public final class SignalEngine {
             liveTickCount++;
         }
 
-        // Learn from the current candle continuously, but only commit one
-        // forecast near its close. That forecast is for the NEXT 10-second bar.
-        if(liveTickCount>=2 && (ts%FRAME_SECONDS)>=FRAME_SECONDS-1
-                && previewedBucket!=liveBucket) {
-            pendingNextCandleResult=calculateWithLiveCandle();
-            previewedBucket=liveBucket;
+        // Re-evaluate on every genuine tick inside the forming 10-second candle.
+        // Do not wait for its final second or the next candle boundary.
+        if(liveTickCount>=2) {
+            Result live=calculateWithLiveCandle();
+            latestHistoryResult=new Result(asset,live.signal,live.reason,price,
+                    live.emaFast,live.emaSlow,live.rsi,live.momentum,live.score,
+                    live.closedCandles,accuracyPct(),recentOutcomes.size(),
+                    refreshAccuracyLine(live.analysis));
         }
         return currentResult();
     }
