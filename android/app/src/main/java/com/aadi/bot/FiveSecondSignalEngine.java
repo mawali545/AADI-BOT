@@ -27,7 +27,7 @@ public final class FiveSecondSignalEngine {
     }
 
     public synchronized Result onTick(String symbol,double price,long timeMs,String baseSignal,
-                                      int dailyBias,String dailySummary) {
+                                      int dailyBias,String dailySummary,String baseAnalysis) {
         if(symbol==null||symbol.isEmpty()||!Double.isFinite(price)||price<=0||timeMs<=0)
             return latest;
         if(!asset.equals(symbol))reset(symbol);
