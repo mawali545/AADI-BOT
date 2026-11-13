@@ -1,0 +1,41 @@
+name: AADI Android build and tests
+
+on:
+  push:
+    branches:
+      - chinese-engine-history-merge-2026-11-13
+  pull_request:
+    branches:
+      - android-webview-app
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Create local debug signing key
+        run: |
+          mkdir -p android/.android-signing
+          keytool -genkeypair -v -keystore android/.android-signing/aadi-debug.keystore -storepass aadi-debug-store -alias aadi-debug -keypass aadi-debug-store -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=AADI Debug,O=AADI,C=PK"
+      - name: Run JVM unit tests
+        run: gradle -p android testDebugUnitTest
+      - name: Build debug APK
+        run: gradle -p android assembleDebug
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: aadi-history-merge-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
