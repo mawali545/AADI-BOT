@@ -59,15 +59,15 @@ public class FiveSecondDailyContextTest {
         assertTrue(r.analysis.contains("crossed entry during hold"));
     }
 
-    @Test public void dailyConflictBlocksFiveSecondCall() {
+    @Test public void dailyConflictIsRecordedButLiveMomentumCanStillConfirmCall() {
         FiveSecondSignalEngine e=new FiveSecondSignalEngine();
         long t=System.currentTimeMillis();
         e.onTick("EURUSD_otc",1.1,t,"CALL",-1,"daily bearish","base trend CALL");
         e.onTick("EURUSD_otc",1.1001,t+1000,"CALL",-1,"daily bearish","base trend CALL");
         e.onTick("EURUSD_otc",1.1002,t+2000,"CALL",-1,"daily bearish","base trend CALL");
         FiveSecondSignalEngine.Result r=e.onTick("EURUSD_otc",1.1003,t+3000,"CALL",-1,"daily bearish","base trend CALL");
-        assertEquals("WAIT",r.signal);
-        assertTrue(r.reason.contains("Daily context conflicts"));
+        assertEquals("CALL",r.signal);
+        assertTrue(r.analysis.contains("daily bearish"));
     }
 
     private JSONObject candle(long t,double o,double h,double l,double c) throws Exception {
