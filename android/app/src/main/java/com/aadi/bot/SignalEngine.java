@@ -496,7 +496,7 @@ public final class SignalEngine {
             int score=(int)Math.round(clamp(54+Math.abs(forecast)*34,54,88));
             String why="PUT forecast • "+regime+" • trend, live flow and reversal checks agree";
             return new Result(asset,"PUT",why,last.close,ema(closes,9),ema(closes,21),
-                    rsiWilder(closes,14),fastMove,score,totalClosed);
+                    rsiWilder(closes,14),fastMove,score,totalClosed,accuracyPct(),recentOutcomes.size(),analysisText);
         }
         String why="WAIT • "+regime+" • pressure and candle-reversal evidence conflict";
         return new Result(asset,"WAIT",why,last.close,ema(closes,9),ema(closes,21),
