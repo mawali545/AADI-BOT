@@ -77,9 +77,15 @@ public class MainActivity extends Activity {
         lastTick.setTextColor(Color.rgb(80, 220, 150));
         lastTick.setTextSize(10);
         lastTick.setSingleLine(true);
-        lastTick.setEllipsize(TextUtils.TruncateAt.END);
+        lastTick.setEllipsize(TextUtils.TruncateAt.MARQUEE);
+        lastTick.setMarqueeRepeatLimit(-1);
+        lastTick.setFocusable(true);
+        lastTick.setFocusableInTouchMode(true);
+        lastTick.setSelected(true);
         lastTick.setPadding(14, 4, 14, 10);
         lastTick.setText("No real tick received");
+        root.addView(lastTick, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         // Retain internal diagnostic sinks without adding them to the compact screen.
         analysisView = new TextView(this);
         depthView = new TextView(this);
