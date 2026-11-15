@@ -142,6 +142,7 @@ public final class SignalEngine {
             if(liveCandle!=null) {
                 appendClosedLiveCandle(liveCandle);
                 settlePrediction(liveCandle);
+                refreshSettledAccuracy();
             }
             // The last forecast from the candle that just closed targets this
             // newly opened candle. Keep it fixed while that target candle forms.
@@ -184,6 +185,14 @@ public final class SignalEngine {
         while(recentOutcomes.size()>100) {
             if(recentOutcomes.removeFirst()) recentWins--;
         }
+    }
+
+    private void refreshSettledAccuracy() {
+        if(latestHistoryResult==null)return;
+        Result r=latestHistoryResult;
+        latestHistoryResult=new Result(asset,r.signal,r.reason,lastPrice,r.emaFast,r.emaSlow,
+                r.rsi,r.momentum,r.score,r.closedCandles,accuracyPct(),recentOutcomes.size(),
+                refreshAccuracyLine(r.analysis));
     }
 
     private double accuracyPct() {
