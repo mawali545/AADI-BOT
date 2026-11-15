@@ -141,7 +141,7 @@ public final class FiveSecondSignalEngine {
         if(!scanRequested) {
             if(audit.length()>0) {
                 latest=new Result(latest.signal,lastOutcome,
-                        latest.analysis+"\\n"+lastOutcome+"\\n"+performanceLine(),audit.toString());
+                        latest.analysis+"\n"+lastOutcome+"\n"+performanceLine(),audit.toString());
             }
             return latest;
         }
