@@ -67,7 +67,7 @@ public class FiveSecondDailyContextTest {
         e.onTick("EURUSD_otc",1.1002,t+2000,"CALL",-1,"daily bearish","base trend CALL");
         FiveSecondSignalEngine.Result r=e.onTick("EURUSD_otc",1.1003,t+3000,"CALL",-1,"daily bearish","base trend CALL");
         assertEquals("CALL",r.signal);
-        assertTrue(r.analysis.contains("TICK FLOW"));
+        assertTrue(r.analysis.contains("5s MOMENTUM:"));
         assertTrue(r.analysis.contains("daily bearish"));
     }
 
