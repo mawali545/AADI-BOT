@@ -87,7 +87,7 @@ public class EntryQualityGateTest {
     }
 
 
-    @Test public void executionTradeUsesTenSecondExpiryAndSettlesAtTenSeconds() {
+    @Test public void executionTradeUsesTenSecondExpiryAndSettlesAtTenSeconds() throws Exception {
         FiveSecondSignalEngine engine=new FiveSecondSignalEngine();
         engine.requestScan();
         String audit="ATR 0.001 | forecast +0.500 | threshold 0.200";
@@ -101,15 +101,17 @@ public class EntryQualityGateTest {
         assertNotNull(issued);
         assertEquals("CALL",issued.signal);
         assertTrue(issued.auditEvents.contains("\"expirySeconds\":10"));
+        long issuedAt=new JSONArray(issued.auditEvents).getJSONObject(0).getLong("entryTimeMs");
         FiveSecondSignalEngine.Result settled=null;
-        for(long dt=3000;dt<=12000;dt+=1000) {
+        for(long dt=3000;dt<=16000;dt+=1000) {
             long t=start+dt;
-            settled=engine.onTick("TEST",1.0+(dt/1000000.0),t,"WAIT",0,"daily",audit);
+            FiveSecondSignalEngine.Result current=engine.onTick("TEST",1.0+(dt/1000000.0),t,"WAIT",0,"daily",audit);
+            if(current.auditEvents.contains("SETTLED")) settled=current;
         }
-        assertTrue(settled.auditEvents.contains("\"expiryTimeMs\":113000"));
+        assertNotNull("The 10-second result must settle on a verified expiry quote",settled);
+        assertTrue(settled.auditEvents.contains("\"expiryTimeMs\":"+(issuedAt+10000L)));
         assertTrue(settled.auditEvents.contains("SETTLED"));
     }
-
     @Test public void auditParserReadsExplicitPlusSigns() throws Exception {
         FiveSecondSignalEngine engine=new FiveSecondSignalEngine();
         java.lang.reflect.Method parse=FiveSecondSignalEngine.class
