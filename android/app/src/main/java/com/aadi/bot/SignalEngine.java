@@ -356,6 +356,8 @@ public final class SignalEngine {
         // Fast RSI7 and standard RSI14; 30/50/70 are context levels, not
         // automatic reversal commands. Momentum and level agreement are blended.
         double rsi7=rsiWilder(closes,7), rsi14=rsiWilder(closes,14);
+        double priorRsi7=rsiWilder(closes.subList(0,closes.size()-1),7);
+        double rsi7Delta=rsi7-priorRsi7;
         double rsiVote=rsiMomentumBias(closes,rsi7,rsi14);
 
         // Preserve the existing indicator and market-behaviour evidence.
@@ -463,6 +465,12 @@ public final class SignalEngine {
         // reversal layers. A strong opposing layer blocks the trade entirely.
         int bullishVotes=(longBias>0.12?1:0)+(recentBias>0.12?1:0)+(reversalBias>0.12?1:0);
         int bearishVotes=(longBias< -0.12?1:0)+(recentBias< -0.12?1:0)+(reversalBias< -0.12?1:0);
+        boolean callCandidate=forecast>entryThreshold && bullishVotes>=2 && bearishVotes<=1;
+        boolean putCandidate=forecast< -entryThreshold && bearishVotes>=2 && bullishVotes<=1;
+        EntryQualityGate.Decision callEntryGate=EntryQualityGate.evaluate(1,atr,fastMove,
+                slopeFast,recentBias,reversalBias,flowBias,pressure,rsi7,rsi7Delta);
+        EntryQualityGate.Decision putEntryGate=EntryQualityGate.evaluate(-1,atr,fastMove,
+                slopeFast,recentBias,reversalBias,flowBias,pressure,rsi7,rsi7Delta);
         String trendLabel = trend>0 ? "UPTREND" : trend<0 ? "DOWNTREND" : "SIDEWAYS / UNCLEAR";
         int srFrom=Math.max(0,n-25);
         double resistance=Double.NEGATIVE_INFINITY, support=Double.POSITIVE_INFINITY;
@@ -504,15 +512,17 @@ public final class SignalEngine {
                 dmi[2], emaStackVote>0.1?"BULLISH":emaStackVote< -0.1?"BEARISH":"MIXED");
         String calculationDetail=String.format(Locale.US,
                 "CALC AUDIT: ATR %.8f | longBias %+.3f | indicatorBias %+.3f | recentBias %+.3f | reversalBias %+.3f | forecast %+.3f | threshold %.3f | chop %.3f"
-                +"\\nINDICATORS: EMA9 %.8f / EMA20 %.8f / EMA50 %.8f / EMA100 %.8f / EMA200 %.8f | RSI7 %.2f / RSI14 %.2f | RSIvote %+.3f"
+                +"\\nINDICATORS: EMA9 %.8f / EMA20 %.8f / EMA50 %.8f / EMA100 %.8f / EMA200 %.8f | RSI7 %.2f / RSI7delta %+.2f / RSI14 %.2f | RSIvote %+.3f"
                 +"\\nTREND/FLOW: slope5 %+.3f | slope12 %+.3f | MACDvote %+.3f | DI+ %.2f | DI- %.2f | ADX %.2f | DMIvote %+.3f | Supertrend %d | microStructure %d | dominant %d | EMAstack %+.3f"
                 +"\\nPRICE ACTION: fastMove %+.8f | pressure %+.3f | flow %+.3f | stair %+.3f | alternating %+.3f | pattern %+.3f | exhaustion %+.3f | turning %+.3f | multiScale %+.3f | sweep %d | failedBreak %d | pullback %d"
+                +"\\nENTRY GATE: recentBias %+.3f | CALL blocked %s (%s) | PUT blocked %s (%s)"
                 +"\\nLEVELS/FLAGS: support %.8f | resistance %.8f | bearishAbsorption %s | bullishAbsorption %s | bookVote %+.3f | depthVote %+.3f",
                 atr,longBias,indicatorBias,recentBias,reversalBias,forecast,entryThreshold,chopScore,
-                e9,e20,e50,e100,e200,rsi7,rsi14,rsiVote,slopeFast,slopeSlow,macdVote,dmi[0],dmi[1],dmi[2],dmiVote,
+                e9,e20,e50,e100,e200,rsi7,rsi7Delta,rsi14,rsiVote,slopeFast,slopeSlow,macdVote,dmi[0],dmi[1],dmi[2],dmiVote,
                 supertrend,microStructure,dominant,emaStackVote,fastMove,pressure,flowBias,stairBias,alternatingBias,
-                pattern,exhaustion,turning,multiScale,sweep,failedBreak,pullback,support,resistance,
-                bearishAbsorption,bullishAbsorption,bookVote,freshDepthBias);
+                pattern,exhaustion,turning,multiScale,sweep,failedBreak,pullback,
+                recentBias,callEntryGate.blocked,callEntryGate.reason,putEntryGate.blocked,putEntryGate.reason,
+                support,resistance,bearishAbsorption,bullishAbsorption,bookVote,freshDepthBias);
         String analysisText = "MARKET TREND: "+trendLabel+" ("+regime+")"
                 + "\nPRICE ACTION: "+actionLabel
                 + "\nPATTERN: "+patternLabel
@@ -523,19 +533,23 @@ public final class SignalEngine {
                 + "\n10S NEXT-CANDLE FORECAST ACCURACY: "+accuracyLabel();
 
         // No absorption event can manufacture a directional signal by itself.
-        if(forecast>entryThreshold && bullishVotes>=2 && bearishVotes<=1) {
+        if(callCandidate && !callEntryGate.blocked) {
             int score=(int)Math.round(clamp(54+Math.abs(forecast)*34,54,88));
             String why="CALL forecast • "+regime+" • trend, live flow and reversal checks agree";
             return new Result(asset,"CALL",why,last.close,ema(closes,9),ema(closes,21),
                     rsiWilder(closes,14),fastMove,score,totalClosed,accuracyPct(),recentOutcomes.size(),analysisText);
         }
-        if(forecast< -entryThreshold && bearishVotes>=2 && bullishVotes<=1) {
+        if(putCandidate && !putEntryGate.blocked) {
             int score=(int)Math.round(clamp(54+Math.abs(forecast)*34,54,88));
             String why="PUT forecast • "+regime+" • trend, live flow and reversal checks agree";
             return new Result(asset,"PUT",why,last.close,ema(closes,9),ema(closes,21),
                     rsiWilder(closes,14),fastMove,score,totalClosed,accuracyPct(),recentOutcomes.size(),analysisText);
         }
-        String why="WAIT • "+regime+" • pressure and candle-reversal evidence conflict";
+        String why=callCandidate&&callEntryGate.blocked
+                ? "WAIT • "+callEntryGate.reason
+                : putCandidate&&putEntryGate.blocked
+                    ? "WAIT • "+putEntryGate.reason
+                    : "WAIT • "+regime+" • pressure and candle-reversal evidence conflict";
         return new Result(asset,"WAIT",why,last.close,ema(closes,9),ema(closes,21),
                 rsiWilder(closes,14),fastMove,0,totalClosed,accuracyPct(),recentOutcomes.size(),analysisText);
     }
