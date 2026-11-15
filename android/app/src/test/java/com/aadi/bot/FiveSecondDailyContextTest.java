@@ -29,6 +29,7 @@ public class FiveSecondDailyContextTest {
 
     @Test public void fiveSecondSignalRequiresTrendDailyAndTickAgreement() {
         FiveSecondSignalEngine e=new FiveSecondSignalEngine();
+        e.requestScan();
         long t=System.currentTimeMillis();
         e.onTick("EURUSD_otc",1.10000,t,"CALL",1,"daily aligned","base trend CALL");
         e.onTick("EURUSD_otc",1.10001,t+1000,"CALL",1,"daily aligned","base trend CALL");
@@ -50,6 +51,7 @@ public class FiveSecondDailyContextTest {
 
     @Test public void fiveSecondSignalWinsIfExpiryRecoversAfterTemporaryEntryCross() {
         FiveSecondSignalEngine e=new FiveSecondSignalEngine();
+        e.requestScan();
         long t=System.currentTimeMillis();
         e.onTick("EURUSD_otc",1.10000,t,"CALL",1,"daily aligned","base trend CALL");
         e.onTick("EURUSD_otc",1.10001,t+1000,"CALL",1,"daily aligned","base trend CALL");
@@ -71,6 +73,7 @@ public class FiveSecondDailyContextTest {
 
     @Test public void opposingDailyBiasDoesNotBlockLiveConfirmedCall() {
         FiveSecondSignalEngine e=new FiveSecondSignalEngine();
+        e.requestScan();
         long t=System.currentTimeMillis();
         e.onTick("EURUSD_otc",1.1,t,"CALL",-1,"daily bearish","base trend CALL");
         e.onTick("EURUSD_otc",1.1001,t+1000,"CALL",-1,"daily bearish","base trend CALL");
@@ -83,6 +86,7 @@ public class FiveSecondDailyContextTest {
 
     @Test public void blocksCallWhenBearishMacdAndNegativeFlowConflictWithBullTrend() {
         FiveSecondSignalEngine e=new FiveSecondSignalEngine();
+        e.requestScan();
         long t=System.currentTimeMillis();
         String audit="MARKET TREND: UPTREND (UPTREND WITH PULLBACK CHECK)\\n"
                 +"MOMENTUM: RSI14 61.4 | MACD BEARISH | ADX 32.6 | EMA stack BULLISH\\n"
@@ -100,6 +104,7 @@ public class FiveSecondDailyContextTest {
 
     @Test public void blocksCallAfterStrongUnconfirmedCounterMove() {
         FiveSecondSignalEngine e=new FiveSecondSignalEngine();
+        e.requestScan();
         long t=System.currentTimeMillis();
         String audit="MARKET TREND: UPTREND\\nMOMENTUM: RSI14 62.5 | MACD BULLISH | ADX 43.5 | EMA stack BULLISH\\n"
                 +"FINAL CHECK: forecast +0.38 | threshold 0.26\\n"
@@ -115,6 +120,7 @@ public class FiveSecondDailyContextTest {
 
     @Test public void blocksPutAtEntryWhenOversoldMarketStartsBullishRecovery() {
         FiveSecondSignalEngine e=new FiveSecondSignalEngine();
+        e.requestScan();
         long t=System.currentTimeMillis();
         String audit="MARKET TREND: DOWNTREND (DOWNTREND WITH BOUNCE CHECK)\\n"
                 +"MOMENTUM: RSI14 34.0 | MACD BEARISH | ADX 38.0 | EMA stack BEARISH\\n"
@@ -132,5 +138,20 @@ public class FiveSecondDailyContextTest {
 
     private JSONObject candle(long t,double o,double h,double l,double c) throws Exception {
         return new JSONObject().put("timestamp",t).put("open",o).put("high",h).put("low",l).put("close",c);
+    }
+
+    @Test public void signalIsNotIssuedUntilGenerateSignalIsPressed() {
+        FiveSecondSignalEngine e=new FiveSecondSignalEngine();
+        long t=System.currentTimeMillis();
+        String audit="ATR 0.001 | forecast +0.500 | threshold 0.200";
+        for(int i=0;i<=3;i++) {
+            FiveSecondSignalEngine.Result r=e.onTick("MANUAL",1.0+i*0.00001,t+i*1000L,"CALL",0,"daily",audit);
+            assertFalse("No automatic signal before user action",r.auditEvents.contains("ISSUED"));
+        }
+        assertTrue(e.requestScan());
+        FiveSecondSignalEngine.Result issued=e.onTick("MANUAL",1.00004,t+4000L,"CALL",0,"daily",audit);
+        assertFalse(e.isScanPending());
+        assertTrue(issued.auditEvents.contains("ISSUED"));
+        assertEquals("CALL",issued.signal);
     }
 }
