@@ -138,14 +138,6 @@ public final class FiveSecondSignalEngine {
             return latest;
         }
 
-        if(!scanRequested) {
-            if(audit.length()>0) {
-                latest=new Result(latest.signal,lastOutcome,
-                        latest.analysis+"\n"+lastOutcome+"\n"+performanceLine(),audit.toString());
-            }
-            return latest;
-        }
-
         Tick old=null,near=null;
         for(Tick t:ticks){
             if(timeMs-t.t>=1800L&&timeMs-t.t<=3200L)old=t;
@@ -298,8 +290,17 @@ public final class FiveSecondSignalEngine {
         boolean multiTimeframeConflict=Double.isFinite(slope5)&&Double.isFinite(slope12)
                 &&((slope5>0.12&&slope12< -0.10)||(slope5< -0.12&&slope12>0.10));
         boolean momentumFadeConflict=momentumFading&&counterPriceAction;
+        // Avoid a late continuation entry when the fast move points down/up but
+        // the medium horizon and directional movement have gone nearly flat.
+        // This is intentionally symmetric and does not use RSI as a standalone veto.
+        boolean weakHigherHorizon=Double.isFinite(slope12)&&Math.abs(slope12)<0.10;
+        boolean weakDirectionalDrive=Double.isFinite(dmiVote)&&Math.abs(dmiVote)<0.15;
+        double normalizedFast=Double.isFinite(atr)&&atr>0&&Double.isFinite(fastMove)?Math.abs(fastMove)/atr:Double.NaN;
+        boolean weakContinuationConflict=!confirmedBreakout&&weakHigherHorizon
+                &&weakDirectionalDrive&&Double.isFinite(normalizedFast)&&normalizedFast<1.80;
         boolean counterTrendConflict=trendEmaConflict||exhaustionConflict||liveConflict
-                ||multiTimeframeConflict||momentumFadeConflict||weakForecastMargin||entryQuality.blocked;
+                ||multiTimeframeConflict||momentumFadeConflict||weakForecastMargin
+                ||weakContinuationConflict||entryQuality.blocked;
         String proposedSide=side>0?"CALL":side<0?"PUT":"";
         // Prevent repeated entries in the same direction/price zone. A follow-up
         // needs fresh price progress scaled to ATR; later repeats need more progress.
@@ -310,9 +311,8 @@ public final class FiveSecondSignalEngine {
         boolean repeatedSideQuality=side==0||!proposedSide.equals(lastIssuedSide)
                 ||(Double.isFinite(repeatProgress)&&repeatProgress>=requiredProgress
                     &&microAgree&&tickReversals<=1);
-        boolean scanAttempt=scanRequested&&microReady;
-        if(scanAttempt)scanRequested=false;
-        boolean eligible=scanAttempt&&side!=0&&microAgree&&!counterTrendConflict
+        boolean automaticEvaluation=microReady;
+        boolean eligible=automaticEvaluation&&side!=0&&microAgree&&!counterTrendConflict
                 &&repeatedSideQuality&&timeMs-lastIssued>=7000L;
         if(eligible){
             pending=new Pending(proposedSide,timeMs,price,baseSignal,dailyBias,dailySummary,baseAnalysis,move,recent,ticks.size());
