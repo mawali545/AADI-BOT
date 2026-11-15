@@ -211,7 +211,7 @@ public final class FiveSecondSignalEngine {
         double reversalBias=extractMetric(baseAnalysis,"reversalBias");
         double recentBias=extractMetric(baseAnalysis,"recentBias");
         EntryQualityGate.Decision entryQuality=EntryQualityGate.evaluate(side,atr,fastMove,
-                slope5,recentBias,reversalBias,flow,pressure,auditRsi7,auditRsi7Delta);
+                slope5,slope12,recentBias,reversalBias,flow,pressure,auditRsi7,auditRsi7Delta);
         int opposingPriceVotes=0;
         if(side>0){
             if(Double.isFinite(flow)&&flow< -0.08)opposingPriceVotes++;
