@@ -101,6 +101,7 @@ public final class SignalEngine {
     // 10-second boundary and held unchanged throughout that candle.
     private Result pendingNextCandleResult=null;
     private long previewedBucket=-1;
+    private boolean scanRequested=false;
 
     /**
      * Update the live forming 10-second candle from genuine current exchange ticks.
@@ -159,8 +160,9 @@ public final class SignalEngine {
 
         // Re-evaluate on every genuine tick inside the forming 10-second candle.
         // Do not wait for its final second or the next candle boundary.
-        if(liveTickCount>=2) {
+        if(liveTickCount>=2 && scanRequested) {
             Result live=calculateWithLiveCandle();
+            scanRequested=false;
             latestHistoryResult=new Result(asset,live.signal,live.reason,price,
                     live.emaFast,live.emaSlow,live.rsi,live.momentum,live.score,
                     live.closedCandles,accuracyPct(),recentOutcomes.size(),
@@ -227,6 +229,9 @@ public final class SignalEngine {
         return calculateFromCandles(window);
     }
 
+    public synchronized void requestScan(){scanRequested=true;}
+    public synchronized void cancelScan(){scanRequested=false;}
+
     public synchronized int importHistoricalCandles(String symbol, JSONArray rows) {
         if (symbol == null || symbol.trim().isEmpty() || rows == null) return 0;
         TreeMap<Long,Candle> incoming = new TreeMap<>();
@@ -250,7 +255,7 @@ public final class SignalEngine {
         if (asset!=null && !asset.equals(symbol)) {
             liveCandles.clear(); totalClosed=0; recentOutcomes.clear(); recentWins=0; latestHistoryResult=null;
             latestFeedTime=-1; liveBucket=-1; liveCandle=null; liveTickCount=0;
-            pendingNextCandleResult=null; previewedBucket=-1;
+            pendingNextCandleResult=null; previewedBucket=-1; scanRequested=false;
             pendingForecastSignal=null; pendingForecastBucket=-1;
             previousDepthScalar=Double.NaN; depthChangeBias=0; lastDepthAt=0;
             orderBookImbalance=0; lastOrderBookAt=0;
