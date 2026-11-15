@@ -31,7 +31,7 @@ public final class FiveSecondSignalEngine {
     private Pending pending;
     private long lastIssued=0;
     private int settled=0,wins=0;
-    private String lastOutcome="No 5s result settled yet";
+    private String lastOutcome="No 10s result settled yet";
     private Result latest=new Result("WAIT","Waiting for 10-second live confirmation","10-SECOND ENGINE: warming up");
 
     public synchronized void reset(String newAsset){
@@ -107,7 +107,7 @@ public final class FiveSecondSignalEngine {
                     unverified.put("type","UNVERIFIED");unverified.put("tradeId",Long.toString(pending.at));unverified.put("asset",asset);
                     unverified.put("signal",pending.side);unverified.put("entryTimeMs",pending.at);
                     unverified.put("entryPrice",pending.price);unverified.put("expiryTimeMs",expiryAt);
-                    unverified.put("feedContinuous",pending.feedContinuous);unverified.put("reason","No quote within 1 second of expiry");
+                    unverified.put("feedContinuous",pending.feedContinuous);unverified.put("reason","No quote within 1 second of 10-second expiry");
                     unverified.put("baseSignal",pending.baseSignal);unverified.put("dailyBias",pending.dailyBias);
                     unverified.put("dailySummary",pending.dailySummary);unverified.put("baseAnalysis",pending.baseAnalysis);
                     unverified.put("microMove3s",pending.move);unverified.put("microMove1s",pending.recent);
@@ -318,8 +318,8 @@ public final class FiveSecondSignalEngine {
     }
 
     private String performanceLine() {
-        return settled==0 ? "5S SETTLED ACCURACY: waiting for first verified result"
-                : String.format(Locale.US,"5S SETTLED ACCURACY: %.1f%% (%d wins / %d settled)",
+        return settled==0 ? "10S SETTLED ACCURACY: waiting for first verified result"
+                : String.format(Locale.US,"10S SETTLED ACCURACY: %.1f%% (%d wins / %d settled)",
                         100.0*wins/settled,wins,settled);
     }
 }
