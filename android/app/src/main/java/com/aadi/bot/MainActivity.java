@@ -33,6 +33,7 @@ public class MainActivity extends Activity {
     private boolean botActive = false;
     private SignalEngine engine = new SignalEngine();
     private FiveSecondSignalEngine fiveSecondEngine = new FiveSecondSignalEngine();
+    private final DailyContextTracker dailyContext = new DailyContextTracker();
     private WebView web;
     private long receivedTicks = 0;
     private int sessionWins = 0;
@@ -155,8 +156,20 @@ public class MainActivity extends Activity {
             for(int i=0;i<incoming.length();i++) {
                 JSONObject item=incoming.optJSONObject(i);
                 if(item==null) continue;
+                String type=item.optString("type");
+                String tradeId=item.optString("tradeId",Long.toString(item.optLong("entryTimeMs",0)));
+                String identity=type+":"+tradeId;
+                boolean alreadySaved=false;
+                for(int j=0;j<saved.length();j++) {
+                    JSONObject old=saved.optJSONObject(j);
+                    if(old==null) continue;
+                    String oldType=old.optString("type");
+                    String oldTradeId=old.optString("tradeId",Long.toString(old.optLong("entryTimeMs",0)));
+                    if(identity.equals(oldType+":"+oldTradeId)){alreadySaved=true;break;}
+                }
+                if(alreadySaved) continue;
                 saved.put(item);
-                if(!"SETTLED".equals(item.optString("type"))) continue;
+                if(!"SETTLED".equals(type)) continue;
                 String outcome=item.optString("outcome");
                 if("WIN".equals(outcome)) sessionWins++;
                 else if("LOSS".equals(outcome)) sessionLosses++;
@@ -186,7 +199,9 @@ public class MainActivity extends Activity {
                 JSONObject e=saved.optJSONObject(i);
                 if(e==null) continue;
                 long stamp=e.optLong("entryTimeMs",0);
-                out.append("#").append(i+1).append(" • ").append(e.optString("type"))
+                String tradeId=e.optString("tradeId",Long.toString(stamp));
+                out.append("EVENT #").append(i+1).append(" • TRADE ").append(tradeId)
+                    .append(" • ").append(e.optString("type"))
                     .append(" • ").append(e.optString("asset")).append(" • ").append(e.optString("signal"));
                 if("SETTLED".equals(e.optString("type")))
                     out.append(" • ").append(e.optString("outcome")).append(" • entry ")
@@ -371,6 +386,7 @@ public class MainActivity extends Activity {
                 if (asset.isEmpty() || rows == null || !botActive) return;
                 
                 int imported = engine.importHistoricalCandles(asset, rows);
+                dailyContext.importHistory(asset, rows);
                 if (imported > 0) runOnUiThread(() -> {
                     lastTick.setText(asset + " • IMPORTED " + imported + " VERIFIED HISTORICAL 10s CANDLES");
                     status.setText("AADI • HISTORY READY | " + engine.currentResult().closedCandles + " candles");
@@ -395,8 +411,9 @@ public class MainActivity extends Activity {
                 latestLivePrice = price;
                 latestLiveTickMs = System.currentTimeMillis();
                 SignalEngine.Result baseResult = engine.onTick(asset, price, ts);
-                String dailySummary = "CURRENT SESSION • live price action and rolling structure only";
-                int dailyBias = 0;
+                long nowSeconds=(long)feedSeconds;
+                int dailyBias = dailyContext.bias(asset,price,nowSeconds);
+                String dailySummary = dailyContext.summary(asset,price,nowSeconds);
                 FiveSecondSignalEngine.Result result = fiveSecondEngine.onTick(asset, price,
                         (long)(feedSeconds*1000.0), baseResult.signal, dailyBias, dailySummary, baseResult.analysis);
                 if(!"[]".equals(result.auditEvents)) persistAuditEvents(result.auditEvents);
