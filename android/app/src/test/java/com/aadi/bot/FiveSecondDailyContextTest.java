@@ -103,6 +103,23 @@ public class FiveSecondDailyContextTest {
         assertEquals("WAIT",result.signal);
     }
 
+    @Test public void blocksPutAtEntryWhenOversoldMarketStartsBullishRecovery() {
+        FiveSecondSignalEngine e=new FiveSecondSignalEngine();
+        long t=System.currentTimeMillis();
+        String audit="MARKET TREND: DOWNTREND (DOWNTREND WITH BOUNCE CHECK)\\n"
+                +"MOMENTUM: RSI14 34.0 | MACD BEARISH | ADX 38.0 | EMA stack BEARISH\\n"
+                +"CALC AUDIT: ATR 0.00010000 | longBias -0.62 | recentBias +0.18 | reversalBias -0.08 | forecast -0.55 | threshold 0.26\\n"
+                +"INDICATORS: RSI7 26.59 / RSI7delta +1.50 / RSI14 34.0\\n"
+                +"TREND/FLOW: slope5 +0.636 | slope12 -0.20 | MACDvote -0.70 | DI+ 18.0 | DI- 39.0 | DMIvote -0.60 | Supertrend -1 | dominant -1\\n"
+                +"PRICE ACTION: fastMove +0.00003000 | pressure -0.20 | flow -0.25";
+        e.onTick("EURUSD_otc",1.10000,t,"PUT",0,"daily WAIT",audit);
+        e.onTick("EURUSD_otc",1.09990,t+1000,"PUT",0,"daily WAIT",audit);
+        e.onTick("EURUSD_otc",1.09980,t+2000,"PUT",0,"daily WAIT",audit);
+        FiveSecondSignalEngine.Result r=e.onTick("EURUSD_otc",1.09970,t+3000,"PUT",0,"daily WAIT",audit);
+        assertEquals("WAIT",r.signal);
+        assertTrue(r.reason.contains("Entry quality blocked"));
+    }
+
     private JSONObject candle(long t,double o,double h,double l,double c) throws Exception {
         return new JSONObject().put("timestamp",t).put("open",o).put("high",h).put("low",l).put("close",c);
     }
