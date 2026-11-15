@@ -146,7 +146,40 @@ public final class FiveSecondSignalEngine {
         boolean macdBearish=baseAnalysis!=null&&baseAnalysis.contains("MACD BEARISH");
         boolean exhaustionConflict=(side<0&&auditRsi14>0&&auditRsi14<=30.0&&macdBullish)
                 ||(side>0&&auditRsi14>=70.0&&macdBearish);
-        boolean counterTrendConflict=dailyConflict||trendEmaConflict||exhaustionConflict;
+        // Live-market quality gate: do not veto a signal because of the prior-day
+        // reference. Instead count independent live trend/momentum evidence opposing it.
+        double slope5=extractMetric(baseAnalysis,"slope5");
+        double slope12=extractMetric(baseAnalysis,"slope12");
+        double supertrend=extractMetric(baseAnalysis,"Supertrend");
+        double dominant=extractMetric(baseAnalysis,"dominant");
+        double dmiVote=extractMetric(baseAnalysis,"DMIvote");
+        double diPlus=extractMetric(baseAnalysis,"DI+");
+        double diMinus=extractMetric(baseAnalysis,"DI-");
+        int opposingLiveVotes=0;
+        if(side>0){
+            if(baseAnalysis!=null&&baseAnalysis.contains("MARKET TREND: DOWNTREND"))opposingLiveVotes++;
+            if(Double.isFinite(dominant)&&dominant<0)opposingLiveVotes++;
+            if(Double.isFinite(slope5)&&slope5<0)opposingLiveVotes++;
+            if(Double.isFinite(slope12)&&slope12<0)opposingLiveVotes++;
+            if(Double.isFinite(supertrend)&&supertrend<0)opposingLiveVotes++;
+            if(macdBearish)opposingLiveVotes++;
+            if(Double.isFinite(dmiVote)&&dmiVote< -0.15)opposingLiveVotes++;
+            if(Double.isFinite(diPlus)&&Double.isFinite(diMinus)&&diMinus>diPlus)opposingLiveVotes++;
+        } else if(side<0){
+            if(baseAnalysis!=null&&baseAnalysis.contains("MARKET TREND: UPTREND"))opposingLiveVotes++;
+            if(Double.isFinite(dominant)&&dominant>0)opposingLiveVotes++;
+            if(Double.isFinite(slope5)&&slope5>0)opposingLiveVotes++;
+            if(Double.isFinite(slope12)&&slope12>0)opposingLiveVotes++;
+            if(Double.isFinite(supertrend)&&supertrend>0)opposingLiveVotes++;
+            if(macdBullish)opposingLiveVotes++;
+            if(Double.isFinite(dmiVote)&&dmiVote>0.15)opposingLiveVotes++;
+            if(Double.isFinite(diPlus)&&Double.isFinite(diMinus)&&diPlus>diMinus)opposingLiveVotes++;
+        }
+        boolean liveConflict=opposingLiveVotes>=2;
+        double[] forecastThreshold=extractForecastThreshold(baseAnalysis);
+        boolean weakForecastMargin=forecastThreshold!=null
+                &&Math.abs(forecastThreshold[0])-forecastThreshold[1]<forecastThreshold[1]*0.12;
+        boolean counterTrendConflict=trendEmaConflict||exhaustionConflict||liveConflict||weakForecastMargin;
         boolean eligible=side!=0&&microReady&&microAgree&&!counterTrendConflict
                 &&timeMs-lastIssued>=7000L;
         if(eligible){
@@ -172,13 +205,25 @@ public final class FiveSecondSignalEngine {
         } else {
             String why=side==0?"Base trend is WAIT"
                     :exhaustionConflict?"Exhaustion caution • RSI extreme with opposing MACD"
-                    :counterTrendConflict?"Countertrend blocked • daily bias or market trend + EMA stack conflict"
+                    :weakForecastMargin?"Weak forecast margin • signal too close to minimum threshold"
+                    :liveConflict?"Live momentum conflict • multiple indicators oppose signal direction"
+                    :counterTrendConflict?"Live trend/EMA conflict • entry blocked"
                     :!microReady?"Collecting short live tick window":"Short-term ticks do not confirm direction";
             latest=new Result("WAIT","WAIT • "+why,
                     baseAnalysis+"\n"+dailySummary+"\n5s CHECK: "+why+"\n"+lastOutcome
                     +"\n"+performanceLine(),audit.toString());
         }
         return latest;
+    }
+
+    private double[] extractForecastThreshold(String analysis) {
+        if(analysis==null)return null;
+        java.util.regex.Matcher m=java.util.regex.Pattern
+                .compile("forecast\\s+([-+]?\\d+(?:\\.\\d+)?)\\s*\\|\\s*threshold\\s+([0-9]+(?:\\.[0-9]+)?)")
+                .matcher(analysis);
+        if(!m.find())return null;
+        try{return new double[]{Double.parseDouble(m.group(1)),Double.parseDouble(m.group(2))};}
+        catch(NumberFormatException ignored){return null;}
     }
 
     private double extractMetric(String analysis,String key) {
