@@ -47,10 +47,12 @@ final class EntryQualityGate {
                 &&(side>0?recentBias<=0.08:recentBias>=-0.08);
 
         boolean nearOpposingLevel=finite(opposingLevelDistanceAtr)
-                &&opposingLevelDistanceAtr>=-0.03&&opposingLevelDistanceAtr<=0.18;
-        // Do not reject RSI extremes by themselves. Require proximity to a barrier
-        // plus weakening/conflicting entry evidence; a decisive breakout is exempt.
-        boolean levelExhaustion=nearOpposingLevel&&!confirmedBreakout&&fadingOrConflictingAtLevel;
+                &&opposingLevelDistanceAtr>=-0.55&&opposingLevelDistanceAtr<=0.20;
+        // Treat the barrier as relevant on either side of the level: a quote only
+        // 0.2 ATR beyond resistance/support can still be a failed breakout.
+        // A decisive, independently confirmed breakout is the only proximity bypass.
+        boolean levelExhaustion=nearOpposingLevel&&!confirmedBreakout
+                &&(opposingLevelDistanceAtr<=0.08||fadingOrConflictingAtLevel);
         boolean trendHorizonConflict=finite(slope5)&&finite(slope12)
                 &&(side>0?slope5>0.12&&slope12< -0.10:slope5< -0.12&&slope12>0.10)
                 &&nearOpposingLevel&&!confirmedBreakout;
