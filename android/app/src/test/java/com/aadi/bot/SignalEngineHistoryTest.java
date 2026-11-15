@@ -80,4 +80,32 @@ public class SignalEngineHistoryTest {
         assertTrue("Forecast must complete analysis using imported history",
                 nextBar.analysis != null && nextBar.analysis.contains("FINAL CHECK:"));
     }
+    @Test public void nextCandleAccuracyWaitsForThePredictedCandleToClose() throws Exception {
+        SignalEngine engine=new SignalEngine();
+        long currentBucket=(System.currentTimeMillis()/10000L)*10L;
+        JSONArray rows=new JSONArray();
+        for(int i=0;i<30;i++){
+            double open=1.10000+i*0.00010;
+            double close=open+0.00008;
+            rows.put(new JSONObject().put("timestamp",currentBucket-(30-i)*10L)
+                    .put("open",open).put("high",close+0.00002)
+                    .put("low",open-0.00002).put("close",close));
+        }
+        assertEquals(30,engine.importHistoricalCandles("EURUSD_otc",rows));
+        engine.onTick("EURUSD_otc",1.10310,currentBucket+1);
+        SignalEngine.Result first=engine.onTick("EURUSD_otc",1.10320,currentBucket+2);
+        assertTrue(first.analysis.contains("10S NEXT-CANDLE FORECAST ACCURACY"));
+        assertEquals(0,first.accuracySamples);
+
+        engine.onTick("EURUSD_otc",1.10320,currentBucket+10);
+        SignalEngine.Result formingTarget=engine.onTick("EURUSD_otc",1.10325,currentBucket+11);
+        assertEquals("The forecast must not be scored against its own input candle",
+                0,formingTarget.accuracySamples);
+
+        engine.onTick("EURUSD_otc",1.10325,currentBucket+20);
+        SignalEngine.Result afterTargetClosed=engine.onTick("EURUSD_otc",1.10330,currentBucket+21);
+        assertEquals("One forecast is scored only after its target candle closes",
+                1,afterTargetClosed.accuracySamples);
+    }
+
 }
