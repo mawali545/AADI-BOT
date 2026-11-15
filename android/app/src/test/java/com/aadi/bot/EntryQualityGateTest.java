@@ -43,6 +43,34 @@ public class EntryQualityGateTest {
         assertTrue(d.blocked);
     }
 
+    @Test public void blocksCallChasingResistanceWhenMomentumFades() {
+        EntryQualityGate.Decision d=EntryQualityGate.evaluate(1,ATR,0.00001,
+                0.18,0.35,0.16,-0.12,0.02,0.01,83.65,-0.3,
+                0.08,false,true);
+        assertTrue(d.blocked);
+        assertTrue(d.reason.contains("S/R proximity"));
+    }
+
+    @Test public void allowsConfirmedBullishBreakoutDespiteHighRsi() {
+        EntryQualityGate.Decision d=EntryQualityGate.evaluate(1,ATR,0.00004,
+                0.35,0.30,0.32,0.10,0.25,0.20,83.65,0.5,
+                0.04,true,false);
+        assertFalse(d.blocked);
+    }
+
+    @Test public void blocksPutAtSupportWhenShortAndMediumMomentumDisagree() {
+        EntryQualityGate.Decision d=EntryQualityGate.evaluate(-1,ATR,-0.00002,
+                -1.337,0.373,-0.20,-0.05,-0.02,-0.01,34.87,-0.2,
+                0.08,false,true);
+        assertTrue(d.blocked);
+    }
+
+    @Test public void legacyGateStillAllowsStrongAlignedOversoldContinuation() {
+        EntryQualityGate.Decision d=EntryQualityGate.evaluate(-1,ATR,-0.00004,
+                -0.35,-0.30,-0.30,-0.32,-0.28,-0.25,24.0,-2.0);
+        assertFalse(d.blocked);
+    }
+
     @Test public void auditParserReadsExplicitPlusSigns() throws Exception {
         FiveSecondSignalEngine engine=new FiveSecondSignalEngine();
         java.lang.reflect.Method parse=FiveSecondSignalEngine.class
