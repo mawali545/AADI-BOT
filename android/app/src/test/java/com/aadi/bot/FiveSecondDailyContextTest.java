@@ -143,7 +143,7 @@ public class FiveSecondDailyContextTest {
     @Test public void signalIsNotIssuedUntilGenerateSignalIsPressed() {
         FiveSecondSignalEngine e=new FiveSecondSignalEngine();
         long t=System.currentTimeMillis();
-        String audit="ATR 0.001 | forecast +0.500 | threshold 0.200";
+        String audit="ATR 0.0001 | forecast +0.500 | threshold 0.200";
         for(int i=0;i<=3;i++) {
             FiveSecondSignalEngine.Result r=e.onTick("MANUAL",1.0+i*0.00001,t+i*1000L,"CALL",0,"daily",audit);
             assertFalse("No automatic signal before user action",r.auditEvents.contains("ISSUED"));
