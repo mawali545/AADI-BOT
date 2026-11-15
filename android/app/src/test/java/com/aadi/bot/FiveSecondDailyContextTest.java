@@ -133,7 +133,7 @@ public class FiveSecondDailyContextTest {
         e.onTick("EURUSD_otc",1.09980,t+2000,"PUT",0,"daily WAIT",audit);
         FiveSecondSignalEngine.Result r=e.onTick("EURUSD_otc",1.09970,t+3000,"PUT",0,"daily WAIT",audit);
         assertEquals("WAIT",r.signal);
-        assertTrue(r.reason.contains("Entry quality blocked"));
+        assertTrue(r.reason.contains("Multi-timeframe momentum conflict"));
     }
 
 
