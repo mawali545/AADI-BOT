@@ -71,6 +71,24 @@ public class EntryQualityGateTest {
         assertFalse(d.blocked);
     }
 
+
+    @Test public void executionTradeUsesTenSecondExpiryAndSettlesAtTenSeconds() {
+        FiveSecondSignalEngine engine=new FiveSecondSignalEngine();
+        String audit="ATR 0.001 | forecast +0.500 | threshold 0.200";
+        FiveSecondSignalEngine.Result issued=null;
+        for(long t=1000;t<=4000;t+=1000) {
+            issued=engine.onTick("TEST",1.0+(t/1000000.0),t,"CALL",0,"daily",audit);
+        }
+        assertEquals("CALL",issued.signal);
+        assertTrue(issued.auditEvents.contains("\"expirySeconds\":10"));
+        FiveSecondSignalEngine.Result settled=null;
+        for(long t=5000;t<=14000;t+=1000) {
+            settled=engine.onTick("TEST",1.0+(t/1000000.0),t,"WAIT",0,"daily",audit);
+        }
+        assertTrue(settled.auditEvents.contains("\"expiryTimeMs\":14000"));
+        assertTrue(settled.auditEvents.contains("SETTLED"));
+    }
+
     @Test public void auditParserReadsExplicitPlusSigns() throws Exception {
         FiveSecondSignalEngine engine=new FiveSecondSignalEngine();
         java.lang.reflect.Method parse=FiveSecondSignalEngine.class
