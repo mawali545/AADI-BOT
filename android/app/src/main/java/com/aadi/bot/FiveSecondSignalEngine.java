@@ -53,7 +53,12 @@ public final class FiveSecondSignalEngine {
                                       int dailyBias,String dailySummary,String baseAnalysis) {
         if(symbol==null||symbol.isEmpty()||!Double.isFinite(price)||price<=0||timeMs<=0)
             return latest;
-        if(!asset.equals(symbol))reset(symbol);
+        if(!asset.equals(symbol)) {
+            boolean firstAsset=asset.isEmpty();
+            boolean requestedBeforeFirstTick=scanRequested;
+            reset(symbol);
+            if(firstAsset)scanRequested=requestedBeforeFirstTick;
+        }
         if(!ticks.isEmpty()&&timeMs<ticks.peekLast().t)return latest;
         JSONArray audit=new JSONArray();
         ticks.addLast(new Tick(timeMs,price));
