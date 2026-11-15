@@ -296,8 +296,7 @@ public final class FiveSecondSignalEngine {
         boolean weakForecastMargin=forecastThreshold!=null
                 &&Math.abs(forecastThreshold[0])-forecastThreshold[1]<forecastThreshold[1]*0.12;
         boolean multiTimeframeConflict=Double.isFinite(slope5)&&Double.isFinite(slope12)
-                &&(side>0?slope5>0.12&&slope12< -0.10
-                    :side<0&&slope5< -0.12&&slope12>0.10);
+                &&((slope5>0.12&&slope12< -0.10)||(slope5< -0.12&&slope12>0.10));
         boolean momentumFadeConflict=momentumFading&&counterPriceAction;
         boolean counterTrendConflict=trendEmaConflict||exhaustionConflict||liveConflict
                 ||multiTimeframeConflict||momentumFadeConflict||weakForecastMargin||entryQuality.blocked;
