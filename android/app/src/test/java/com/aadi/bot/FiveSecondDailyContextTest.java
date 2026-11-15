@@ -161,9 +161,9 @@ public class FiveSecondDailyContextTest {
         FiveSecondSignalEngine e=new FiveSecondSignalEngine();
         long t=System.currentTimeMillis();
         String audit="ATR 0.0001 | forecast +0.500 | threshold 0.200";
-        for(int i=0;i<=3;i++) {
+        for(int i=0;i<=2;i++) {
             FiveSecondSignalEngine.Result r=e.onTick("AUTO",1.0+i*0.00001,t+i*1000L,"CALL",0,"daily",audit);
-            if(i<3) assertFalse("Wait until the short live tick window is ready",r.auditEvents.contains("ISSUED"));
+            if(i<2) assertFalse("Wait until both 3-second and 1-second live references exist",r.auditEvents.contains("ISSUED"));
             else {
                 assertTrue(r.auditEvents.contains("ISSUED"));
                 assertEquals("CALL",r.signal);
