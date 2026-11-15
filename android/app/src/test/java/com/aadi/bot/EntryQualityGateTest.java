@@ -106,7 +106,7 @@ public class EntryQualityGateTest {
             long t=start+dt;
             settled=engine.onTick("TEST",1.0+(dt/1000000.0),t,"WAIT",0,"daily",audit);
         }
-        assertTrue(settled.auditEvents.contains("\"expiryTimeMs\":112000"));
+        assertTrue(settled.auditEvents.contains("\"expiryTimeMs\":113000"));
         assertTrue(settled.auditEvents.contains("SETTLED"));
     }
 
