@@ -132,7 +132,32 @@ public final class FiveSecondSignalEngine {
         boolean microReady=old!=null&&near!=null&&ticks.size()>=3;
         double move=old==null?0:price-old.p;
         double recent=near==null?0:price-near.p;
-        boolean microAgree=side>0?move>0&&recent>0:side<0&&move<0&&recent<0;
+        boolean netMicroAgree=side>0?move>0&&recent>0:side<0&&move<0&&recent<0;
+        // Inspect the actual tick path, not only its net displacement. Ignore
+        // microscopic changes below 2% ATR to avoid counting quote jitter.
+        double tickAtr=extractMetric(baseAnalysis,"ATR");
+        double minTickMove=Double.isFinite(tickAtr)&&tickAtr>0?tickAtr*0.02:0.0;
+        int tickReversals=0,previousTickDirection=0,latestTickDirection=0;
+        long latestDirectionalTickAt=0;
+        Tick previousTick=null;
+        for(Tick currentTick:ticks){
+            if(timeMs-currentTick.t>3000L) { previousTick=currentTick; continue; }
+            if(previousTick!=null&&timeMs-previousTick.t<=3000L){
+                double tickDelta=currentTick.p-previousTick.p;
+                if(Math.abs(tickDelta)>minTickMove){
+                    int direction=tickDelta>0?1:-1;
+                    if(previousTickDirection!=0&&direction!=previousTickDirection)tickReversals++;
+                    previousTickDirection=direction;
+                    latestTickDirection=direction;
+                    latestDirectionalTickAt=currentTick.t;
+                }
+            }
+            previousTick=currentTick;
+        }
+        boolean latestTickFresh=latestDirectionalTickAt>0&&timeMs-latestDirectionalTickAt<=700L;
+        boolean latestTickAgree=side>0?latestTickDirection>0:side<0&&latestTickDirection<0;
+        boolean choppyTickFlow=tickReversals>=3;
+        boolean microAgree=netMicroAgree&&latestTickFresh&&latestTickAgree&&!choppyTickFlow;
         boolean dailyConflict=(side>0&&dailyBias<0)||(side<0&&dailyBias>0);
         boolean trendEmaConflict=side>0
                 ? baseAnalysis!=null&&baseAnalysis.contains("MARKET TREND: DOWNTREND")
@@ -193,6 +218,9 @@ public final class FiveSecondSignalEngine {
                 issuedEvent.put("dailyBias",dailyBias);issuedEvent.put("dailySummary",dailySummary);
                 issuedEvent.put("baseAnalysis",baseAnalysis);issuedEvent.put("microMove3s",move);
                 issuedEvent.put("microMove1s",recent);issuedEvent.put("microAgree",microAgree);
+                issuedEvent.put("tickReversals3s",tickReversals);
+                issuedEvent.put("latestTickDirection",latestTickDirection);
+                issuedEvent.put("latestTickAgeMs",latestDirectionalTickAt>0?timeMs-latestDirectionalTickAt:-1);
                 issuedEvent.put("tickCountAtEntry",ticks.size());issuedEvent.put("expirySeconds",5);
                 issuedEvent.put("settledCount",settled);issuedEvent.put("wins",wins);
                 issuedEvent.put("accuracyPct",settled>0?100.0*wins/settled:-1.0);
@@ -208,7 +236,11 @@ public final class FiveSecondSignalEngine {
                     :weakForecastMargin?"Weak forecast margin • signal too close to minimum threshold"
                     :liveConflict?"Live momentum conflict • multiple indicators oppose signal direction"
                     :counterTrendConflict?"Live trend/EMA conflict • entry blocked"
-                    :!microReady?"Collecting short live tick window":"Short-term ticks do not confirm direction";
+                    :!microReady?"Collecting short live tick window"
+                    :choppyTickFlow?"Choppy tick flow • direction reversed "+tickReversals+" times in 3s"
+                    :!latestTickFresh?"Waiting for a fresh directional tick"
+                    :!latestTickAgree?"Latest tick movement reversed against signal"
+                    :!netMicroAgree?"Short-term net ticks do not confirm direction":"Short-term ticks do not confirm direction";
             latest=new Result("WAIT","WAIT • "+why,
                     baseAnalysis+"\n"+dailySummary+"\n5s CHECK: "+why+"\n"+lastOutcome
                     +"\n"+performanceLine(),audit.toString());
