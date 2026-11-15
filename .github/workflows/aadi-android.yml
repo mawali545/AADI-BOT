@@ -30,10 +30,17 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Create local debug signing key
+      - name: Restore stable debug signing key
+        uses: actions/cache@v4
+        with:
+          path: android/.android-signing/aadi-debug.keystore
+          key: aadi-debug-signing-key-v1
+      - name: Create debug signing key only on first build
         run: |
           mkdir -p android/.android-signing
-          keytool -genkeypair -v -keystore android/.android-signing/aadi-debug.keystore -storepass aadi-debug-store -alias aadi-debug -keypass aadi-debug-store -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=AADI Debug,O=AADI,C=PK"
+          if [ ! -f android/.android-signing/aadi-debug.keystore ]; then
+            keytool -genkeypair -v -keystore android/.android-signing/aadi-debug.keystore -storepass aadi-debug-store -alias aadi-debug -keypass aadi-debug-store -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=AADI Debug,O=AADI,C=PK"
+          fi
       - name: Run JVM unit tests
         run: gradle -p android testDebugUnitTest
       - name: Build debug APK
