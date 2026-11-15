@@ -24,16 +24,18 @@ public final class FiveSecondSignalEngine {
         }
     }
     private final Deque<Tick> ticks=new ArrayDeque<>();
-    private String lastIssuedSide=\"\";\n    private double lastIssuedPrice=Double.NaN;\n    private int sameSideStreak=0;
+    private String lastIssuedSide="";
+    private double lastIssuedPrice=Double.NaN;
+    private int sameSideStreak=0;
     private String asset="";
     private Pending pending;
     private long lastIssued=0;
     private int settled=0,wins=0;
     private String lastOutcome="No 5s result settled yet";
-    private Result latest=new Result("WAIT","Waiting for 5-second live confirmation","5-SECOND ENGINE: warming up");
+    private Result latest=new Result("WAIT","Waiting for 10-second live confirmation","10-SECOND ENGINE: warming up");
 
     public synchronized void reset(String newAsset){
-        asset=newAsset==null?"":newAsset;ticks.clear();pending=null;lastIssued=0;settled=0;wins=0;lastIssuedSide=\"\";lastIssuedPrice=Double.NaN;sameSideStreak=0;
+        asset=newAsset==null?"":newAsset;ticks.clear();pending=null;lastIssued=0;settled=0;wins=0;lastIssuedSide="";lastIssuedPrice=Double.NaN;sameSideStreak=0;
         lastOutcome="No 5s result settled yet";
         latest=new Result("WAIT","New asset selected • collecting fresh ticks","5-SECOND ENGINE: waiting for new asset ticks");
     }
@@ -83,7 +85,7 @@ public final class FiveSecondSignalEngine {
                 } catch(Exception ignored) {}
                 audit.put(settledEvent);
                 if(expiryPrice==pending.price)lastOutcome="10s FLAT • not counted";
-                else {settled++;if(win)wins++;lastOutcome="5s "+(win?"WIN":"LOSS")+" • "+pending.side+(pending.held?"":" • crossed entry during hold")+" • "+String.format(Locale.US,"%.6f → %.6f",pending.price,expiryPrice);}
+                else {settled++;if(win)wins++;lastOutcome="10s "+(win?"WIN":"LOSS")+" • "+pending.side+(pending.held?"":" • crossed entry during hold")+" • "+String.format(Locale.US,"%.6f → %.6f",pending.price,expiryPrice);}
                 pending=null;
             } else if(expiryQuote!=null&&!pending.feedContinuous){
                 JSONObject unverified=new JSONObject();
@@ -111,12 +113,12 @@ public final class FiveSecondSignalEngine {
                     unverified.put("microMove3s",pending.move);unverified.put("microMove1s",pending.recent);
                 } catch(Exception ignored) {}
                 audit.put(unverified);
-                lastOutcome="5s UNVERIFIED • no quote within 1s of expiry";
+                lastOutcome="10s UNVERIFIED • no quote within 1s of expiry";
                 pending=null;
             }
         }
         if(pending!=null){
-            latest=new Result(pending.side,"10-second trade active • expiry check in progress",
+            latest=new Result(pending.side,"10-second trade active • 10-second expiry check in progress",
                     baseAnalysis+"\n"+dailySummary+"\n10s ENTRY: "+String.format(Locale.US,"%.6f",pending.price)+" | expiry in "+Math.max(0,10000-(timeMs-pending.at))+"ms\n"+lastOutcome+"\n"+performanceLine(),
                     audit.toString());
             return latest;
@@ -273,7 +275,7 @@ public final class FiveSecondSignalEngine {
                 issuedEvent.put("accuracyPct",settled>0?100.0*wins/settled:-1.0);
             } catch(Exception ignored) {}
             audit.put(issuedEvent);
-            latest=new Result(pending.side,"5-second signal • base trend and live tick momentum aligned",
+            latest=new Result(pending.side,"10-second signal • base trend and live tick momentum aligned",
                     baseAnalysis+"\n"+dailySummary+"\n5s MOMENTUM: "+String.format(Locale.US,"net %+.6f / last-second %+.6f",move,recent)
                     +"\n10s ENTRY: "+String.format(Locale.US,"%.6f",price)+" | expiry 10 seconds\n"+lastOutcome+"\n"+performanceLine(),
                     audit.toString());
