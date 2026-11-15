@@ -19,13 +19,13 @@ final class EntryQualityGate {
     private EntryQualityGate() {}
 
     static Decision evaluate(int side, double atr, double fastMove,
-            double slope5, double recentBias, double reversalBias,
+            double slope5, double slope12, double recentBias, double reversalBias,
             double flow, double pressure, double rsi7, double rsi7Delta) {
         if (side == 0) return new Decision(false,0,Double.NaN,"no directional candidate");
         double fast=Double.isFinite(atr)&&atr>0&&Double.isFinite(fastMove)
                 ? fastMove/atr : Double.NaN;
-        boolean counterFast=side>0 ? finite(fast)&&fast < -0.07
-                : finite(fast)&&fast > 0.07;
+        boolean counterFast=side>0 ? finite(fast)&&fast < -0.04
+                : finite(fast)&&fast > 0.04;
         boolean counterSlope=side>0 ? finite(slope5)&&slope5 < -0.12
                 : finite(slope5)&&slope5 > 0.12;
         boolean counterRecent=side>0 ? finite(recentBias)&&recentBias < -0.10
@@ -52,9 +52,9 @@ final class EntryQualityGate {
         // extreme and price no longer has strong same-side acceleration.
         boolean extremeWeakContinuation=finite(rsi7)&&finite(fast)&&finite(slope5)
                 &&(side<0
-                    ? rsi7<=22.0 && !(fast < -0.18 && slope5 < -0.12
+                    ? rsi7<=22.0 && !(fast < -0.18 && slope5 < -0.12 && finite(slope12)&&slope12 < -0.08
                         && finite(reversalBias)&&reversalBias < -0.18)
-                    : rsi7>=78.0 && !(fast > 0.18 && slope5 > 0.12
+                    : rsi7>=78.0 && !(fast > 0.18 && slope5 > 0.12 && finite(slope12)&&slope12 > 0.08
                         && finite(reversalBias)&&reversalBias > 0.18));
         // A counter fast move plus absent/weak recent confirmation is a late
         // entry warning even when the long trend remains aligned.
