@@ -167,6 +167,8 @@ public final class FiveSecondSignalEngine {
         // Avoid chasing an exhausted move when the oscillator is stretched
         // and MACD has already turned against the proposed direction.
         double auditRsi14=extractMetric(baseAnalysis,"RSI14");
+        double auditRsi7=extractMetric(baseAnalysis,"RSI7");
+        double auditRsi7Delta=extractMetric(baseAnalysis,"RSI7delta");
         boolean macdBullish=baseAnalysis!=null&&baseAnalysis.contains("MACD BULLISH");
         boolean macdBearish=baseAnalysis!=null&&baseAnalysis.contains("MACD BEARISH");
         boolean exhaustionConflict=(side<0&&auditRsi14>0&&auditRsi14<=30.0&&macdBullish)
@@ -207,6 +209,9 @@ public final class FiveSecondSignalEngine {
         double pressure=extractMetric(baseAnalysis,"pressure");
         double flow=extractMetric(baseAnalysis,"flow");
         double reversalBias=extractMetric(baseAnalysis,"reversalBias");
+        double recentBias=extractMetric(baseAnalysis,"recentBias");
+        EntryQualityGate.Decision entryQuality=EntryQualityGate.evaluate(side,atr,fastMove,
+                slope5,recentBias,reversalBias,flow,pressure,auditRsi7,auditRsi7Delta);
         int opposingPriceVotes=0;
         if(side>0){
             if(Double.isFinite(flow)&&flow< -0.08)opposingPriceVotes++;
@@ -232,7 +237,8 @@ public final class FiveSecondSignalEngine {
         double[] forecastThreshold=extractForecastThreshold(baseAnalysis);
         boolean weakForecastMargin=forecastThreshold!=null
                 &&Math.abs(forecastThreshold[0])-forecastThreshold[1]<forecastThreshold[1]*0.12;
-        boolean counterTrendConflict=trendEmaConflict||exhaustionConflict||liveConflict||weakForecastMargin;
+        boolean counterTrendConflict=trendEmaConflict||exhaustionConflict||liveConflict
+                ||weakForecastMargin||entryQuality.blocked;
         boolean eligible=side!=0&&microReady&&microAgree&&!counterTrendConflict
                 &&timeMs-lastIssued>=7000L;
         if(eligible){
@@ -262,6 +268,7 @@ public final class FiveSecondSignalEngine {
             String why=side==0?"Base trend is WAIT"
                     :exhaustionConflict?"Exhaustion caution • RSI extreme with opposing MACD"
                     :weakForecastMargin?"Weak forecast margin • signal too close to minimum threshold"
+                    :entryQuality.blocked?"Entry quality blocked • "+entryQuality.reason
                     :liveConflict?"Live momentum/price-action conflict • opposing flow, MACD or counter-move"
                     :counterTrendConflict?"Live trend/EMA conflict • entry blocked"
                     :!microReady?"Collecting short live tick window"
@@ -289,7 +296,7 @@ public final class FiveSecondSignalEngine {
     private double extractMetric(String analysis,String key) {
         if(analysis==null||key==null)return Double.NaN;
         java.util.regex.Matcher m=java.util.regex.Pattern
-                .compile(java.util.regex.Pattern.quote(key)+"\\s+(-?\\d+(?:\\.\\d+)?)")
+                .compile(java.util.regex.Pattern.quote(key)+"\\s+([+-]?\\d+(?:\\.\\d+)?)")
                 .matcher(analysis);
         return m.find()?Double.parseDouble(m.group(1)):Double.NaN;
     }
