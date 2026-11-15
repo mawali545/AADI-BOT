@@ -32,13 +32,22 @@ public final class FiveSecondSignalEngine {
     private long lastIssued=0;
     private int settled=0,wins=0;
     private String lastOutcome="No 10s result settled yet";
+    private boolean scanRequested=false;
     private Result latest=new Result("WAIT","Waiting for 10-second live confirmation","10-SECOND ENGINE: warming up");
 
     public synchronized void reset(String newAsset){
-        asset=newAsset==null?"":newAsset;ticks.clear();pending=null;lastIssued=0;settled=0;wins=0;lastIssuedSide="";lastIssuedPrice=Double.NaN;sameSideStreak=0;
+        asset=newAsset==null?"":newAsset;ticks.clear();pending=null;lastIssued=0;settled=0;wins=0;lastIssuedSide="";lastIssuedPrice=Double.NaN;sameSideStreak=0;scanRequested=false;
         lastOutcome="No 5s result settled yet";
         latest=new Result("WAIT","New asset selected • collecting fresh ticks","5-SECOND ENGINE: waiting for new asset ticks");
     }
+
+    public synchronized boolean requestScan(){
+        if(pending!=null||scanRequested)return false;
+        scanRequested=true;
+        return true;
+    }
+    public synchronized void cancelScan(){scanRequested=false;}
+    public synchronized boolean isScanPending(){return scanRequested;}
 
     public synchronized Result onTick(String symbol,double price,long timeMs,String baseSignal,
                                       int dailyBias,String dailySummary,String baseAnalysis) {
@@ -123,6 +132,8 @@ public final class FiveSecondSignalEngine {
                     audit.toString());
             return latest;
         }
+
+        if(!scanRequested)return latest;
 
         Tick old=null,near=null;
         for(Tick t:ticks){
@@ -215,17 +226,34 @@ public final class FiveSecondSignalEngine {
         double recentBias=extractMetric(baseAnalysis,"recentBias");
         double supportLevel=extractMetric(baseAnalysis,"support");
         double resistanceLevel=extractMetric(baseAnalysis,"resistance");
+        double candleBodyPct=extractMetric(baseAnalysis,"body");
+        double candleClosePct=extractMetric(baseAnalysis,"close");
+        double turning=extractMetric(baseAnalysis,"turning");
+        double failedBreak=extractMetric(baseAnalysis,"failedBreak");
         double supportDistanceAtr=Double.isFinite(atr)&&atr>0&&Double.isFinite(supportLevel)
                 ?(price-supportLevel)/atr:Double.NaN;
         double resistanceDistanceAtr=Double.isFinite(atr)&&atr>0&&Double.isFinite(resistanceLevel)
                 ?(resistanceLevel-price)/atr:Double.NaN;
         double opposingLevelDistanceAtr=side>0?resistanceDistanceAtr:supportDistanceAtr;
         boolean momentumFading=baseAnalysis!=null&&baseAnalysis.contains("momentumFading true");
+        boolean candleConfirmsBreakout=Double.isFinite(candleBodyPct)&&candleBodyPct>=30.0
+                &&Double.isFinite(candleClosePct)
+                &&(side>0?candleClosePct>=60.0:candleClosePct<=40.0);
         boolean confirmedBreakout=side>0
-                ?baseAnalysis!=null&&baseAnalysis.contains("BULLISH BREAKOUT")&&Double.isFinite(resistanceLevel)&&price>resistanceLevel
+                ?baseAnalysis!=null&&baseAnalysis.contains("BULLISH BREAKOUT")&&Double.isFinite(resistanceLevel)
+                    &&price>resistanceLevel&&candleConfirmsBreakout
+                    &&(!Double.isFinite(fastMove)||fastMove>0)
                 :side<0&&baseAnalysis!=null&&baseAnalysis.contains("BEARISH BREAKDOWN")
-                    &&Double.isFinite(supportLevel)&&price<supportLevel;
-        boolean fadingAtLevel=momentumFading
+                    &&Double.isFinite(supportLevel)&&price<supportLevel&&candleConfirmsBreakout
+                    &&(!Double.isFinite(fastMove)||fastMove<0);
+        boolean counterPriceAction=side>0
+                ?(Double.isFinite(flow)&&flow< -0.08)||(Double.isFinite(pressure)&&pressure< -0.12)
+                    ||(Double.isFinite(turning)&&turning< -0.10)
+                    ||(Double.isFinite(failedBreak)&&failedBreak>0)
+                :side<0&&((Double.isFinite(flow)&&flow>0.08)||(Double.isFinite(pressure)&&pressure>0.12)
+                    ||(Double.isFinite(turning)&&turning>0.10)
+                    ||(Double.isFinite(failedBreak)&&failedBreak<0));
+        boolean fadingAtLevel=momentumFading||counterPriceAction
                 ||(side>0&&Double.isFinite(reversalBias)&&reversalBias< -0.08)
                 ||(side<0&&Double.isFinite(reversalBias)&&reversalBias>0.08);
         EntryQualityGate.Decision entryQuality=EntryQualityGate.evaluate(side,atr,fastMove,
@@ -256,8 +284,12 @@ public final class FiveSecondSignalEngine {
         double[] forecastThreshold=extractForecastThreshold(baseAnalysis);
         boolean weakForecastMargin=forecastThreshold!=null
                 &&Math.abs(forecastThreshold[0])-forecastThreshold[1]<forecastThreshold[1]*0.12;
+        boolean multiTimeframeConflict=Double.isFinite(slope5)&&Double.isFinite(slope12)
+                &&(side>0?slope5>0.12&&slope12< -0.10
+                    :side<0&&slope5< -0.12&&slope12>0.10);
+        boolean momentumFadeConflict=momentumFading&&counterPriceAction;
         boolean counterTrendConflict=trendEmaConflict||exhaustionConflict||liveConflict
-                ||weakForecastMargin||entryQuality.blocked;
+                ||multiTimeframeConflict||momentumFadeConflict||weakForecastMargin||entryQuality.blocked;
         String proposedSide=side>0?"CALL":side<0?"PUT":"";
         // Prevent repeated entries in the same direction/price zone. A follow-up
         // needs fresh price progress scaled to ATR; later repeats need more progress.
@@ -268,7 +300,9 @@ public final class FiveSecondSignalEngine {
         boolean repeatedSideQuality=side==0||!proposedSide.equals(lastIssuedSide)
                 ||(Double.isFinite(repeatProgress)&&repeatProgress>=requiredProgress
                     &&microAgree&&tickReversals<=1);
-        boolean eligible=side!=0&&microReady&&microAgree&&!counterTrendConflict
+        boolean scanAttempt=scanRequested&&microReady;
+        if(scanAttempt)scanRequested=false;
+        boolean eligible=scanAttempt&&side!=0&&microAgree&&!counterTrendConflict
                 &&repeatedSideQuality&&timeMs-lastIssued>=7000L;
         if(eligible){
             pending=new Pending(proposedSide,timeMs,price,baseSignal,dailyBias,dailySummary,baseAnalysis,move,recent,ticks.size());
@@ -304,7 +338,9 @@ public final class FiveSecondSignalEngine {
         } else {
             String why=side==0?"Base trend is WAIT"
                     :exhaustionConflict?"Exhaustion caution • RSI extreme with opposing MACD"
-                    :weakForecastMargin?"Weak forecast margin • signal too close to minimum threshold"
+                     :weakForecastMargin?"Weak forecast margin • signal too close to minimum threshold"
+                    :multiTimeframeConflict?"Multi-timeframe momentum conflict • short and medium slopes disagree"
+                    :momentumFadeConflict?"Momentum fading with opposing price-action confirmation"
                     :entryQuality.blocked?"Entry quality blocked • "+entryQuality.reason
                     :liveConflict?"Live momentum/price-action conflict • opposing flow, MACD or counter-move"
                     :counterTrendConflict?"Live trend/EMA conflict • entry blocked"
