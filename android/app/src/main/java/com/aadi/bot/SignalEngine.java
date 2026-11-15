@@ -468,7 +468,7 @@ public final class SignalEngine {
         boolean callCandidate=forecast>entryThreshold && bullishVotes>=2 && bearishVotes<=1;
         boolean putCandidate=forecast< -entryThreshold && bearishVotes>=2 && bullishVotes<=1;
         EntryQualityGate.Decision callEntryGate=EntryQualityGate.evaluate(1,atr,fastMove,
-                slopeFast,recentBias,reversalBias,flowBias,pressure,rsi7,rsi7Delta);
+                slopeFast,slopeSlow,recentBias,reversalBias,flowBias,pressure,rsi7,rsi7Delta);
         EntryQualityGate.Decision putEntryGate=EntryQualityGate.evaluate(-1,atr,fastMove,
                 slopeFast,recentBias,reversalBias,flowBias,pressure,rsi7,rsi7Delta);
         String trendLabel = trend>0 ? "UPTREND" : trend<0 ? "DOWNTREND" : "SIDEWAYS / UNCLEAR";
