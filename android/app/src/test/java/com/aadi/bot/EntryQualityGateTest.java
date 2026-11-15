@@ -79,16 +79,18 @@ public class EntryQualityGateTest {
         long start=100000L;
         for(long dt=0;dt<=3000;dt+=1000) {
             long t=start+dt;
-            issued=engine.onTick("TEST",1.0+(dt/1000000.0),t,"CALL",0,"daily",audit);
+            FiveSecondSignalEngine.Result current=engine.onTick("TEST",1.0+(dt/1000000.0),t,"CALL",0,"daily",audit);
+            if(current.auditEvents.contains("ISSUED")) issued=current;
         }
+        assertNotNull(issued);
         assertEquals("CALL",issued.signal);
         assertTrue(issued.auditEvents.contains("\"expirySeconds\":10"));
         FiveSecondSignalEngine.Result settled=null;
-        for(long dt=4000;dt<=13000;dt+=1000) {
+        for(long dt=3000;dt<=12000;dt+=1000) {
             long t=start+dt;
             settled=engine.onTick("TEST",1.0+(dt/1000000.0),t,"WAIT",0,"daily",audit);
         }
-        assertTrue(settled.auditEvents.contains("\"expiryTimeMs\":113000"));
+        assertTrue(settled.auditEvents.contains("\"expiryTimeMs\":112000"));
         assertTrue(settled.auditEvents.contains("SETTLED"));
     }
 
