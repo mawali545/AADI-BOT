@@ -78,14 +78,16 @@ public final class DailyContextTracker {
         Map.Entry<Long,Candle> lastPrev=map.lowerEntry(today);
         Map.Entry<Long,Candle> firstToday=map.ceilingEntry(today);
         if(firstPrev==null||lastPrev==null||firstToday==null)return null;
-        // Require near-full 10-second history coverage of yesterday, not just two endpoints.
-        if(firstPrev.getKey()>yesterday+120L||lastPrev.getKey()<today-120L
-                ||firstToday.getKey()>today+120L)return null;
+        // Require broad coverage of the prior day while tolerating short feed gaps.
+        // A strict 8,000-candle/60-second rule kept valid context unavailable
+        // whenever the broker omitted a small number of 10-second bars.
+        if(firstPrev.getKey()>yesterday+300L||lastPrev.getKey()<today-300L
+                ||firstToday.getKey()>today+300L)return null;
         java.util.NavigableMap<Long,Candle> priorDay=map.subMap(yesterday,true,today,false);
-        if(priorDay.size()<8000)return null;
+        if(priorDay.size()<5600)return null;
         long previous=Long.MIN_VALUE;
         for(Long stamp:priorDay.keySet()){
-            if(previous!=Long.MIN_VALUE&&stamp-previous>60L)return null;
+            if(previous!=Long.MIN_VALUE&&stamp-previous>180L)return null;
             previous=stamp;
         }
         Context c=new Context();
