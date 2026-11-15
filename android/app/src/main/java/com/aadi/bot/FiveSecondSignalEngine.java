@@ -287,12 +287,12 @@ public final class FiveSecondSignalEngine {
                 issuedEvent.put("latestTickDirection",latestTickDirection);
                 issuedEvent.put("latestTickAgeMs",latestDirectionalTickAt>0?timeMs-latestDirectionalTickAt:-1);
                 issuedEvent.put("tickCountAtEntry",ticks.size());issuedEvent.put("expirySeconds",10);
-                issuedEvent.put("entrySupportDistanceAtr",supportDistanceAtr);
-                issuedEvent.put("entryResistanceDistanceAtr",resistanceDistanceAtr);
+                issuedEvent.put("entrySupportDistanceAtr",Double.isFinite(supportDistanceAtr)?supportDistanceAtr:JSONObject.NULL);
+                issuedEvent.put("entryResistanceDistanceAtr",Double.isFinite(resistanceDistanceAtr)?resistanceDistanceAtr:JSONObject.NULL);
                 issuedEvent.put("momentumFading",momentumFading);
                 issuedEvent.put("confirmedBreakout",confirmedBreakout);
                 issuedEvent.put("sameDirectionStreak",sameSideStreak);
-                issuedEvent.put("sameDirectionProgress",repeatProgress);
+                issuedEvent.put("sameDirectionProgress",Double.isFinite(repeatProgress)?repeatProgress:JSONObject.NULL);
                 issuedEvent.put("settledCount",settled);issuedEvent.put("wins",wins);
                 issuedEvent.put("accuracyPct",settled>0?100.0*wins/settled:-1.0);
             } catch(Exception ignored) {}
