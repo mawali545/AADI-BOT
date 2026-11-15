@@ -52,10 +52,8 @@ final class EntryQualityGate {
         // extreme and price no longer has strong same-side acceleration.
         boolean extremeWeakContinuation=finite(rsi7)&&finite(fast)&&finite(slope5)
                 &&(side<0
-                    ? rsi7<=22.0 && !(fast < -0.18 && slope5 < -0.12 && finite(slope12)&&slope12 < -0.08
-                        && finite(reversalBias)&&reversalBias < -0.18)
-                    : rsi7>=78.0 && !(fast > 0.18 && slope5 > 0.12 && finite(slope12)&&slope12 > 0.08
-                        && finite(reversalBias)&&reversalBias > 0.18));
+                    ? rsi7<=22.0 && !(fast < -0.18 && slope5 < -0.12 && finite(slope12)&&slope12 < -0.08)
+                    : rsi7>=78.0 && !(fast > 0.18 && slope5 > 0.12 && finite(slope12)&&slope12 > 0.08));
         // A counter fast move plus absent/weak recent confirmation is a late
         // entry warning even when the long trend remains aligned.
         boolean fastAgainstWeakRecent=counterFast&&finite(recentBias)
