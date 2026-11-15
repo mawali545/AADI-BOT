@@ -116,24 +116,14 @@ public class MainActivity extends Activity {
         signalView.setPadding(signalPad, signalPad, signalPad, signalPad);
         signalView.setMinHeight((int) (88 * getResources().getDisplayMetrics().density));
         signalView.setText("WAIT");
-        generateSignalButton=new Button(this);
-        generateSignalButton.setText("GENERATE SIGNAL");
-        generateSignalButton.setTextSize(20);
-        generateSignalButton.setOnClickListener(v -> startManualScan());
-        root.addView(generateSignalButton,new LinearLayout.LayoutParams(
+        root.addView(signalView,new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT));
-        scanProgress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);
-        scanProgress.setMax(100);
-        scanProgress.setProgress(0);
-        scanProgress.setVisibility(ViewGroup.GONE);
-        root.addView(scanProgress,new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,(int)(6*getResources().getDisplayMetrics().density)));
         scanStatus=new TextView(this);
         scanStatus.setTextColor(Color.LTGRAY);
         scanStatus.setTextSize(11);
         scanStatus.setGravity(Gravity.CENTER);
         scanStatus.setPadding(8,4,8,8);
-        scanStatus.setText("Press Generate Signal to scan the live market");
+        scanStatus.setText("Automatic live signal analysis • waiting for verified market data");
         root.addView(scanStatus,new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT));
 
@@ -274,11 +264,9 @@ public class MainActivity extends Activity {
             engine = new SignalEngine();
             fiveSecondEngine = new FiveSecondSignalEngine();
             receivedTicks = 0;
-            status.setText("AADI • LIVE FEED READY — MANUAL SCAN ONLY");
+            status.setText("AADI • LIVE FEED READY — AUTOMATIC SIGNALS");
             scanInProgress=false;
-            if(generateSignalButton!=null)generateSignalButton.setText("GENERATE SIGNAL");
-            if(scanProgress!=null)scanProgress.setVisibility(ViewGroup.GONE);
-            if(scanStatus!=null)scanStatus.setText("Live ticks collecting • press Generate Signal when ready");
+            if(scanStatus!=null)scanStatus.setText("Automatic signal analysis active • CALL / PUT / WAIT updates from live ticks");
             lastTick.setText("Collecting real ticks from logged-in chart");
             signalView.setText("WAIT");
             signalView.setTextColor(Color.WHITE);
@@ -525,7 +513,12 @@ public class MainActivity extends Activity {
                     lastUiTickAt=uiNow;
                     runOnUiThread(() -> {
                         lastTick.setText(line);
-                        if(scanInProgress&&!fiveSecondEngine.isScanPending())finishManualScan(result,ts,asset);
+                        signalView.setText(result==null?"WAIT":result.signal);
+                        if(result!=null&&"CALL".equals(result.signal))signalView.setTextColor(Color.rgb(40,230,130));
+                        else if(result!=null&&"PUT".equals(result.signal))signalView.setTextColor(Color.rgb(255,75,85));
+                        else signalView.setTextColor(Color.WHITE);
+                        if(scanStatus!=null)scanStatus.setText(result==null?"Waiting for live analysis":result.reason);
+                        if(result!=null&&result.analysis!=null)analysisView.setText(result.analysis);
                         if (receivedTicks == 1) status.setText("AADI • LIVE FEED CONNECTED");
                     });
                 }
