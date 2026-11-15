@@ -536,7 +536,7 @@ public final class SignalEngine {
                 +"\\nTREND/FLOW: slope5 %+.3f | slope12 %+.3f | MACDvote %+.3f | DI+ %.2f | DI- %.2f | ADX %.2f | DMIvote %+.3f | Supertrend %d | microStructure %d | dominant %d | EMAstack %+.3f"
                 +"\\nPRICE ACTION: fastMove %+.8f | pressure %+.3f | flow %+.3f | stair %+.3f | alternating %+.3f | pattern %+.3f | exhaustion %+.3f | turning %+.3f | multiScale %+.3f | sweep %d | failedBreak %d | pullback %d"
                 +"\\nENTRY GATE: recentBias %+.3f | CALL blocked %s (%s) | PUT blocked %s (%s)"
-                +"\\nLEVELS/FLAGS: support %.8f | resistance %.8f | bearishAbsorption %s | bullishAbsorption %s | bookVote %+.3f | depthVote %+.3f",
+                +"\\nLEVELS/FLAGS: support %.8f | resistance %.8f | S/R distance support %.2f ATR / resistance %.2f ATR | momentumFading %s | bearishAbsorption %s | bullishAbsorption %s | bookVote %+.3f | depthVote %+.3f",
                 atr,longBias,indicatorBias,recentBias,reversalBias,forecast,entryThreshold,chopScore,
                 e9,e20,e50,e100,e200,rsi7,rsi7Delta,rsi14,rsiVote,slopeFast,slopeSlow,macdVote,dmi[0],dmi[1],dmi[2],dmiVote,
                 supertrend,microStructure,dominant,emaStackVote,fastMove,pressure,flowBias,stairBias,alternatingBias,
