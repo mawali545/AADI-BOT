@@ -88,6 +88,10 @@ public final class SignalEngine {
 
     private long latestFeedTime=-1;
     private Result latestHistoryResult=null;
+    // The forecast made during candle A is evaluated only against the next
+    // completed candle B, never against the candle that supplied its inputs.
+    private String pendingForecastSignal=null;
+    private long pendingForecastBucket=-1;
     // The forming candle is built only from current live exchange ticks.
     // Older context remains sourced from Market-QX history packets.
     private long liveBucket=-1;
@@ -114,6 +118,7 @@ public final class SignalEngine {
             totalClosed=0;
             recentOutcomes.clear(); recentWins=0;
             latestHistoryResult=null;
+            pendingForecastSignal=null; pendingForecastBucket=-1;
             latestFeedTime=-1;
             liveBucket=-1;
             liveCandle=null;
@@ -137,6 +142,12 @@ public final class SignalEngine {
                 appendClosedLiveCandle(liveCandle);
                 settlePrediction(liveCandle);
             }
+            // The last forecast from the candle that just closed targets this
+            // newly opened candle. Keep it fixed while that target candle forms.
+            String nextSignal=latestHistoryResult==null?"WAIT":latestHistoryResult.signal;
+            pendingForecastSignal=("CALL".equals(nextSignal)||"PUT".equals(nextSignal))
+                    ?nextSignal:null;
+            pendingForecastBucket=bucket;
             liveBucket=bucket;
             liveCandle=new Candle(bucket,price,price,price,price);
             liveTickCount=1;
@@ -159,16 +170,17 @@ public final class SignalEngine {
     }
 
     private void settlePrediction(Candle actual) {
-        Result forecast = latestHistoryResult;
-        if (forecast == null || actual == null) return;
-        boolean win;
-        if ("CALL".equals(forecast.signal)) win = actual.close > actual.open;
-        else if ("PUT".equals(forecast.signal)) win = actual.close < actual.open;
-        else return;
+        if(actual==null||pendingForecastBucket!=actual.time) return;
+        String forecastSignal=pendingForecastSignal;
+        pendingForecastSignal=null;
+        pendingForecastBucket=-1;
+        if(!"CALL".equals(forecastSignal)&&!"PUT".equals(forecastSignal)) return;
+        boolean win="CALL".equals(forecastSignal)
+                ?actual.close>actual.open:actual.close<actual.open;
         recentOutcomes.addLast(win);
-        if (win) recentWins++;
-        while (recentOutcomes.size() > 100) {
-            if (recentOutcomes.removeFirst()) recentWins--;
+        if(win) recentWins++;
+        while(recentOutcomes.size()>100) {
+            if(recentOutcomes.removeFirst()) recentWins--;
         }
     }
 
@@ -187,9 +199,9 @@ public final class SignalEngine {
 
     private String refreshAccuracyLine(String analysis) {
         String base = analysis == null ? "" : analysis;
-        int at = base.indexOf("\n10S CANDLE FORECAST ACCURACY:");
+        int at = base.indexOf("\n10S NEXT-CANDLE FORECAST ACCURACY:");
         if (at >= 0) base = base.substring(0, at);
-        return base + "\n10S CANDLE FORECAST ACCURACY: " + accuracyLabel();
+        return base + "\n10S NEXT-CANDLE FORECAST ACCURACY: " + accuracyLabel();
     }
 
     private void appendClosedLiveCandle(Candle completed) {
@@ -239,6 +251,7 @@ public final class SignalEngine {
             liveCandles.clear(); totalClosed=0; recentOutcomes.clear(); recentWins=0; latestHistoryResult=null;
             latestFeedTime=-1; liveBucket=-1; liveCandle=null; liveTickCount=0;
             pendingNextCandleResult=null; previewedBucket=-1;
+            pendingForecastSignal=null; pendingForecastBucket=-1;
             previousDepthScalar=Double.NaN; depthChangeBias=0; lastDepthAt=0;
             orderBookImbalance=0; lastOrderBookAt=0;
         }
@@ -507,7 +520,7 @@ public final class SignalEngine {
                 + String.format(Locale.US,"\nFINAL CHECK: forecast %+.2f | threshold %.2f | votes bull %d / bear %d",
                         forecast,entryThreshold,bullishVotes,bearishVotes)
                 + "\n"+calculationDetail
-                + "\n10S CANDLE FORECAST ACCURACY: "+accuracyLabel();
+                + "\n10S NEXT-CANDLE FORECAST ACCURACY: "+accuracyLabel();
 
         // No absorption event can manufacture a directional signal by itself.
         if(forecast>entryThreshold && bullishVotes>=2 && bearishVotes<=1) {
