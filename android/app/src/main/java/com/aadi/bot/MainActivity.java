@@ -11,6 +11,7 @@ import android.webkit.WebViewClient;
 import android.widget.LinearLayout;
 import android.widget.Button;
 import android.widget.TextView;
+import android.widget.ProgressBar;
 import android.text.TextUtils;
 import android.graphics.Color;
 import android.text.SpannableString;
@@ -27,7 +28,21 @@ import org.json.JSONObject;
 import org.json.JSONArray;
 
 public class MainActivity extends Activity {
-    private TextView status, lastTick, signalView, analysisView, depthView, statsView;
+    private TextView status, lastTick, signalView, analysisView, depthView, statsView, scanStatus;
+    private Button generateSignalButton;
+    private ProgressBar scanProgress;
+    private volatile boolean scanInProgress=false;
+    private int scanProgressValue=0;
+    private long scanGeneration=0;
+    private final Runnable scanProgressRunnable=new Runnable(){
+        @Override public void run(){
+            if(!scanInProgress||scanProgress==null||generateSignalButton==null)return;
+            scanProgressValue=Math.min(95,scanProgressValue+8);
+            scanProgress.setProgress(scanProgressValue);
+            generateSignalButton.setText("SCANNING "+scanProgressValue+"%");
+            uiHandler.postDelayed(this,120L);
+        }
+    };
     private long depthEventCount = 0;
     private final java.util.ArrayDeque<String> depthRecent = new java.util.ArrayDeque<>();
     private boolean botActive = false;
@@ -101,8 +116,26 @@ public class MainActivity extends Activity {
         signalView.setPadding(signalPad, signalPad, signalPad, signalPad);
         signalView.setMinHeight((int) (88 * getResources().getDisplayMetrics().density));
         signalView.setText("WAIT");
-        root.addView(signalView, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        generateSignalButton=new Button(this);
+        generateSignalButton.setText("GENERATE SIGNAL");
+        generateSignalButton.setTextSize(20);
+        generateSignalButton.setOnClickListener(v -> startManualScan());
+        root.addView(generateSignalButton,new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT));
+        scanProgress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);
+        scanProgress.setMax(100);
+        scanProgress.setProgress(0);
+        scanProgress.setVisibility(ViewGroup.GONE);
+        root.addView(scanProgress,new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,(int)(6*getResources().getDisplayMetrics().density)));
+        scanStatus=new TextView(this);
+        scanStatus.setTextColor(Color.LTGRAY);
+        scanStatus.setTextSize(11);
+        scanStatus.setGravity(Gravity.CENTER);
+        scanStatus.setPadding(8,4,8,8);
+        scanStatus.setText("Press Generate Signal to scan the live market");
+        root.addView(scanStatus,new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT));
 
         statsView = new TextView(this);
         statsView.setTextColor(Color.WHITE);
@@ -241,16 +274,74 @@ public class MainActivity extends Activity {
             engine = new SignalEngine();
             fiveSecondEngine = new FiveSecondSignalEngine();
             receivedTicks = 0;
-            status.setText("AADI • LOGIN DETECTED — AUTO ANALYSIS ACTIVE");
+            status.setText("AADI • LIVE FEED READY — MANUAL SCAN ONLY");
+            scanInProgress=false;
+            if(generateSignalButton!=null)generateSignalButton.setText("GENERATE SIGNAL");
+            if(scanProgress!=null)scanProgress.setVisibility(ViewGroup.GONE);
+            if(scanStatus!=null)scanStatus.setText("Live ticks collecting • press Generate Signal when ready");
             lastTick.setText("Collecting real ticks from logged-in chart");
             signalView.setText("WAIT");
             signalView.setTextColor(Color.WHITE);
             analysisView.setText("MARKET TREND • Waiting for verified candles");
         } else {
             status.setText("AADI • Logged out — analysis paused");
+            scanInProgress=false;
+            engine.cancelScan();
+            fiveSecondEngine.cancelScan();
+            if(generateSignalButton!=null)generateSignalButton.setText("GENERATE SIGNAL");
+            if(scanProgress!=null)scanProgress.setVisibility(ViewGroup.GONE);
             signalView.setText("WAIT");
             signalView.setTextColor(Color.WHITE);
         }
+    }
+
+    private void startManualScan() {
+        if(scanInProgress)return;
+        if(!botActive||latestLiveTickMs<=0||System.currentTimeMillis()-latestLiveTickMs>2500L) {
+            generateSignalButton.setText("WAIT");
+            scanStatus.setText("WAIT • No fresh live market ticks");
+            return;
+        }
+        if(!fiveSecondEngine.requestScan()) {
+            generateSignalButton.setText("WAIT");
+            scanStatus.setText("WAIT • Previous 10-second signal is still being verified");
+            return;
+        }
+        engine.requestScan();
+        scanInProgress=true;
+        scanGeneration++;
+        final long thisScan=scanGeneration;
+        scanProgressValue=0;
+        scanProgress.setProgress(0);
+        scanProgress.setVisibility(ViewGroup.VISIBLE);
+        scanStatus.setText("Scanning trend, momentum, support/resistance and live tick confirmation…");
+        generateSignalButton.setText("SCANNING 0%");
+        uiHandler.removeCallbacks(scanProgressRunnable);
+        uiHandler.post(scanProgressRunnable);
+        uiHandler.postDelayed(() -> {
+            if(scanInProgress&&scanGeneration==thisScan) {
+                scanInProgress=false;
+                engine.cancelScan();
+                fiveSecondEngine.cancelScan();
+                uiHandler.removeCallbacks(scanProgressRunnable);
+                scanProgress.setProgress(0);
+                scanProgress.setVisibility(ViewGroup.GONE);
+                generateSignalButton.setText("WAIT");
+                scanStatus.setText("WAIT • Scan timed out: fresh confirmation ticks were insufficient");
+            }
+        },5000L);
+    }
+
+    private void finishManualScan(FiveSecondSignalEngine.Result result,double tickTimestamp,String asset) {
+        if(!scanInProgress)return;
+        scanInProgress=false;
+        uiHandler.removeCallbacks(scanProgressRunnable);
+        scanProgress.setProgress(100);
+        scanProgress.setVisibility(ViewGroup.GONE);
+        showSignal(result,tickTimestamp,asset);
+        String reason=result==null?"No confirmed entry":result.reason;
+        scanStatus.setText(("CALL".equals(result==null?"WAIT":result.signal)?"CALL • "
+                :"PUT".equals(result==null?"WAIT":result.signal)?"PUT • ":"WAIT • ")+reason);
     }
 
     private void showSignal(FiveSecondSignalEngine.Result result, double tickTimestamp, String asset) {
@@ -259,6 +350,7 @@ public class MainActivity extends Activity {
         if("CALL".equals(signal)) signalView.setTextColor(Color.rgb(40,230,130));
         else if("PUT".equals(signal)) signalView.setTextColor(Color.rgb(255,75,85));
         else signalView.setTextColor(Color.WHITE);
+        if(generateSignalButton!=null)generateSignalButton.setText(signal);
         if(result!=null && result.analysis!=null && analysisView!=null)
             analysisView.setText(result.analysis);
     }
@@ -274,6 +366,11 @@ public class MainActivity extends Activity {
             runOnUiThread(() -> {
                 status.setText("AADI • " + message);
                 if (message != null && message.contains("CLOSED")) {
+                    scanInProgress=false;
+                    if(generateSignalButton!=null)generateSignalButton.setText("GENERATE SIGNAL");
+                    if(scanProgress!=null)scanProgress.setVisibility(ViewGroup.GONE);
+                    engine.cancelScan();
+                    fiveSecondEngine.cancelScan();
                     engine = new SignalEngine();
                     fiveSecondEngine.reset("");
                     receivedTicks = 0;
@@ -286,6 +383,9 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface public synchronized void onAssetChanged(String asset) {
             if (asset == null || asset.trim().isEmpty()) return;
+            scanInProgress=false;
+            if(generateSignalButton!=null)generateSignalButton.setText("GENERATE SIGNAL");
+            if(scanProgress!=null)scanProgress.setVisibility(ViewGroup.GONE);
             engine = new SignalEngine();
             activeMarketAsset = asset;
             latestLivePrice = Double.NaN;
@@ -425,7 +525,7 @@ public class MainActivity extends Activity {
                     lastUiTickAt=uiNow;
                     runOnUiThread(() -> {
                         lastTick.setText(line);
-                        showSignal(result, ts, asset);
+                        if(scanInProgress&&!fiveSecondEngine.isScanPending())finishManualScan(result,ts,asset);
                         if (receivedTicks == 1) status.setText("AADI • LIVE FEED CONNECTED");
                     });
                 }
