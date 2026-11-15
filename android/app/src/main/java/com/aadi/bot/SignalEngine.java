@@ -161,9 +161,8 @@ public final class SignalEngine {
 
         // Re-evaluate on every genuine tick inside the forming 10-second candle.
         // Do not wait for its final second or the next candle boundary.
-        if(liveTickCount>=2 && scanRequested) {
+        if(liveTickCount>=2) {
             Result live=calculateWithLiveCandle();
-            scanRequested=false;
             latestHistoryResult=new Result(asset,live.signal,live.reason,price,
                     live.emaFast,live.emaSlow,live.rsi,live.momentum,live.score,
                     live.closedCandles,accuracyPct(),recentOutcomes.size(),
