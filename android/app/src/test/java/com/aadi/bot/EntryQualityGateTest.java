@@ -102,7 +102,7 @@ public class EntryQualityGateTest {
         assertEquals("CALL",issued.signal);
         assertTrue(issued.auditEvents.contains("\"expirySeconds\":10"));
         FiveSecondSignalEngine.Result settled=null;
-        for(long dt=3000;dt<=13000;dt+=1000) {
+        for(long dt=3000;dt<=12000;dt+=1000) {
             long t=start+dt;
             settled=engine.onTick("TEST",1.0+(dt/1000000.0),t,"WAIT",0,"daily",audit);
         }
