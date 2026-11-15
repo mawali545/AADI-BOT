@@ -483,12 +483,14 @@ public final class SignalEngine {
         boolean bearBreakout=last.close<support && last.close<last.open;
         // A valid escape must clear the barrier with a meaningful body and a close
         // near the candle extreme. This preserves genuine breakout/retest entries.
-        boolean confirmedBullBreakout=bullBreakout&&last.close>resistance+atr*0.05
-                &&bodyRatio>=0.45&&closePosition>=0.72;
-        boolean confirmedBearBreakout=bearBreakout&&last.close<support-atr*0.05
-                &&bodyRatio>=0.45&&closePosition<=0.28;
         boolean bullRetest=last.low<=resistance+atr*0.12 && last.close>resistance && last.close>last.open;
         boolean bearRetest=last.high>=support-atr*0.12 && last.close<support && last.close<last.open;
+        boolean confirmedBullBreakout=(bullBreakout&&last.close>resistance+atr*0.05
+                &&bodyRatio>=0.45&&closePosition>=0.72)
+                ||(bullRetest&&bodyRatio>=0.30&&closePosition>=0.60);
+        boolean confirmedBearBreakout=(bearBreakout&&last.close<support-atr*0.05
+                &&bodyRatio>=0.45&&closePosition<=0.28)
+                ||(bearRetest&&bodyRatio>=0.30&&closePosition<=0.40);
         double resistanceDistanceAtr=(resistance-last.close)/atr;
         double supportDistanceAtr=(last.close-support)/atr;
         double recentLeg=Math.abs(last.close-cs.get(n-3).close);
