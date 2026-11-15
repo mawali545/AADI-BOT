@@ -65,6 +65,21 @@ public class EntryQualityGateTest {
         assertTrue(d.blocked);
     }
 
+    @Test public void blocksCallJustBeyondResistanceWithoutConfirmedBreakout() {
+        EntryQualityGate.Decision d=EntryQualityGate.evaluate(1,ATR,0.00001,
+                0.12,0.10,0.08,0.01,0.02,0.01,74.0,1.0,
+                -0.20,false,false);
+        assertTrue(d.blocked);
+        assertTrue(d.reason.contains("S/R proximity"));
+    }
+
+    @Test public void doesNotBlockExtremeRsiByItselfAwayFromOpposingLevel() {
+        EntryQualityGate.Decision d=EntryQualityGate.evaluate(1,ATR,0.00004,
+                0.30,0.28,0.25,0.10,0.20,0.18,83.0,0.5,
+                0.80,false,false);
+        assertFalse(d.blocked);
+    }
+
     @Test public void legacyGateStillAllowsStrongAlignedOversoldContinuation() {
         EntryQualityGate.Decision d=EntryQualityGate.evaluate(-1,ATR,-0.00004,
                 -0.35,-0.30,-0.30,-0.32,-0.28,-0.25,24.0,-2.0);
@@ -74,6 +89,7 @@ public class EntryQualityGateTest {
 
     @Test public void executionTradeUsesTenSecondExpiryAndSettlesAtTenSeconds() {
         FiveSecondSignalEngine engine=new FiveSecondSignalEngine();
+        engine.requestScan();
         String audit="ATR 0.001 | forecast +0.500 | threshold 0.200";
         FiveSecondSignalEngine.Result issued=null;
         long start=100000L;
