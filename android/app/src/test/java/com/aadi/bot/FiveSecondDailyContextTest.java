@@ -157,18 +157,33 @@ public class FiveSecondDailyContextTest {
         return new JSONObject().put("timestamp",t).put("open",o).put("high",h).put("low",l).put("close",c);
     }
 
-    @Test public void signalIsNotIssuedUntilGenerateSignalIsPressed() {
+    @Test public void signalIsIssuedAutomaticallyWhenLiveTrendAndTicksAgree() {
         FiveSecondSignalEngine e=new FiveSecondSignalEngine();
         long t=System.currentTimeMillis();
         String audit="ATR 0.0001 | forecast +0.500 | threshold 0.200";
         for(int i=0;i<=3;i++) {
-            FiveSecondSignalEngine.Result r=e.onTick("MANUAL",1.0+i*0.00001,t+i*1000L,"CALL",0,"daily",audit);
-            assertFalse("No automatic signal before user action",r.auditEvents.contains("ISSUED"));
+            FiveSecondSignalEngine.Result r=e.onTick("AUTO",1.0+i*0.00001,t+i*1000L,"CALL",0,"daily",audit);
+            if(i<3) assertFalse("Wait until the short live tick window is ready",r.auditEvents.contains("ISSUED"));
+            else {
+                assertTrue(r.auditEvents.contains("ISSUED"));
+                assertEquals("CALL",r.signal);
+            }
         }
-        assertTrue(e.requestScan());
-        FiveSecondSignalEngine.Result issued=e.onTick("MANUAL",1.00004,t+4000L,"CALL",0,"daily",audit);
-        assertFalse(e.isScanPending());
-        assertTrue(issued.auditEvents.contains("ISSUED"));
-        assertEquals("CALL",issued.signal);
+    }
+
+    @Test public void weakMediumSlopeAndWeakDmiBlockLateContinuationAutomatically() {
+        FiveSecondSignalEngine e=new FiveSecondSignalEngine();
+        long t=System.currentTimeMillis();
+        String analysis="MARKET TREND: DOWNTREND | ATR 0.001 | fastMove -0.0005"
+                +" | slope5 -0.50 | slope12 -0.02 | DMIvote -0.01"
+                +" | dominant -1 | Supertrend -1 | reversalBias -0.20"
+                +" | recentBias -0.30 | pressure -0.20 | flow -0.20"
+                +" | RSI7 40 | RSI7delta -1 | support 1.090 | resistance 1.110";
+        e.onTick("EURUSD_otc",1.1000,t,"PUT",0,"daily context incomplete",analysis);
+        e.onTick("EURUSD_otc",1.0998,t+1000,"PUT",0,"daily context incomplete",analysis);
+        e.onTick("EURUSD_otc",1.0996,t+2000,"PUT",0,"daily context incomplete",analysis);
+        FiveSecondSignalEngine.Result r=e.onTick("EURUSD_otc",1.0994,t+3000,"PUT",0,"daily context incomplete",analysis);
+        assertEquals("WAIT",r.signal);
+        assertTrue(r.reason.contains("Weak continuation"));
     }
 }
