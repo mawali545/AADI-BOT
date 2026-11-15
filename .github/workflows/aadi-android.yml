@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - chinese-engine-history-merge-2026-11-13
+      - aadi-114-manual-generate-signal
   pull_request:
     branches:
       - android-webview-app
