@@ -351,6 +351,7 @@ public final class FiveSecondSignalEngine {
                      :weakForecastMargin?"Weak forecast margin • signal too close to minimum threshold"
                     :multiTimeframeConflict?"Multi-timeframe momentum conflict • short and medium slopes disagree"
                     :momentumFadeConflict?"Momentum fading with opposing price-action confirmation"
+                    :weakContinuationConflict?"Weak continuation • medium slope and directional movement have flattened"
                     :entryQuality.blocked?"Entry quality blocked • "+entryQuality.reason
                     :liveConflict?"Live momentum/price-action conflict • opposing flow, MACD or counter-move"
                     :counterTrendConflict?"Live trend/EMA conflict • entry blocked"
