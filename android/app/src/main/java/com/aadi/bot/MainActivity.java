@@ -200,7 +200,17 @@ public class MainActivity extends Activity {
             }
             if(out.length()==0) out.append("No audit records yet. New signals will be recorded when issued and settled.");
             new AlertDialog.Builder(this).setTitle("AADI • SIGNAL AUDIT")
-                .setMessage(out.toString()).setPositiveButton("CLOSE",null).show();
+                .setMessage(out.toString())
+                .setNeutralButton("COPY AUDIT", (dialog, which) -> {
+                    android.content.ClipboardManager clipboard =
+                        (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+                    if (clipboard != null) {
+                        clipboard.setPrimaryClip(android.content.ClipData.newPlainText(
+                            "AADI Signal Audit", out.toString()));
+                        android.widget.Toast.makeText(this, "Signal audit copied", android.widget.Toast.LENGTH_SHORT).show();
+                    }
+                })
+                .setPositiveButton("CLOSE",null).show();
         } catch(Exception e) {
             new AlertDialog.Builder(this).setTitle("AADI • SIGNAL AUDIT")
                 .setMessage("Audit log could not be read.").setPositiveButton("CLOSE",null).show();
