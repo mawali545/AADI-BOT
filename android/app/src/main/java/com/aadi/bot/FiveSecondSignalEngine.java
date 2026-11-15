@@ -24,6 +24,7 @@ public final class FiveSecondSignalEngine {
         }
     }
     private final Deque<Tick> ticks=new ArrayDeque<>();
+    private String lastIssuedSide=\"\";\n    private double lastIssuedPrice=Double.NaN;\n    private int sameSideStreak=0;
     private String asset="";
     private Pending pending;
     private long lastIssued=0;
@@ -32,7 +33,7 @@ public final class FiveSecondSignalEngine {
     private Result latest=new Result("WAIT","Waiting for 5-second live confirmation","5-SECOND ENGINE: warming up");
 
     public synchronized void reset(String newAsset){
-        asset=newAsset==null?"":newAsset;ticks.clear();pending=null;lastIssued=0;settled=0;wins=0;
+        asset=newAsset==null?"":newAsset;ticks.clear();pending=null;lastIssued=0;settled=0;wins=0;lastIssuedSide=\"\";lastIssuedPrice=Double.NaN;sameSideStreak=0;
         lastOutcome="No 5s result settled yet";
         latest=new Result("WAIT","New asset selected • collecting fresh ticks","5-SECOND ENGINE: waiting for new asset ticks");
     }
@@ -45,7 +46,7 @@ public final class FiveSecondSignalEngine {
         if(!ticks.isEmpty()&&timeMs<ticks.peekLast().t)return latest;
         JSONArray audit=new JSONArray();
         ticks.addLast(new Tick(timeMs,price));
-        while(!ticks.isEmpty()&&timeMs-ticks.peekFirst().t>10000L)ticks.removeFirst();
+        while(!ticks.isEmpty()&&timeMs-ticks.peekFirst().t>15000L)ticks.removeFirst();
         if(pending!=null){
             if(timeMs-pending.lastSeenAt>1500L) pending.feedContinuous=false;
             pending.lastSeenAt=timeMs;
@@ -53,8 +54,8 @@ public final class FiveSecondSignalEngine {
                     ||("PUT".equals(pending.side)&&price>=pending.price)) pending.held=false;
         }
 
-        if(pending!=null&&timeMs>=pending.at+5000L){
-            long expiryAt=pending.at+5000L;
+        if(pending!=null&&timeMs>=pending.at+10000L){
+            long expiryAt=pending.at+10000L;
             Tick expiryQuote=null;
             long bestGap=Long.MAX_VALUE;
             for(Tick t:ticks){
@@ -81,7 +82,7 @@ public final class FiveSecondSignalEngine {
                     settledEvent.put("wins",wins+(! (expiryPrice==pending.price) && win?1:0));
                 } catch(Exception ignored) {}
                 audit.put(settledEvent);
-                if(expiryPrice==pending.price)lastOutcome="5s FLAT • not counted";
+                if(expiryPrice==pending.price)lastOutcome="10s FLAT • not counted";
                 else {settled++;if(win)wins++;lastOutcome="5s "+(win?"WIN":"LOSS")+" • "+pending.side+(pending.held?"":" • crossed entry during hold")+" • "+String.format(Locale.US,"%.6f → %.6f",pending.price,expiryPrice);}
                 pending=null;
             } else if(expiryQuote!=null&&!pending.feedContinuous){
@@ -96,7 +97,7 @@ public final class FiveSecondSignalEngine {
                     unverified.put("microMove3s",pending.move);unverified.put("microMove1s",pending.recent);
                 } catch(Exception ignored) {}
                 audit.put(unverified);
-                lastOutcome="5s UNVERIFIED • live tick stream had a gap over 1.5s";
+                lastOutcome="10s UNVERIFIED • live tick stream had a gap over 1.5s";
                 pending=null;
             } else if(timeMs>expiryAt+1500L){
                 JSONObject unverified=new JSONObject();
@@ -115,8 +116,8 @@ public final class FiveSecondSignalEngine {
             }
         }
         if(pending!=null){
-            latest=new Result(pending.side,"5-second trade active • expiry check in progress",
-                    baseAnalysis+"\n"+dailySummary+"\n5s ENTRY: "+String.format(Locale.US,"%.6f",pending.price)+" | expiry in "+Math.max(0,5000-(timeMs-pending.at))+"ms\n"+lastOutcome+"\n"+performanceLine(),
+            latest=new Result(pending.side,"10-second trade active • expiry check in progress",
+                    baseAnalysis+"\n"+dailySummary+"\n10s ENTRY: "+String.format(Locale.US,"%.6f",pending.price)+" | expiry in "+Math.max(0,10000-(timeMs-pending.at))+"ms\n"+lastOutcome+"\n"+performanceLine(),
                     audit.toString());
             return latest;
         }
@@ -239,10 +240,22 @@ public final class FiveSecondSignalEngine {
                 &&Math.abs(forecastThreshold[0])-forecastThreshold[1]<forecastThreshold[1]*0.12;
         boolean counterTrendConflict=trendEmaConflict||exhaustionConflict||liveConflict
                 ||weakForecastMargin||entryQuality.blocked;
+        String proposedSide=side>0?"CALL":side<0?"PUT":"";
+        // Prevent repeated entries in the same direction/price zone. A follow-up
+        // needs fresh price progress scaled to ATR; later repeats need more progress.
+        double repeatProgress=Double.isFinite(lastIssuedPrice)&&Double.isFinite(tickAtr)&&tickAtr>0
+                ?(side>0?price-lastIssuedPrice:lastIssuedPrice-price):Double.NaN;
+        double requiredProgress=tickAtr>0&&Double.isFinite(tickAtr)
+                ?tickAtr*(sameSideStreak<=1?0.10:0.18):Double.POSITIVE_INFINITY;
+        boolean repeatedSideQuality=side==0||!proposedSide.equals(lastIssuedSide)
+                ||(Double.isFinite(repeatProgress)&&repeatProgress>=requiredProgress
+                    &&microAgree&&tickReversals<=1);
         boolean eligible=side!=0&&microReady&&microAgree&&!counterTrendConflict
-                &&timeMs-lastIssued>=7000L;
+                &&repeatedSideQuality&&timeMs-lastIssued>=7000L;
         if(eligible){
-            pending=new Pending(side>0?"CALL":"PUT",timeMs,price,baseSignal,dailyBias,dailySummary,baseAnalysis,move,recent,ticks.size());
+            pending=new Pending(proposedSide,timeMs,price,baseSignal,dailyBias,dailySummary,baseAnalysis,move,recent,ticks.size());
+            if(proposedSide.equals(lastIssuedSide))sameSideStreak++;else sameSideStreak=1;
+            lastIssuedSide=proposedSide;lastIssuedPrice=price;
             lastIssued=timeMs;
             JSONObject issuedEvent=new JSONObject();
             try {
@@ -255,14 +268,14 @@ public final class FiveSecondSignalEngine {
                 issuedEvent.put("tickReversals3s",tickReversals);
                 issuedEvent.put("latestTickDirection",latestTickDirection);
                 issuedEvent.put("latestTickAgeMs",latestDirectionalTickAt>0?timeMs-latestDirectionalTickAt:-1);
-                issuedEvent.put("tickCountAtEntry",ticks.size());issuedEvent.put("expirySeconds",5);
+                issuedEvent.put("tickCountAtEntry",ticks.size());issuedEvent.put("expirySeconds",10);
                 issuedEvent.put("settledCount",settled);issuedEvent.put("wins",wins);
                 issuedEvent.put("accuracyPct",settled>0?100.0*wins/settled:-1.0);
             } catch(Exception ignored) {}
             audit.put(issuedEvent);
             latest=new Result(pending.side,"5-second signal • base trend and live tick momentum aligned",
                     baseAnalysis+"\n"+dailySummary+"\n5s MOMENTUM: "+String.format(Locale.US,"net %+.6f / last-second %+.6f",move,recent)
-                    +"\n5s ENTRY: "+String.format(Locale.US,"%.6f",price)+" | expiry 5 seconds\n"+lastOutcome+"\n"+performanceLine(),
+                    +"\n10s ENTRY: "+String.format(Locale.US,"%.6f",price)+" | expiry 10 seconds\n"+lastOutcome+"\n"+performanceLine(),
                     audit.toString());
         } else {
             String why=side==0?"Base trend is WAIT"
@@ -272,6 +285,7 @@ public final class FiveSecondSignalEngine {
                     :liveConflict?"Live momentum/price-action conflict • opposing flow, MACD or counter-move"
                     :counterTrendConflict?"Live trend/EMA conflict • entry blocked"
                     :!microReady?"Collecting short live tick window"
+                    :!repeatedSideQuality?"Repeated "+proposedSide+" blocked • same-zone entry needs fresh ATR-scaled price progress"
                     :choppyTickFlow?"Choppy tick flow • direction reversed "+tickReversals+" times in 3s"
                     :!latestTickFresh?"Waiting for a fresh directional tick"
                     :!latestTickAgree?"Latest tick movement reversed against signal"
