@@ -467,10 +467,6 @@ public final class SignalEngine {
         int bearishVotes=(longBias< -0.12?1:0)+(recentBias< -0.12?1:0)+(reversalBias< -0.12?1:0);
         boolean callCandidate=forecast>entryThreshold && bullishVotes>=2 && bearishVotes<=1;
         boolean putCandidate=forecast< -entryThreshold && bearishVotes>=2 && bullishVotes<=1;
-        EntryQualityGate.Decision callEntryGate=EntryQualityGate.evaluate(1,atr,fastMove,
-                slopeFast,slopeSlow,recentBias,reversalBias,flowBias,pressure,rsi7,rsi7Delta);
-        EntryQualityGate.Decision putEntryGate=EntryQualityGate.evaluate(-1,atr,fastMove,
-                slopeFast,slopeSlow,recentBias,reversalBias,flowBias,pressure,rsi7,rsi7Delta);
         String trendLabel = trend>0 ? "UPTREND" : trend<0 ? "DOWNTREND" : "SIDEWAYS / UNCLEAR";
         int srFrom=Math.max(0,n-25);
         double resistance=Double.NEGATIVE_INFINITY, support=Double.POSITIVE_INFINITY;
@@ -485,8 +481,32 @@ public final class SignalEngine {
         double lowerWick=Math.min(last.open,last.close)-last.low;
         boolean bullBreakout=last.close>resistance && last.close>last.open;
         boolean bearBreakout=last.close<support && last.close<last.open;
+        // A valid escape must clear the barrier with a meaningful body and a close
+        // near the candle extreme. This preserves genuine breakout/retest entries.
+        boolean confirmedBullBreakout=bullBreakout&&last.close>resistance+atr*0.05
+                &&bodyRatio>=0.45&&closePosition>=0.72;
+        boolean confirmedBearBreakout=bearBreakout&&last.close<support-atr*0.05
+                &&bodyRatio>=0.45&&closePosition<=0.28;
         boolean bullRetest=last.low<=resistance+atr*0.12 && last.close>resistance && last.close>last.open;
         boolean bearRetest=last.high>=support-atr*0.12 && last.close<support && last.close<last.open;
+        double resistanceDistanceAtr=(resistance-last.close)/atr;
+        double supportDistanceAtr=(last.close-support)/atr;
+        double recentLeg=Math.abs(last.close-cs.get(n-3).close);
+        double priorLeg=Math.abs(cs.get(n-3).close-cs.get(n-6).close);
+        boolean directionalMomentumFading=(recentBias>0.12&&recentLeg<priorLeg*0.62)
+                ||(recentBias< -0.12&&recentLeg<priorLeg*0.62);
+        boolean nearResistance=resistanceDistanceAtr>=-0.03&&resistanceDistanceAtr<=0.18;
+        boolean nearSupport=supportDistanceAtr>=-0.03&&supportDistanceAtr<=0.18;
+        boolean callHorizonConflict=slopeFast>0.12&&slopeSlow< -0.10;
+        boolean putHorizonConflict=slopeFast< -0.12&&slopeSlow>0.10;
+        boolean callLevelRisk=nearResistance&&(directionalMomentumFading||callHorizonConflict||reversalBias< -0.08);
+        boolean putLevelRisk=nearSupport&&(directionalMomentumFading||putHorizonConflict||reversalBias>0.08);
+        EntryQualityGate.Decision callEntryGate=EntryQualityGate.evaluate(1,atr,fastMove,
+                slopeFast,slopeSlow,recentBias,reversalBias,flowBias,pressure,rsi7,rsi7Delta,
+                resistanceDistanceAtr,confirmedBullBreakout,callLevelRisk);
+        EntryQualityGate.Decision putEntryGate=EntryQualityGate.evaluate(-1,atr,fastMove,
+                slopeFast,slopeSlow,recentBias,reversalBias,flowBias,pressure,rsi7,rsi7Delta,
+                supportDistanceAtr,confirmedBearBreakout,putLevelRisk);
         String structureLabel = sweep>0 ? "BULLISH LIQUIDITY SWEEP"
                 : sweep<0 ? "BEARISH LIQUIDITY SWEEP"
                 : failedBreak>0 ? "BULLISH FAILED BREAKOUT"
@@ -522,7 +542,8 @@ public final class SignalEngine {
                 supertrend,microStructure,dominant,emaStackVote,fastMove,pressure,flowBias,stairBias,alternatingBias,
                 pattern,exhaustion,turning,multiScale,sweep,failedBreak,pullback,
                 recentBias,callEntryGate.blocked,callEntryGate.reason,putEntryGate.blocked,putEntryGate.reason,
-                support,resistance,bearishAbsorption,bullishAbsorption,bookVote,freshDepthBias);
+                support,resistance,supportDistanceAtr,resistanceDistanceAtr,directionalMomentumFading,
+                bearishAbsorption,bullishAbsorption,bookVote,freshDepthBias);
         String analysisText = "MARKET TREND: "+trendLabel+" ("+regime+")"
                 + "\nPRICE ACTION: "+actionLabel
                 + "\nPATTERN: "+patternLabel
