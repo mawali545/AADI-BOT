@@ -27,9 +27,8 @@ public class FiveSecondDailyContextTest {
         assertTrue(tracker.summary("EURUSD_otc",1.1020,now).contains("YESTERDAY O/C"));
     }
 
-    @Test public void fiveSecondSignalRequiresTrendDailyAndTickAgreement() {
+    @Test public void fiveSecondSignalRunsAutomaticallyWhenTrendDailyAndTicksAgree() {
         FiveSecondSignalEngine e=new FiveSecondSignalEngine();
-        e.requestScan();
         long t=System.currentTimeMillis();
         e.onTick("EURUSD_otc",1.10000,t,"CALL",1,"daily aligned","base trend CALL");
         e.onTick("EURUSD_otc",1.10001,t+1000,"CALL",1,"daily aligned","base trend CALL");
