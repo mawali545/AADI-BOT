@@ -74,6 +74,7 @@ public class SignalEngineHistoryTest {
                     .put("close", close));
         }
         assertEquals(30, engine.importHistoricalCandles("EURUSD_otc", rows));
+        engine.requestScan();
         engine.onTick("EURUSD_otc", 1.10310, currentBucket + 1);
         engine.onTick("EURUSD_otc", 1.10320, currentBucket + 9);
         SignalEngine.Result nextBar = engine.onTick("EURUSD_otc", 1.10320, currentBucket + 10);
@@ -92,6 +93,7 @@ public class SignalEngineHistoryTest {
                     .put("low",open-0.00002).put("close",close));
         }
         assertEquals(30,engine.importHistoricalCandles("EURUSD_otc",rows));
+        engine.requestScan();
         engine.onTick("EURUSD_otc",1.10310,currentBucket+1);
         SignalEngine.Result first=engine.onTick("EURUSD_otc",1.10320,currentBucket+2);
         assertTrue(first.analysis.contains("10S NEXT-CANDLE FORECAST ACCURACY"));
