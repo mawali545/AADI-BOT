@@ -59,14 +59,15 @@ public class FiveSecondDailyContextTest {
         assertTrue(r.analysis.contains("crossed entry during hold"));
     }
 
-    @Test public void dailyConflictIsRecordedButLiveMomentumCanStillConfirmCall() {
+    @Test public void opposingDailyBiasBlocksCountertrendCall() {
         FiveSecondSignalEngine e=new FiveSecondSignalEngine();
         long t=System.currentTimeMillis();
         e.onTick("EURUSD_otc",1.1,t,"CALL",-1,"daily bearish","base trend CALL");
         e.onTick("EURUSD_otc",1.1001,t+1000,"CALL",-1,"daily bearish","base trend CALL");
         e.onTick("EURUSD_otc",1.1002,t+2000,"CALL",-1,"daily bearish","base trend CALL");
         FiveSecondSignalEngine.Result r=e.onTick("EURUSD_otc",1.1003,t+3000,"CALL",-1,"daily bearish","base trend CALL");
-        assertEquals("CALL",r.signal);
+        assertEquals("WAIT",r.signal);
+        assertTrue(r.analysis.contains("Countertrend blocked"));
         assertTrue(r.analysis.contains("daily bearish"));
     }
 
