@@ -1,6 +1,7 @@
 package com.aadi.bot;
 
 import static org.junit.Assert.*;
+import org.json.JSONArray;
 import org.junit.Test;
 
 public class EntryQualityGateTest {
