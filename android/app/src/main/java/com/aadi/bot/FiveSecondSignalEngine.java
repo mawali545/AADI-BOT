@@ -67,7 +67,7 @@ public final class FiveSecondSignalEngine {
                 boolean win=finalSide;
                 JSONObject settledEvent=new JSONObject();
                 try {
-                    settledEvent.put("type","SETTLED");settledEvent.put("asset",asset);
+                    settledEvent.put("type","SETTLED");settledEvent.put("tradeId",Long.toString(pending.at));settledEvent.put("asset",asset);
                     settledEvent.put("signal",pending.side);settledEvent.put("entryTimeMs",pending.at);
                     settledEvent.put("entryPrice",pending.price);settledEvent.put("expiryTimeMs",expiryAt);
                     settledEvent.put("expiryPrice",expiryPrice);settledEvent.put("heldAboveBelowEntry",pending.held);
@@ -77,6 +77,8 @@ public final class FiveSecondSignalEngine {
                     settledEvent.put("microMove3s",pending.move);settledEvent.put("microMove1s",pending.recent);
                     settledEvent.put("tickCountAtEntry",pending.tickCount);
                     settledEvent.put("outcome",expiryPrice==pending.price?"FLAT":win?"WIN":"LOSS");
+                    settledEvent.put("settledCount",settled+(expiryPrice==pending.price?0:1));
+                    settledEvent.put("wins",wins+(! (expiryPrice==pending.price) && win?1:0));
                 } catch(Exception ignored) {}
                 audit.put(settledEvent);
                 if(expiryPrice==pending.price)lastOutcome="5s FLAT • not counted";
@@ -85,7 +87,7 @@ public final class FiveSecondSignalEngine {
             } else if(expiryQuote!=null&&!pending.feedContinuous){
                 JSONObject unverified=new JSONObject();
                 try {
-                    unverified.put("type","UNVERIFIED");unverified.put("asset",asset);
+                    unverified.put("type","UNVERIFIED");unverified.put("tradeId",Long.toString(pending.at));unverified.put("asset",asset);
                     unverified.put("signal",pending.side);unverified.put("entryTimeMs",pending.at);
                     unverified.put("entryPrice",pending.price);unverified.put("expiryTimeMs",expiryAt);
                     unverified.put("feedContinuous",false);unverified.put("reason","Live tick stream had a gap over 1.5 seconds");
@@ -99,7 +101,7 @@ public final class FiveSecondSignalEngine {
             } else if(timeMs>expiryAt+1500L){
                 JSONObject unverified=new JSONObject();
                 try {
-                    unverified.put("type","UNVERIFIED");unverified.put("asset",asset);
+                    unverified.put("type","UNVERIFIED");unverified.put("tradeId",Long.toString(pending.at));unverified.put("asset",asset);
                     unverified.put("signal",pending.side);unverified.put("entryTimeMs",pending.at);
                     unverified.put("entryPrice",pending.price);unverified.put("expiryTimeMs",expiryAt);
                     unverified.put("feedContinuous",pending.feedContinuous);unverified.put("reason","No quote within 1 second of expiry");
@@ -114,7 +116,7 @@ public final class FiveSecondSignalEngine {
         }
         if(pending!=null){
             latest=new Result(pending.side,"5-second trade active • expiry check in progress",
-                    baseAnalysis+"\n"+dailySummary+"\n5s ENTRY: "+String.format(Locale.US,"%.6f",pending.price)+" | expiry in "+Math.max(0,5000-(timeMs-pending.at))+"ms\n"+lastOutcome,
+                    baseAnalysis+"\n"+dailySummary+"\n5s ENTRY: "+String.format(Locale.US,"%.6f",pending.price)+" | expiry in "+Math.max(0,5000-(timeMs-pending.at))+"ms\n"+lastOutcome+"\n"+performanceLine(),
                     audit.toString());
             return latest;
         }
@@ -131,34 +133,49 @@ public final class FiveSecondSignalEngine {
         double move=old==null?0:price-old.p;
         double recent=near==null?0:price-near.p;
         boolean microAgree=side>0?move>0&&recent>0:side<0&&move<0&&recent<0;
-        boolean eligible=side!=0&&microReady&&microAgree
+        boolean dailyConflict=(side>0&&dailyBias<0)||(side<0&&dailyBias>0);
+        boolean trendEmaConflict=side>0
+                ? baseAnalysis!=null&&baseAnalysis.contains("MARKET TREND: DOWNTREND")
+                    &&baseAnalysis.contains("EMA stack BEARISH")
+                : side<0&&baseAnalysis!=null&&baseAnalysis.contains("MARKET TREND: UPTREND")
+                    &&baseAnalysis.contains("EMA stack BULLISH");
+        boolean counterTrendConflict=dailyConflict||trendEmaConflict;
+        boolean eligible=side!=0&&microReady&&microAgree&&!counterTrendConflict
                 &&timeMs-lastIssued>=7000L;
         if(eligible){
             pending=new Pending(side>0?"CALL":"PUT",timeMs,price,baseSignal,dailyBias,dailySummary,baseAnalysis,move,recent,ticks.size());
             lastIssued=timeMs;
             JSONObject issuedEvent=new JSONObject();
             try {
-                issuedEvent.put("type","ISSUED");issuedEvent.put("asset",asset);
+                issuedEvent.put("type","ISSUED");issuedEvent.put("tradeId",Long.toString(timeMs));issuedEvent.put("asset",asset);
                 issuedEvent.put("signal",pending.side);issuedEvent.put("entryTimeMs",timeMs);
                 issuedEvent.put("entryPrice",price);issuedEvent.put("baseSignal",baseSignal);
                 issuedEvent.put("dailyBias",dailyBias);issuedEvent.put("dailySummary",dailySummary);
                 issuedEvent.put("baseAnalysis",baseAnalysis);issuedEvent.put("microMove3s",move);
                 issuedEvent.put("microMove1s",recent);issuedEvent.put("microAgree",microAgree);
                 issuedEvent.put("tickCountAtEntry",ticks.size());issuedEvent.put("expirySeconds",5);
+                issuedEvent.put("settledCount",settled);issuedEvent.put("wins",wins);
+                issuedEvent.put("accuracyPct",settled>0?100.0*wins/settled:-1.0);
             } catch(Exception ignored) {}
             audit.put(issuedEvent);
             latest=new Result(pending.side,"5-second signal • base trend and live tick momentum aligned",
                     baseAnalysis+"\n"+dailySummary+"\n5s MOMENTUM: "+String.format(Locale.US,"net %+.6f / last-second %+.6f",move,recent)
-                    +"\n5s ENTRY: "+String.format(Locale.US,"%.6f",price)+" | expiry 5 seconds\n"+lastOutcome,
+                    +"\n5s ENTRY: "+String.format(Locale.US,"%.6f",price)+" | expiry 5 seconds\n"+lastOutcome+"\n"+performanceLine(),
                     audit.toString());
         } else {
             String why=side==0?"Base trend is WAIT"
+                    :counterTrendConflict?"Countertrend blocked • daily bias or market trend + EMA stack conflict"
                     :!microReady?"Collecting short live tick window":"Short-term ticks do not confirm direction";
             latest=new Result("WAIT","WAIT • "+why,
                     baseAnalysis+"\n"+dailySummary+"\n5s CHECK: "+why+"\n"+lastOutcome
-                    +" | settled "+settled+" | wins "+wins
-                    +(settled>=5?String.format(Locale.US," | observed %.1f%%",100.0*wins/settled):""),audit.toString());
+                    +"\n"+performanceLine(),audit.toString());
         }
         return latest;
+    }
+
+    private String performanceLine() {
+        return settled==0 ? "5S SETTLED ACCURACY: waiting for first verified result"
+                : String.format(Locale.US,"5S SETTLED ACCURACY: %.1f%% (%d wins / %d settled)",
+                        100.0*wins/settled,wins,settled);
     }
 }
