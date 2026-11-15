@@ -213,8 +213,24 @@ public final class FiveSecondSignalEngine {
         double flow=extractMetric(baseAnalysis,"flow");
         double reversalBias=extractMetric(baseAnalysis,"reversalBias");
         double recentBias=extractMetric(baseAnalysis,"recentBias");
+        double supportLevel=extractMetric(baseAnalysis,"support");
+        double resistanceLevel=extractMetric(baseAnalysis,"resistance");
+        double supportDistanceAtr=Double.isFinite(atr)&&atr>0&&Double.isFinite(supportLevel)
+                ?(price-supportLevel)/atr:Double.NaN;
+        double resistanceDistanceAtr=Double.isFinite(atr)&&atr>0&&Double.isFinite(resistanceLevel)
+                ?(resistanceLevel-price)/atr:Double.NaN;
+        double opposingLevelDistanceAtr=side>0?resistanceDistanceAtr:supportDistanceAtr;
+        boolean momentumFading=baseAnalysis!=null&&baseAnalysis.contains("momentumFading true");
+        boolean confirmedBreakout=side>0
+                ?baseAnalysis!=null&&baseAnalysis.contains("BULLISH BREAKOUT")&&Double.isFinite(resistanceLevel)&&price>resistanceLevel
+                :side<0&&baseAnalysis!=null&&baseAnalysis.contains("BEARISH BREAKDOWN")
+                    &&Double.isFinite(supportLevel)&&price<supportLevel;
+        boolean fadingAtLevel=momentumFading
+                ||(side>0&&Double.isFinite(reversalBias)&&reversalBias< -0.08)
+                ||(side<0&&Double.isFinite(reversalBias)&&reversalBias>0.08);
         EntryQualityGate.Decision entryQuality=EntryQualityGate.evaluate(side,atr,fastMove,
-                slope5,slope12,recentBias,reversalBias,flow,pressure,auditRsi7,auditRsi7Delta);
+                slope5,slope12,recentBias,reversalBias,flow,pressure,auditRsi7,auditRsi7Delta,
+                opposingLevelDistanceAtr,confirmedBreakout,fadingAtLevel);
         int opposingPriceVotes=0;
         if(side>0){
             if(Double.isFinite(flow)&&flow< -0.08)opposingPriceVotes++;
