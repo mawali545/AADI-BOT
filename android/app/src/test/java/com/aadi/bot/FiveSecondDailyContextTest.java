@@ -136,6 +136,24 @@ public class FiveSecondDailyContextTest {
         assertTrue(r.reason.contains("Entry quality blocked"));
     }
 
+
+    @Test public void blocksCallWhenFastAndMediumTimeframesDisagreeEitherWay() {
+        FiveSecondSignalEngine e=new FiveSecondSignalEngine();
+        e.requestScan();
+        long t=System.currentTimeMillis();
+        String audit="MARKET TREND: UPTREND\\nMOMENTUM: RSI14 58.0 | MACD BULLISH | ADX 30.0 | EMA stack BULLISH\\n"
+                +"FINAL CHECK: forecast +0.45 | threshold 0.25\\n"
+                +"CALC AUDIT: ATR 0.00010000 | reversalBias +0.02 | forecast +0.45 | threshold 0.25\\n"
+                +"TREND/FLOW: slope5 -0.35 | slope12 +0.42 | MACDvote +0.70 | DI+ 32 | DI- 18 | ADX 30 | DMIvote +0.40 | Supertrend 1 | dominant 1\\n"
+                +"PRICE ACTION: fastMove +0.00002000 | pressure +0.20 | flow +0.20";
+        e.onTick("EURUSD_otc",1.10000,t,"CALL",0,"daily WAIT",audit);
+        e.onTick("EURUSD_otc",1.10001,t+1000,"CALL",0,"daily WAIT",audit);
+        e.onTick("EURUSD_otc",1.10002,t+2000,"CALL",0,"daily WAIT",audit);
+        FiveSecondSignalEngine.Result r=e.onTick("EURUSD_otc",1.10003,t+3000,"CALL",0,"daily WAIT",audit);
+        assertEquals("WAIT",r.signal);
+        assertTrue(r.reason.contains("Multi-timeframe momentum conflict"));
+    }
+
     private JSONObject candle(long t,double o,double h,double l,double c) throws Exception {
         return new JSONObject().put("timestamp",t).put("open",o).put("high",h).put("low",l).put("close",c);
     }
