@@ -39,8 +39,12 @@ public class FiveSecondDailyContextTest {
         e.onTick("EURUSD_otc",1.100045,t+5000,"CALL",1,"daily aligned","base trend CALL");
         e.onTick("EURUSD_otc",1.100046,t+6000,"CALL",1,"daily aligned","base trend CALL");
         e.onTick("EURUSD_otc",1.100047,t+7000,"CALL",1,"daily aligned","base trend CALL");
-        FiveSecondSignalEngine.Result settled=e.onTick("EURUSD_otc",1.10005,t+8000,"CALL",1,"daily aligned","base trend CALL");
-        assertTrue(settled.analysis.contains("5s WIN"));
+        e.onTick("EURUSD_otc",1.100048,t+9000,"CALL",1,"daily aligned","base trend CALL");
+        e.onTick("EURUSD_otc",1.100049,t+10000,"CALL",1,"daily aligned","base trend CALL");
+        e.onTick("EURUSD_otc",1.100050,t+11000,"CALL",1,"daily aligned","base trend CALL");
+        e.onTick("EURUSD_otc",1.100051,t+12000,"CALL",1,"daily aligned","base trend CALL");
+        FiveSecondSignalEngine.Result settled=e.onTick("EURUSD_otc",1.100052,t+13000,"CALL",1,"daily aligned","base trend CALL");
+        assertTrue(settled.analysis.contains("10s WIN"));
     }
 
     @Test public void fiveSecondSignalWinsIfExpiryRecoversAfterTemporaryEntryCross() {
@@ -54,8 +58,12 @@ public class FiveSecondDailyContextTest {
         e.onTick("EURUSD_otc",1.10004,t+5000,"CALL",1,"daily aligned","base trend CALL");
         e.onTick("EURUSD_otc",1.10004,t+6000,"CALL",1,"daily aligned","base trend CALL");
         e.onTick("EURUSD_otc",1.10004,t+7000,"CALL",1,"daily aligned","base trend CALL");
-        FiveSecondSignalEngine.Result r=e.onTick("EURUSD_otc",1.10005,t+8000,"CALL",1,"daily aligned","base trend CALL");
-        assertTrue(r.analysis.contains("5s WIN"));
+        e.onTick("EURUSD_otc",1.100045,t+9000,"CALL",1,"daily aligned","base trend CALL");
+        e.onTick("EURUSD_otc",1.100046,t+10000,"CALL",1,"daily aligned","base trend CALL");
+        e.onTick("EURUSD_otc",1.100047,t+11000,"CALL",1,"daily aligned","base trend CALL");
+        e.onTick("EURUSD_otc",1.100048,t+12000,"CALL",1,"daily aligned","base trend CALL");
+        FiveSecondSignalEngine.Result r=e.onTick("EURUSD_otc",1.10005,t+13000,"CALL",1,"daily aligned","base trend CALL");
+        assertTrue(r.analysis.contains("10s WIN"));
         assertTrue(r.analysis.contains("crossed entry during hold"));
     }
 
