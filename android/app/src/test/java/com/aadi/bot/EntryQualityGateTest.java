@@ -42,4 +42,17 @@ public class EntryQualityGateTest {
                 -0.20,-0.18,-0.22,-0.15,-0.16,78.0,-2.0);
         assertTrue(d.blocked);
     }
+
+    @Test public void auditParserReadsExplicitPlusSigns() throws Exception {
+        FiveSecondSignalEngine engine=new FiveSecondSignalEngine();
+        java.lang.reflect.Method parse=FiveSecondSignalEngine.class
+                .getDeclaredMethod("extractMetric",String.class,String.class);
+        parse.setAccessible(true);
+        String audit="slope5 +0.636 | fastMove +0.000030 | pressure +0.200 | flow +0.300"
+                +" | RSI7 26.59 | RSI7delta +1.50 | recentBias +0.250";
+        assertEquals(0.636,(Double)parse.invoke(engine,audit,"slope5"),0.000001);
+        assertEquals(0.000030,(Double)parse.invoke(engine,audit,"fastMove"),0.0000001);
+        assertEquals(1.50,(Double)parse.invoke(engine,audit,"RSI7delta"),0.000001);
+        assertEquals(0.250,(Double)parse.invoke(engine,audit,"recentBias"),0.000001);
+    }
 }
