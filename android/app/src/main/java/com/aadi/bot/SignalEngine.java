@@ -187,9 +187,9 @@ public final class SignalEngine {
 
     private String refreshAccuracyLine(String analysis) {
         String base = analysis == null ? "" : analysis;
-        int at = base.indexOf("\nOBSERVED ACCURACY:");
+        int at = base.indexOf("\n10S CANDLE FORECAST ACCURACY:");
         if (at >= 0) base = base.substring(0, at);
-        return base + "\nOBSERVED ACCURACY: " + accuracyLabel();
+        return base + "\n10S CANDLE FORECAST ACCURACY: " + accuracyLabel();
     }
 
     private void appendClosedLiveCandle(Candle completed) {
@@ -507,7 +507,7 @@ public final class SignalEngine {
                 + String.format(Locale.US,"\nFINAL CHECK: forecast %+.2f | threshold %.2f | votes bull %d / bear %d",
                         forecast,entryThreshold,bullishVotes,bearishVotes)
                 + "\n"+calculationDetail
-                + "\nOBSERVED ACCURACY: "+accuracyLabel();
+                + "\n10S CANDLE FORECAST ACCURACY: "+accuracyLabel();
 
         // No absorption event can manufacture a directional signal by itself.
         if(forecast>entryThreshold && bullishVotes>=2 && bearishVotes<=1) {
