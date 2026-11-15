@@ -200,7 +200,35 @@ public final class FiveSecondSignalEngine {
             if(Double.isFinite(dmiVote)&&dmiVote>0.15)opposingLiveVotes++;
             if(Double.isFinite(diPlus)&&Double.isFinite(diMinus)&&diPlus>diMinus)opposingLiveVotes++;
         }
-        boolean liveConflict=opposingLiveVotes>=2;
+        // Price-action evidence is evaluated separately from the broad trend votes.
+        // This prevents a bullish EMA/DI stack from hiding a short-term rollover.
+        double atr=extractMetric(baseAnalysis,"ATR");
+        double fastMove=extractMetric(baseAnalysis,"fastMove");
+        double pressure=extractMetric(baseAnalysis,"pressure");
+        double flow=extractMetric(baseAnalysis,"flow");
+        double reversalBias=extractMetric(baseAnalysis,"reversalBias");
+        int opposingPriceVotes=0;
+        if(side>0){
+            if(Double.isFinite(flow)&&flow< -0.08)opposingPriceVotes++;
+            if(Double.isFinite(pressure)&&pressure< -0.12)opposingPriceVotes++;
+            if(Double.isFinite(fastMove)&&Double.isFinite(atr)&&atr>0&&fastMove< -atr*0.10)opposingPriceVotes++;
+            if(Double.isFinite(reversalBias)&&reversalBias< -0.12)opposingPriceVotes++;
+        } else if(side<0){
+            if(Double.isFinite(flow)&&flow>0.08)opposingPriceVotes++;
+            if(Double.isFinite(pressure)&&pressure>0.12)opposingPriceVotes++;
+            if(Double.isFinite(fastMove)&&Double.isFinite(atr)&&atr>0&&fastMove>atr*0.10)opposingPriceVotes++;
+            if(Double.isFinite(reversalBias)&&reversalBias>0.12)opposingPriceVotes++;
+        }
+        // A very large counter-move cannot be dismissed as a harmless pullback
+        // unless the reversal layer itself confirms the proposed entry.
+        boolean strongCounterMove=side>0
+                ? Double.isFinite(fastMove)&&Double.isFinite(atr)&&atr>0
+                    &&fastMove< -atr*0.65&&(!Double.isFinite(reversalBias)||reversalBias<0.18)
+                : side<0&&Double.isFinite(fastMove)&&Double.isFinite(atr)&&atr>0
+                    &&fastMove>atr*0.65&&(!Double.isFinite(reversalBias)||reversalBias> -0.18);
+        boolean liveConflict=opposingLiveVotes>=2
+                ||(opposingLiveVotes>=1&&opposingPriceVotes>=1)
+                ||opposingPriceVotes>=2||strongCounterMove;
         double[] forecastThreshold=extractForecastThreshold(baseAnalysis);
         boolean weakForecastMargin=forecastThreshold!=null
                 &&Math.abs(forecastThreshold[0])-forecastThreshold[1]<forecastThreshold[1]*0.12;
@@ -234,7 +262,7 @@ public final class FiveSecondSignalEngine {
             String why=side==0?"Base trend is WAIT"
                     :exhaustionConflict?"Exhaustion caution • RSI extreme with opposing MACD"
                     :weakForecastMargin?"Weak forecast margin • signal too close to minimum threshold"
-                    :liveConflict?"Live momentum conflict • multiple indicators oppose signal direction"
+                    :liveConflict?"Live momentum/price-action conflict • opposing flow, MACD or counter-move"
                     :counterTrendConflict?"Live trend/EMA conflict • entry blocked"
                     :!microReady?"Collecting short live tick window"
                     :choppyTickFlow?"Choppy tick flow • direction reversed "+tickReversals+" times in 3s"
