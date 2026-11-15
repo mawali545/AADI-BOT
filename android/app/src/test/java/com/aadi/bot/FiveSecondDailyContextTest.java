@@ -39,6 +39,7 @@ public class FiveSecondDailyContextTest {
         e.onTick("EURUSD_otc",1.100045,t+5000,"CALL",1,"daily aligned","base trend CALL");
         e.onTick("EURUSD_otc",1.100046,t+6000,"CALL",1,"daily aligned","base trend CALL");
         e.onTick("EURUSD_otc",1.100047,t+7000,"CALL",1,"daily aligned","base trend CALL");
+        e.onTick("EURUSD_otc",1.1000475,t+8000,"CALL",1,"daily aligned","base trend CALL");
         e.onTick("EURUSD_otc",1.100048,t+9000,"CALL",1,"daily aligned","base trend CALL");
         e.onTick("EURUSD_otc",1.100049,t+10000,"CALL",1,"daily aligned","base trend CALL");
         e.onTick("EURUSD_otc",1.100050,t+11000,"CALL",1,"daily aligned","base trend CALL");
@@ -58,6 +59,7 @@ public class FiveSecondDailyContextTest {
         e.onTick("EURUSD_otc",1.10004,t+5000,"CALL",1,"daily aligned","base trend CALL");
         e.onTick("EURUSD_otc",1.10004,t+6000,"CALL",1,"daily aligned","base trend CALL");
         e.onTick("EURUSD_otc",1.10004,t+7000,"CALL",1,"daily aligned","base trend CALL");
+        e.onTick("EURUSD_otc",1.100042,t+8000,"CALL",1,"daily aligned","base trend CALL");
         e.onTick("EURUSD_otc",1.100045,t+9000,"CALL",1,"daily aligned","base trend CALL");
         e.onTick("EURUSD_otc",1.100046,t+10000,"CALL",1,"daily aligned","base trend CALL");
         e.onTick("EURUSD_otc",1.100047,t+11000,"CALL",1,"daily aligned","base trend CALL");
