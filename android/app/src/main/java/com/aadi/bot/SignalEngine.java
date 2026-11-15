@@ -470,7 +470,7 @@ public final class SignalEngine {
         EntryQualityGate.Decision callEntryGate=EntryQualityGate.evaluate(1,atr,fastMove,
                 slopeFast,slopeSlow,recentBias,reversalBias,flowBias,pressure,rsi7,rsi7Delta);
         EntryQualityGate.Decision putEntryGate=EntryQualityGate.evaluate(-1,atr,fastMove,
-                slopeFast,recentBias,reversalBias,flowBias,pressure,rsi7,rsi7Delta);
+                slopeFast,slopeSlow,recentBias,reversalBias,flowBias,pressure,rsi7,rsi7Delta);
         String trendLabel = trend>0 ? "UPTREND" : trend<0 ? "DOWNTREND" : "SIDEWAYS / UNCLEAR";
         int srFrom=Math.max(0,n-25);
         double resistance=Double.NEGATIVE_INFINITY, support=Double.POSITIVE_INFINITY;
