@@ -139,7 +139,14 @@ public final class FiveSecondSignalEngine {
                     &&baseAnalysis.contains("EMA stack BEARISH")
                 : side<0&&baseAnalysis!=null&&baseAnalysis.contains("MARKET TREND: UPTREND")
                     &&baseAnalysis.contains("EMA stack BULLISH");
-        boolean counterTrendConflict=dailyConflict||trendEmaConflict;
+        // Avoid chasing an exhausted move when the oscillator is stretched
+        // and MACD has already turned against the proposed direction.
+        double auditRsi14=extractMetric(baseAnalysis,"RSI14");
+        boolean macdBullish=baseAnalysis!=null&&baseAnalysis.contains("MACD BULLISH");
+        boolean macdBearish=baseAnalysis!=null&&baseAnalysis.contains("MACD BEARISH");
+        boolean exhaustionConflict=(side<0&&auditRsi14>0&&auditRsi14<=30.0&&macdBullish)
+                ||(side>0&&auditRsi14>=70.0&&macdBearish);
+        boolean counterTrendConflict=dailyConflict||trendEmaConflict||exhaustionConflict;
         boolean eligible=side!=0&&microReady&&microAgree&&!counterTrendConflict
                 &&timeMs-lastIssued>=7000L;
         if(eligible){
@@ -164,6 +171,7 @@ public final class FiveSecondSignalEngine {
                     audit.toString());
         } else {
             String why=side==0?"Base trend is WAIT"
+                    :exhaustionConflict?"Exhaustion caution • RSI extreme with opposing MACD"
                     :counterTrendConflict?"Countertrend blocked • daily bias or market trend + EMA stack conflict"
                     :!microReady?"Collecting short live tick window":"Short-term ticks do not confirm direction";
             latest=new Result("WAIT","WAIT • "+why,
@@ -171,6 +179,14 @@ public final class FiveSecondSignalEngine {
                     +"\n"+performanceLine(),audit.toString());
         }
         return latest;
+    }
+
+    private double extractMetric(String analysis,String key) {
+        if(analysis==null||key==null)return Double.NaN;
+        java.util.regex.Matcher m=java.util.regex.Pattern
+                .compile(java.util.regex.Pattern.quote(key)+"\\s+(-?\\d+(?:\\.\\d+)?)")
+                .matcher(analysis);
+        return m.find()?Double.parseDouble(m.group(1)):Double.NaN;
     }
 
     private String performanceLine() {
