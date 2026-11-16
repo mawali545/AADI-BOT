@@ -451,6 +451,176 @@ public class MainActivity extends Activity {
         }
     }
 
+
+    // JavaScript bridge used by the live Market-QX WebSocket hook.
+    private class Bridge {
+        @JavascriptInterface public void onLoginState(boolean loggedIn) {
+            runOnUiThread(() -> {
+                botActive = loggedIn;
+                if (!loggedIn) {
+                    latestLiveTickMs = 0;
+                    latestLivePrice = Double.NaN;
+                    latestLiveFeedTimeMs = 0;
+                    synchronized (aiRecentTicks) { aiRecentTicks.clear(); }
+                    synchronized (aiRecentCandles) { aiRecentCandles.clear(); }
+                    if (signalView != null) { signalView.setText("WAIT"); signalView.setTextColor(Color.WHITE); }
+                    if (scanStatus != null) scanStatus.setText("WAIT • Market-QX login/feed disconnected");
+                } else if (scanStatus != null) {
+                    scanStatus.setText("QX LOGIN DETECTED • Waiting for genuine ticks and candles");
+                }
+            });
+        }
+
+        @JavascriptInterface public void onSocket(String message) {
+            runOnUiThread(() -> {
+                if (status != null) status.setText("AADI • " + message);
+                if (message != null && message.contains("CLOSED")) {
+                    latestLiveTickMs = 0;
+                    latestLivePrice = Double.NaN;
+                    latestLiveFeedTimeMs = 0;
+                    synchronized (aiRecentTicks) { aiRecentTicks.clear(); }
+                    synchronized (aiRecentCandles) { aiRecentCandles.clear(); }
+                    if (signalView != null) { signalView.setText("WAIT"); signalView.setTextColor(Color.WHITE); }
+                    if (scanStatus != null) scanStatus.setText("QX SOCKET CLOSED • Waiting for reconnect");
+                }
+            });
+        }
+
+        @JavascriptInterface public synchronized void onAssetChanged(String asset) {
+            if (asset == null || asset.trim().isEmpty()) return;
+            activeMarketAsset = asset;
+            latestLivePrice = Double.NaN;
+            latestLiveTickMs = 0;
+            latestLiveFeedTimeMs = 0;
+            receivedTicks = 0;
+            aiTradeEntryTime = 0;
+            aiTradeEntryPrice = Double.NaN;
+            aiTradeSide = "";
+            aiTradeReason = "";
+            synchronized (aiRecentTicks) { aiRecentTicks.clear(); }
+            synchronized (aiRecentCandles) { aiRecentCandles.clear(); }
+            runOnUiThread(() -> {
+                if (lastTick != null) lastTick.setText(asset + " • Waiting for genuine QX ticks");
+                if (signalView != null) { signalView.setText("WAIT"); signalView.setTextColor(Color.WHITE); }
+                if (scanStatus != null) scanStatus.setText("QX ASSET • " + asset + " • Loading real candles");
+            });
+        }
+
+        @JavascriptInterface public void onDepthStatus(String message) {
+            runOnUiThread(() -> {
+                if (scanStatus != null && message != null && message.startsWith("Historical candles request"))
+                    scanStatus.setText("QX HISTORY • " + message);
+            });
+        }
+
+        @JavascriptInterface public void onDepthMessage(String json) {
+            // Depth packets are diagnostic only; the AI decision uses the chart, candles and ticks.
+        }
+
+        @JavascriptInterface public synchronized void onHistory(String json) {
+            try {
+                JSONObject packet = new JSONObject(json);
+                String asset = packet.optString("asset", "");
+                JSONArray rows = packet.optJSONArray("candles");
+                if (!botActive || !activeMarketAsset.equals(asset) || rows == null) return;
+                synchronized (aiRecentCandles) {
+                    for (int i = 0; i < rows.length(); i++) {
+                        JSONObject row = rows.optJSONObject(i);
+                        if (row == null) continue;
+                        long stamp = row.optLong("timestamp", 0);
+                        if (stamp > 0 && stamp < 10000000000L) stamp *= 1000L;
+                        double open = row.optDouble("open", Double.NaN);
+                        double high = row.optDouble("high", Double.NaN);
+                        double low = row.optDouble("low", Double.NaN);
+                        double close = row.optDouble("close", Double.NaN);
+                        if (stamp <= 0 || !Double.isFinite(open) || !Double.isFinite(high)
+                                || !Double.isFinite(low) || !Double.isFinite(close)
+                                || open <= 0 || close <= 0 || low <= 0
+                                || high < Math.max(open, close) || low > Math.min(open, close)) continue;
+                        JSONObject candle = new JSONObject();
+                        candle.put("timestamp", stamp);
+                        candle.put("open", open);
+                        candle.put("high", high);
+                        candle.put("low", low);
+                        candle.put("close", close);
+                        boolean duplicate = false;
+                        for (JSONObject old : aiRecentCandles)
+                            if (old.optLong("timestamp") == stamp) { duplicate = true; break; }
+                        if (!duplicate) aiRecentCandles.addLast(candle);
+                    }
+                    while (aiRecentCandles.size() > 60) aiRecentCandles.removeFirst();
+                }
+                final int count;
+                synchronized (aiRecentCandles) { count = aiRecentCandles.size(); }
+                runOnUiThread(() -> {
+                    if (scanStatus != null) scanStatus.setText("QX HISTORY RECEIVED • " + count + " genuine candles");
+                });
+            } catch (Exception ignored) { }
+        }
+
+        @JavascriptInterface public synchronized void onTick(String json) {
+            try {
+                JSONObject packet = new JSONObject(json);
+                String asset = packet.optString("asset", "");
+                double price = packet.optDouble("price", Double.NaN);
+                double ts = packet.optDouble("timestamp", 0);
+                if (!botActive || asset.isEmpty() || !asset.equals(activeMarketAsset)
+                        || !Double.isFinite(price) || price <= 0 || !Double.isFinite(ts)) return;
+                double seconds = ts > 10000000000.0 ? ts / 1000.0 : ts;
+                long feedTimeMs = (long) (seconds * 1000.0);
+                long wallMs = System.currentTimeMillis();
+                if (feedTimeMs <= 0 || feedTimeMs < wallMs - 45000L || feedTimeMs > wallMs + 8000L) return;
+                latestLivePrice = price;
+                latestLiveTickMs = wallMs;
+                latestLiveFeedTimeMs = feedTimeMs;
+                JSONObject tick = new JSONObject();
+                tick.put("timestamp", feedTimeMs);
+                tick.put("price", price);
+                synchronized (aiRecentTicks) {
+                    aiRecentTicks.addLast(tick);
+                    while (!aiRecentTicks.isEmpty()
+                            && feedTimeMs - aiRecentTicks.peekFirst().optLong("timestamp") > 60000L)
+                        aiRecentTicks.removeFirst();
+                    while (aiRecentTicks.size() > 120) aiRecentTicks.removeFirst();
+                }
+
+                // Settle a manual AI decision after its 10-second observation window.
+                if (aiTradeEntryTime > 0 && feedTimeMs - aiTradeEntryTime >= 10000L) {
+                    String outcome = "WAIT".equals(aiTradeSide) ? "WAIT"
+                            : (("CALL".equals(aiTradeSide) && price > aiTradeEntryPrice)
+                               || ("PUT".equals(aiTradeSide) && price < aiTradeEntryPrice)) ? "WIN" : "LOSS";
+                    JSONObject event = new JSONObject();
+                    event.put("type", "SETTLED");
+                    event.put("tradeId", Long.toString(aiTradeEntryTime));
+                    event.put("entryTimeMs", aiTradeEntryTime);
+                    event.put("asset", activeMarketAsset);
+                    event.put("signal", aiTradeSide);
+                    event.put("outcome", outcome);
+                    event.put("entryPrice", aiTradeEntryPrice);
+                    event.put("expiryPrice", price);
+                    event.put("baseAnalysis", aiTradeReason);
+                    JSONArray events = new JSONArray();
+                    events.put(event);
+                    persistAuditEvents(events.toString());
+                    aiTradeEntryTime = 0;
+                    aiTradeEntryPrice = Double.NaN;
+                    aiTradeSide = "";
+                    aiTradeReason = "";
+                }
+                final long count = ++receivedTicks;
+                final String line = asset + "  " + price + "  • REAL QX TICK #" + count;
+                if (SystemClock.uptimeMillis() - lastUiTickAt >= 200) {
+                    lastUiTickAt = SystemClock.uptimeMillis();
+                    runOnUiThread(() -> { if (lastTick != null) lastTick.setText(line); });
+                }
+            } catch (Exception e) {
+                runOnUiThread(() -> {
+                    if (scanStatus != null) scanStatus.setText("QX BRIDGE ERROR • " + e.getClass().getSimpleName());
+                });
+            }
+        }
+    }
+
     @Override public void onBackPressed() {
         if (web != null && web.canGoBack()) web.goBack();
         else super.onBackPressed();
