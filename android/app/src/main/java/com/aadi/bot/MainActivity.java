@@ -607,7 +607,7 @@ public class MainActivity extends Activity {
                 String line=asset+"  "+price+"  • TICK #"+count+"  |  REAL QX FEED";
                 if(aiTradeEntryTime<=0&&!geminiReviewPending&&count>=5
                         &&wallMs-lastGeminiRequestAt>=5000L){
-                    String key=GeminiSignalAdvisor.loadApiKey(this);
+                    String key=GeminiSignalAdvisor.loadApiKey(MainActivity.this);
                     if(key.isEmpty()){
                         signalView.setText("WAIT");signalView.setTextColor(Color.WHITE);
                         if(scanStatus!=null)scanStatus.setText("Set up Gemini API key • long-press WINS/LOSSES");
