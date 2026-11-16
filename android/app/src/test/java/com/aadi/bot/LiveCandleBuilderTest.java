@@ -36,9 +36,11 @@ public class LiveCandleBuilderTest {
     @Test public void resetsOnAssetChangeAndIgnoresOutOfOrderTicks() {
         LiveCandleBuilder builder = new LiveCandleBuilder();
         builder.addTick("EURUSD_otc", 3_021_000, 1.0);
-        assertNull(builder.addTick("EURUSD_otc", 3_019_000, 9.0));
+        builder.addTick("EURUSD_otc", 3_022_000, 1.1);
+        assertNull(builder.addTick("EURUSD_otc", 3_021_500, 9.0));
+        assertNull(builder.addTick("EURUSD_otc", 3_019_000, 8.0));
         JSONObject forming = builder.getFormingCandle();
-        assertEquals(1.0, forming.optDouble("close"), 0.0000001);
+        assertEquals(1.1, forming.optDouble("close"), 0.0000001);
 
         assertNull(builder.addTick("GBPUSD_otc", 4_031_000, 1.5));
         JSONObject afterSwitch = builder.getFormingCandle();
