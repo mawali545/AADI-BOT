@@ -11,6 +11,7 @@ public final class LiveCandleBuilder {
 
     private String asset = "";
     private long bucketStartMs;
+    private long lastTickTimestampMs;
     private double open;
     private double high;
     private double low;
@@ -29,9 +30,11 @@ public final class LiveCandleBuilder {
             reset();
             asset = normalizedAsset;
         }
+        if (active && timestampMs <= lastTickTimestampMs) return null;
         long bucket = (timestampMs / PERIOD_MS) * PERIOD_MS;
         if (!active) {
             begin(bucket, price);
+            lastTickTimestampMs = timestampMs;
             return null;
         }
         if (bucket < bucketStartMs) return null;
@@ -39,10 +42,12 @@ public final class LiveCandleBuilder {
             high = Math.max(high, price);
             low = Math.min(low, price);
             close = price;
+            lastTickTimestampMs = timestampMs;
             return null;
         }
         JSONObject completed = toJson();
         begin(bucket, price);
+        lastTickTimestampMs = timestampMs;
         return completed;
     }
 
@@ -73,6 +78,7 @@ public final class LiveCandleBuilder {
     public synchronized void reset() {
         asset = "";
         bucketStartMs = 0;
+        lastTickTimestampMs = 0;
         open = high = low = close = 0;
         active = false;
     }
