@@ -341,6 +341,7 @@ public class MainActivity extends Activity {
     private void requestGeminiMarketDecision(final String asset,final long token) {
         final String key=GeminiSignalAdvisor.loadApiKey(this);
         final JSONObject snapshot=buildAiMarketSnapshot();
+        final long snapshotFeedTime=latestLiveFeedTimeMs;
         geminiExecutor.execute(()->{
             GeminiSignalAdvisor.Decision decision=null;
             String failure=null;
@@ -351,7 +352,8 @@ public class MainActivity extends Activity {
             runOnUiThread(()->{
                 if(token!=geminiReviewToken||!botActive||!asset.equals(activeMarketAsset))return;
                 geminiReviewPending=false;
-                if(latestLiveTickMs<=0||System.currentTimeMillis()-latestLiveTickMs>1800L){
+                if(latestLiveTickMs<=0||System.currentTimeMillis()-latestLiveTickMs>1800L
+                        ||latestLiveFeedTimeMs-snapshotFeedTime>2500L){
                     signalView.setText("WAIT");signalView.setTextColor(Color.WHITE);
                     if(scanStatus!=null)scanStatus.setText("WAIT • QX live quote became stale during Gemini analysis");
                     return;
@@ -604,7 +606,7 @@ public class MainActivity extends Activity {
                 long count=++receivedTicks;
                 String line=asset+"  "+price+"  • TICK #"+count+"  |  REAL QX FEED";
                 if(aiTradeEntryTime<=0&&!geminiReviewPending&&count>=5
-                        &&wallMs-lastGeminiRequestAt>=3000L){
+                        &&wallMs-lastGeminiRequestAt>=5000L){
                     String key=GeminiSignalAdvisor.loadApiKey(this);
                     if(key.isEmpty()){
                         signalView.setText("WAIT");signalView.setTextColor(Color.WHITE);
