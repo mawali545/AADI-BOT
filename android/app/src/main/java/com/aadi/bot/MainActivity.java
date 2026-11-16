@@ -86,7 +86,7 @@ public class MainActivity extends Activity {
         "function networkTap(source,url,text){try{if(!/json/i.test(String(text).slice(0,80))&&!/bid|ask|depth|book/i.test(String(text).slice(0,3000)))return;const obj=JSON.parse(text);depthTap('network:'+source+':'+String(url||'').slice(-180),obj);}catch(e){}}try{const nativeFetch=window.fetch;if(nativeFetch)window.fetch=function(){const args=arguments;return nativeFetch.apply(this,args).then(function(response){try{const clone=response.clone();clone.text().then(function(t){networkTap('fetch',args[0]&&args[0].url||args[0],t);}).catch(function(){});}catch(e){}return response;});};}catch(e){}try{const xo=XMLHttpRequest.prototype.open,xs=XMLHttpRequest.prototype.send;XMLHttpRequest.prototype.open=function(m,u){this.__aadiUrl=u;return xo.apply(this,arguments);};XMLHttpRequest.prototype.send=function(){this.addEventListener('load',function(){try{if(this.responseType===''||this.responseType==='text')networkTap('xhr',this.__aadiUrl,this.responseText);}catch(e){};});return xs.apply(this,arguments);};}catch(e){}function normTime(v){let n=Number(v);if(!Number.isFinite(n)||n<=0)return 0;if(n>1e12)n/=1000;return n;}" +
         "function emit(price,asset,time){price=Number(price);if(!Number.isFinite(price)||price<=0||!asset||!activeAsset||String(asset)!==String(activeAsset))return;const feedTime=normTime(time);if(!feedTime)return;const now=Date.now()/1000;if(feedTime<now-45||feedTime>now+8)return;try{AadiNative.onTick(JSON.stringify({price:price,asset:String(asset),timestamp:feedTime}));}catch(e){}}" +
         "function walkTicks(x,d){if(d>10||x==null)return;if(Array.isArray(x)){if(x.length>=3&&typeof x[0]==='string'&&Number.isFinite(Number(x[1]))&&Number(x[1])>1000000000&&Number.isFinite(Number(x[2]))&&Number(x[2])>0){emit(x[2],x[0],x[1]);return;}for(const v of x)walkTicks(v,d+1);return;}if(typeof x!=='object')return;const asset=x.asset||x.symbol||x.pair||x.instrument||x.assetName||x.ticker||x.active;const time=x.timestamp||x.time||x.ts||x.created_at;for(const [k,v] of Object.entries(x)){if(/^(price|currentprice|lastprice|closeprice|rate|quote)$/i.test(k)&&asset&&(typeof v==='number'||typeof v==='string')&&Number(v)>0){emit(v,asset,time);return;}}for(const v of Object.values(x))if(v&&typeof v==='object')walkTicks(v,d+1);}" +
-        "function parse(s){try{let q=String(s).trim();if(q.startsWith('451-')){pendingBinaryPacket=JSON.parse(q.slice(4));return;}if(pendingBinaryPacket){if(q.charCodeAt(0)===4)q=q.slice(1);const attachment=JSON.parse(q),packet=pendingBinaryPacket;pendingBinaryPacket=null;function hydrate(x){if(!x||typeof x!=='object')return x;if(Array.isArray(x))return x.map(hydrate);if(x._placeholder===true)return attachment;const z={};for(const [k,v] of Object.entries(x))z[k]=hydrate(v);return z;}const rebuilt=[packet[0],hydrate(packet[1])];const ev=String(rebuilt[0]);depthTap(ev,rebuilt[1]);if(ev==='history/load'||ev==='history'||ev==='candles/load'){const packets=collectHistory(rebuilt[1],activeAsset);for(const p of packets){try{AadiNative.onHistory(JSON.stringify(p));}catch(e){}}if(packets.length){let oldest=Infinity;for(const p of packets)for(const c of p.candles)oldest=Math.min(oldest,c.timestamp);if(Number.isFinite(oldest)){historyOldest=oldest; if(oldest>historyTarget&&historyPages<64)setTimeout(function(){requestHistory(activeAsset,oldest-3600);},350);}}}else walkTicks(rebuilt[1],0);return;}if(q.startsWith('42')&&(q[2]==='['||q[2]==='{'))q=q.slice(2);else if(q.charCodeAt(0)===4)q=q.slice(1);const o=JSON.parse(q);if(Array.isArray(o)&&typeof o[0]==='string'){const ev=String(o[0]);depthTap(ev,o[1]);if(ev==='history/load'||ev==='history'||ev==='candles/load'){const packets=collectHistory(o[1],activeAsset);for(const p of packets){try{AadiNative.onHistory(JSON.stringify(p));}catch(e){}}if(packets.length){let oldest=Infinity;for(const p of packets)for(const c of p.candles)oldest=Math.min(oldest,c.timestamp);if(Number.isFinite(oldest)){historyOldest=oldest;if(oldest>historyTarget&&historyPages<64)setTimeout(function(){requestHistory(activeAsset,oldest-3600);},350);}}}else walkTicks(o[1],0);}else walkTicks(o,0);}catch(e){}}" +
+        "function parse(s){try{let q=String(s).trim();if(q.startsWith('451-')){pendingBinaryPacket=JSON.parse(q.slice(4));return;}if(pendingBinaryPacket){if(q.charCodeAt(0)===4)q=q.slice(1);const attachment=JSON.parse(q),packet=pendingBinaryPacket;pendingBinaryPacket=null;function hydrate(x){if(!x||typeof x!=='object')return x;if(Array.isArray(x))return x.map(hydrate);if(x._placeholder===true)return attachment;const z={};for(const [k,v] of Object.entries(x))z[k]=hydrate(v);return z;}const rebuilt=[packet[0],hydrate(packet[1])];const ev=String(rebuilt[0]);depthTap(ev,rebuilt[1]);if(/history|candle/i.test(ev)){const packets=collectHistory(rebuilt[1],activeAsset);let rowsSeen=0;for(const p of packets)rowsSeen+=p.candles.length;try{AadiNative.onHistoryStatus(ev,packets.length,rowsSeen);}catch(e){}for(const p of packets){try{AadiNative.onHistory(JSON.stringify(p));}catch(e){}}if(packets.length){let oldest=Infinity;for(const p of packets)for(const c of p.candles)oldest=Math.min(oldest,c.timestamp);if(Number.isFinite(oldest)){historyOldest=oldest; if(oldest>historyTarget&&historyPages<64)setTimeout(function(){requestHistory(activeAsset,oldest-3600);},350);}}}else walkTicks(rebuilt[1],0);return;}if(q.startsWith('42')&&(q[2]==='['||q[2]==='{'))q=q.slice(2);else if(q.charCodeAt(0)===4)q=q.slice(1);const o=JSON.parse(q);if(Array.isArray(o)&&typeof o[0]==='string'){const ev=String(o[0]);depthTap(ev,o[1]);if(/history|candle/i.test(ev)){const packets=collectHistory(o[1],activeAsset);let rowsSeen=0;for(const p of packets)rowsSeen+=p.candles.length;try{AadiNative.onHistoryStatus(ev,packets.length,rowsSeen);}catch(e){}for(const p of packets){try{AadiNative.onHistory(JSON.stringify(p));}catch(e){}}if(packets.length){let oldest=Infinity;for(const p of packets)for(const c of p.candles)oldest=Math.min(oldest,c.timestamp);if(Number.isFinite(oldest)){historyOldest=oldest;if(oldest>historyTarget&&historyPages<64)setTimeout(function(){requestHistory(activeAsset,oldest-3600);},350);}}}else walkTicks(o[1],0);}else walkTicks(o,0);}catch(e){}}" +
         "window.WebSocket=new Proxy(NativeWS,{construct:function(T,args){const ws=Reflect.construct(T,args,T);const nativeSend=ws.send.bind(ws);ws.send=function(data){try{const raw=String(data);if(raw.startsWith('42[')){const msg=JSON.parse(raw.slice(2));if(msg[0]==='instruments/update'&&msg[1]&&msg[1].asset){const a=String(msg[1].asset);const changed=chartWs!==ws||activeAsset!==a;activeAsset=a;chartWs=ws;if(changed){historyPages=0;historyOldest=0;historyTarget=(Math.floor((Date.now()/1000-new Date().getTimezoneOffset()*60)/86400)*86400+new Date().getTimezoneOffset()*60)-86400;try{AadiNative.onAssetChanged(a);}catch(e){}try{AadiNative.onSocket('CHART SOCKET ACTIVE • '+a);}catch(e){}if(loginState===true)setTimeout(function(){requestHistory(a,Date.now()/1000);},900);}}}}catch(e){}const sent=nativeSend(data);if(chartWs===ws)followDepth();return sent;};ws.addEventListener('message',function(ev){if(chartWs!==ws)return;if(typeof ev.data==='string')parse(ev.data);else if(ev.data instanceof Blob)ev.data.text().then(parse).catch(function(){});else if(ev.data instanceof ArrayBuffer){try{parse(new TextDecoder().decode(ev.data));}catch(e){}}});ws.addEventListener('close',function(){if(chartWs===ws){chartWs=null;depthRequestedAsset=null;try{AadiNative.onSocket('CHART WEBSOCKET CLOSED • feed paused');AadiNative.onDepthStatus('Waiting for chart WebSocket');}catch(e){}}});return ws;}});" +
         "try{AadiNative.onSocket('Live chart tick scanner enabled');}catch(e){}" +
         "let loginState=null;function checkLogin(){try{const hasPassword=!!document.querySelector('input[type=password]');const hasLoginText=Array.from(document.querySelectorAll('button,[role=button],input[type=submit]')).some(e=>/^(log in|login|sign in)$/i.test((e.innerText||e.value||'').trim()));const hasChart=!!document.querySelector('canvas,[class*=chart i],[id*=chart i]');const logged=hasChart&&!hasPassword&&!hasLoginText&&document.readyState==='complete';if(logged!==loginState){loginState=logged;try{AadiNative.onLoginState(logged);}catch(e){}if(logged&&activeAsset&&historyPages===0)setTimeout(function(){requestHistory(activeAsset,Date.now()/1000);},700);}}catch(e){}}setInterval(checkLogin,2000);" +
@@ -135,12 +135,15 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT));
         scanStatus=new TextView(this);
         scanStatus.setTextColor(Color.rgb(90,210,255));
-        scanStatus.setTextSize(12);
-        scanStatus.setGravity(Gravity.CENTER);
-        scanStatus.setPadding(12,6,12,8);
-        scanStatus.setText("GROQ QWEN VISION • Waiting for QX live data");
+        scanStatus.setTextSize(9);
+        scanStatus.setSingleLine(true);
+        scanStatus.setEllipsize(TextUtils.TruncateAt.END);
+        scanStatus.setIncludeFontPadding(false);
+        scanStatus.setGravity(Gravity.CENTER_VERTICAL);
+        scanStatus.setPadding(8,2,8,2);
+        scanStatus.setText("QX CANDLES 0/3 • Waiting for QX history event");
         root.addView(scanStatus,new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT));
+                ViewGroup.LayoutParams.MATCH_PARENT,(int)(22*getResources().getDisplayMetrics().density)));
 
         statsView = new TextView(this);
         statsView.setTextColor(Color.WHITE);
@@ -466,7 +469,7 @@ public class MainActivity extends Activity {
                     if (signalView != null) { signalView.setText("WAIT"); signalView.setTextColor(Color.WHITE); }
                     if (scanStatus != null) scanStatus.setText("WAIT • Market-QX login/feed disconnected");
                 } else if (scanStatus != null) {
-                    scanStatus.setText("QX LOGIN DETECTED • Waiting for genuine ticks and candles");
+                    scanStatus.setText("QX CANDLES 0/3 • Logged in, waiting for history event");
                 }
             });
         }
@@ -502,7 +505,7 @@ public class MainActivity extends Activity {
             runOnUiThread(() -> {
                 if (lastTick != null) lastTick.setText(asset + " • Waiting for genuine QX ticks");
                 if (signalView != null) { signalView.setText("WAIT"); signalView.setTextColor(Color.WHITE); }
-                if (scanStatus != null) scanStatus.setText("QX ASSET • " + asset + " • Loading real candles");
+                if (scanStatus != null) scanStatus.setText("QX CANDLES 0/3 • " + asset + " • waiting for history");
             });
         }
 
@@ -510,6 +513,16 @@ public class MainActivity extends Activity {
             runOnUiThread(() -> {
                 if (scanStatus != null && message != null && message.startsWith("Historical candles request"))
                     scanStatus.setText("QX HISTORY • " + message);
+            });
+        }
+
+        @JavascriptInterface public void onHistoryStatus(String event, int packetCount, int rowCount) {
+            runOnUiThread(() -> {
+                int current;
+                synchronized(aiRecentCandles) { current = aiRecentCandles.size(); }
+                if (scanStatus == null) return;
+                if (rowCount <= 0) scanStatus.setText("QX CANDLES " + current + "/3 • " + event + " received, no valid candle rows");
+                else scanStatus.setText("QX CANDLES " + current + "/3 • history rows " + rowCount + " received");
             });
         }
 
@@ -553,7 +566,7 @@ public class MainActivity extends Activity {
                 final int count;
                 synchronized (aiRecentCandles) { count = aiRecentCandles.size(); }
                 runOnUiThread(() -> {
-                    if (scanStatus != null) scanStatus.setText("QX HISTORY RECEIVED • " + count + " genuine candles");
+                    if (scanStatus != null) scanStatus.setText("QX CANDLES " + count + "/3 • " + (count < 3 ? "need " + (3-count) + " more genuine candles" : "genuine history ready"));
                 });
             } catch (Exception ignored) { }
         }
