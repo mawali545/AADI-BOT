@@ -374,6 +374,10 @@ public class MainActivity extends Activity {
         return snapshot;
     }
 
+    private int snapshotTickCount(JSONObject snapshot) {
+        return snapshot == null ? 0 : snapshot.optInt("ticksIncluded",0);
+    }
+
     private void requestGeminiMarketDecision(final String asset,final long token) {
         final String key=GeminiSignalAdvisor.loadApiKey(MainActivity.this);
         final JSONObject snapshot=buildAiMarketSnapshot();
@@ -393,7 +397,14 @@ public class MainActivity extends Activity {
                     if(scanStatus!=null)scanStatus.setText("WAIT • QX live quote became stale during Gemini analysis");
                     return;
                 }
-                if(aiTradeEntryTime>0)return;
+                if(aiTradeEntryTime>0){
+                    String activeSide=aiTradeSide==null||aiTradeSide.isEmpty()?"ACTIVE":aiTradeSide;
+                    String aiUpdate=answer==null
+                            ?"Gemini update failed: "+(error==null?"request failed":error)
+                            :"Gemini reviewed "+snapshotTickCount(snapshot)+ " recent real QX ticks • "+answer.reason+" • confidence "+answer.confidence;
+                    if(scanStatus!=null)scanStatus.setText("GEMINI LIVE MONITOR • "+activeSide+" trade still active • "+aiUpdate);
+                    return;
+                }
                 String side="WAIT";
                 if(answer!=null&&answer.approved){
                     if(answer.reason.startsWith("CALL"))side="CALL";
@@ -653,7 +664,7 @@ public class MainActivity extends Activity {
                 String uiMessage=null;
                 boolean shouldRequest=false;
                 long requestToken=0;
-                if(aiTradeEntryTime<=0&&!geminiReviewPending&&count>=5&&wallMs-lastGeminiRequestAt>=5000L){
+                if(!geminiReviewPending&&count>=5&&wallMs-lastGeminiRequestAt>=5000L){
                     String key=GeminiSignalAdvisor.loadApiKey(MainActivity.this);
                     if(key.isEmpty()){uiMessage="GEMINI NOT CONNECTED • Tap SET UP GEMINI API KEY";}
                     else{
