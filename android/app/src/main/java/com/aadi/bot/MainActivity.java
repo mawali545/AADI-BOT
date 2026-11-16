@@ -515,7 +515,11 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface public void onDepthStatus(String message) {
-            runOnUiThread(() -> depthView.setText("ORDER BOOK • " + message));
+            runOnUiThread(() -> {
+                depthView.setText("ORDER BOOK • " + message);
+                if(scanStatus!=null&&message!=null&&message.startsWith("Historical candles request"))
+                    scanStatus.setText("QX HISTORY • "+message+" • waiting for genuine candle response");
+            });
         }
 
         @JavascriptInterface public void onDepthMessage(String json) {
@@ -614,7 +618,12 @@ public class MainActivity extends Activity {
                     }
                     while(aiRecentCandles.size()>60)aiRecentCandles.removeFirst();
                 }
-                runOnUiThread(()->status.setText("AADI • QX CANDLES READY FOR GEMINI"));
+                final int acceptedCandles;
+                synchronized(aiRecentCandles){acceptedCandles=aiRecentCandles.size();}
+                runOnUiThread(()->{
+                    status.setText("AADI • QX CANDLES READY FOR GEMINI");
+                    if(scanStatus!=null)scanStatus.setText("QX HISTORY RECEIVED • "+acceptedCandles+" genuine 10-second candles • Gemini ready");
+                });
             }catch(Exception ignored){}
         }
 
