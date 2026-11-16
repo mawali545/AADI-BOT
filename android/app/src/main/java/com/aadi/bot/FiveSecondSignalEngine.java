@@ -383,9 +383,8 @@ public final class FiveSecondSignalEngine {
             return rejectPendingByAi("No fresh quote at Gemini approval time");
         boolean directionStillValid=priorTick!=null&&("CALL".equals(pending.side)
                 ?latestTick.p>priorTick.p:latestTick.p<priorTick.p);
-        if(!directionStillValid||("CALL".equals(pending.side)&&currentPrice<=pending.price)
-                ||("PUT".equals(pending.side)&&currentPrice>=pending.price))
-            return rejectPendingByAi("Price direction changed while Gemini was reviewing");
+        if(!directionStillValid)
+            return rejectPendingByAi("Latest live tick reversed while Gemini was reviewing");
 
         Pending candidate=pending;
         pending=new Pending(candidate.side,nowMs,currentPrice,candidate.baseSignal,candidate.dailyBias,
