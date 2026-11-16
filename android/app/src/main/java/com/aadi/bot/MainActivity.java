@@ -339,7 +339,7 @@ public class MainActivity extends Activity {
     }
 
     private void requestGeminiMarketDecision(final String asset,final long token) {
-        final String key=GeminiSignalAdvisor.loadApiKey(this);
+        final String key=GeminiSignalAdvisor.loadApiKey(MainActivity.this);
         final JSONObject snapshot=buildAiMarketSnapshot();
         final long snapshotFeedTime=latestLiveFeedTimeMs;
         geminiExecutor.execute(()->{
