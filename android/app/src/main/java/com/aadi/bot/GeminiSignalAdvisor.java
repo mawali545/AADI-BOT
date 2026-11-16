@@ -163,6 +163,61 @@ public final class GeminiSignalAdvisor {
         }
     }
 
+    /** Gemini is the sole signal decision-maker. Input is raw QX candles and ticks, not a local candidate. */
+    public static Decision reviewMarket(String apiKey, JSONObject marketSnapshot) throws Exception {
+        if (apiKey == null || apiKey.trim().isEmpty())
+            throw new Exception("Gemini API key is not configured");
+        String instructions = "You are the ONLY decision engine for a 10-second binary-options signal on a platform-specific OTC chart. You receive a snapshot containing ONLY genuine live QX ticks and genuine QX historical 10-second OHLC candles. Independently analyze the market yourself: trend and structure, momentum and acceleration, candle bodies and wicks, support/resistance, breakouts and failed breakouts, reversals, volatility, choppiness, and whether an immediate 10-second entry is timely. Do not assume any local indicator engine has already selected a direction. Do not invent missing data, prices, candles, news, or external facts. Choose exactly one action: CALL, PUT, or WAIT. CALL means the next 10 seconds are more likely to close above the current quote; PUT means more likely below. If the data is insufficient, stale, conflicting, choppy, or the setup is late/unclear, choose WAIT. Be selective, but do not apply a separate numeric confidence threshold: your own market judgment is the decision. Return JSON only: {\"decision\":\"CALL\" or \"PUT\" or \"WAIT\",\"confidence\":0-100,\"reason\":\"brief evidence-based reason\"}. Market snapshot: " + marketSnapshot.toString();
+        JSONObject body = new JSONObject();
+        JSONArray parts = new JSONArray();
+        parts.put(new JSONObject().put("text", instructions));
+        JSONArray contents = new JSONArray();
+        contents.put(new JSONObject().put("role", "user").put("parts", parts));
+        body.put("contents", contents);
+        body.put("generationConfig", new JSONObject()
+                .put("temperature", 0.15)
+                .put("maxOutputTokens", 180)
+                .put("responseMimeType", "application/json"));
+        HttpURLConnection connection = null;
+        try {
+            URL url = new URL("https://generativelanguage.googleapis.com/v1beta/models/" + MODEL + ":generateContent");
+            connection = (HttpURLConnection) url.openConnection();
+            connection.setRequestMethod("POST");
+            connection.setConnectTimeout(6500);
+            connection.setReadTimeout(6500);
+            connection.setDoOutput(true);
+            connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+            connection.setRequestProperty("x-goog-api-key", apiKey.trim());
+            byte[] payload = body.toString().getBytes(StandardCharsets.UTF_8);
+            connection.setFixedLengthStreamingMode(payload.length);
+            try (OutputStream out = connection.getOutputStream()) { out.write(payload); }
+            int status = connection.getResponseCode();
+            InputStream stream = status >= 200 && status < 300
+                    ? connection.getInputStream() : connection.getErrorStream();
+            String response = readAll(stream);
+            if (status < 200 || status >= 300)
+                throw new Exception("Gemini API HTTP " + status + ": " + response);
+            JSONObject root = new JSONObject(response);
+            JSONArray candidates = root.optJSONArray("candidates");
+            if (candidates == null || candidates.length() == 0)
+                throw new Exception("Gemini returned no candidate");
+            JSONObject content = candidates.getJSONObject(0).optJSONObject("content");
+            JSONArray responseParts = content == null ? null : content.optJSONArray("parts");
+            if (responseParts == null || responseParts.length() == 0)
+                throw new Exception("Gemini returned an empty response");
+            String raw = responseParts.getJSONObject(0).optString("text", "").trim();
+            int first = raw.indexOf('{'), last = raw.lastIndexOf('}');
+            if (first < 0 || last <= first) throw new Exception("Gemini response was not JSON");
+            JSONObject parsed = new JSONObject(raw.substring(first, last + 1));
+            String action = parsed.optString("decision", "WAIT").toUpperCase(java.util.Locale.US);
+            if (!"CALL".equals(action) && !"PUT".equals(action)) action = "WAIT";
+            return new Decision(!"WAIT".equals(action), parsed.optInt("confidence", 0),
+                    action + " • " + parsed.optString("reason", "No reason supplied"));
+        } finally {
+            if (connection != null) connection.disconnect();
+        }
+    }
+
     private static String readAll(InputStream stream) throws Exception {
         if (stream == null) return "";
         try (InputStream in = stream; ByteArrayOutputStream out = new ByteArrayOutputStream()) {
