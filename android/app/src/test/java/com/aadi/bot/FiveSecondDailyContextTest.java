@@ -6,6 +6,27 @@ import org.json.JSONObject;
 import org.junit.Test;
 
 public class FiveSecondDailyContextTest {
+    @Test public void geminiMustApproveCandidateBeforeItBecomesAnIssuedTrade() {
+        FiveSecondSignalEngine e=new FiveSecondSignalEngine();
+        long t=System.currentTimeMillis();
+        e.onTick("EURUSD_otc",1.10000,t,"CALL",1,"daily aligned","base trend CALL");
+        e.onTick("EURUSD_otc",1.10001,t+1000,"CALL",1,"daily aligned","base trend CALL");
+        e.onTick("EURUSD_otc",1.10002,t+2000,"CALL",1,"daily aligned","base trend CALL");
+        FiveSecondSignalEngine.Result candidate=e.onTick("EURUSD_otc",1.10003,t+3000,"CALL",1,"daily aligned","base trend CALL");
+        assertEquals("CALL",candidate.signal);
+        FiveSecondSignalEngine.Result approved=e.approvePendingByAi(t+3000,1.10003,91,"trend and latest tick align");
+        assertEquals("CALL",approved.signal);
+        assertTrue(approved.auditEvents.contains("APPROVE"));
+        FiveSecondSignalEngine vetoEngine=new FiveSecondSignalEngine();
+        vetoEngine.onTick("EURUSD_otc",1.10000,t,"CALL",1,"daily aligned","base trend CALL");
+        vetoEngine.onTick("EURUSD_otc",1.10001,t+1000,"CALL",1,"daily aligned","base trend CALL");
+        vetoEngine.onTick("EURUSD_otc",1.10002,t+2000,"CALL",1,"daily aligned","base trend CALL");
+        vetoEngine.onTick("EURUSD_otc",1.10003,t+3000,"CALL",1,"daily aligned","base trend CALL");
+        FiveSecondSignalEngine.Result veto=vetoEngine.rejectPendingByAi("conflicting OTC evidence");
+        assertEquals("WAIT",veto.signal);
+        assertTrue(veto.auditEvents.equals("[]"));
+    }
+
     @Test public void previousDayAndTodayReferencesNeedCompleteHistory() throws Exception {
         DailyContextTracker tracker=new DailyContextTracker();
         long now=System.currentTimeMillis()/1000L;
