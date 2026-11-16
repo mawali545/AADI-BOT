@@ -7,9 +7,9 @@ import static org.junit.Assert.*;
 public class LiveCandleBuilderTest {
     @Test public void buildsOnlyClosedTenSecondCandlesFromLiveTicks() {
         LiveCandleBuilder builder = new LiveCandleBuilder();
-        assertNull(builder.addTick("EURUSD_otc", 1000, 1.1000));
-        assertNull(builder.addTick("EURUSD_otc", 4000, 1.1020));
-        assertNull(builder.addTick("EURUSD_otc", 9000, 1.0990));
+        assertNull(builder.addTick("EURUSD_otc", 1_000_000, 1.1000));
+        assertNull(builder.addTick("EURUSD_otc", 1_004_000, 1.1020));
+        assertNull(builder.addTick("EURUSD_otc", 1_009_000, 1.0990));
 
         JSONObject closed = builder.addTick("EURUSD_otc", 1_010_000, 1.1010);
         assertNotNull(closed);
@@ -23,26 +23,26 @@ public class LiveCandleBuilderTest {
 
     @Test public void doesNotInventCandlesForMissingTimeBuckets() {
         LiveCandleBuilder builder = new LiveCandleBuilder();
-        builder.addTick("EURUSD_otc", 1_001_001_000, 1.0);
-        JSONObject first = builder.addTick("EURUSD_otc", 1_035_000, 1.2);
+        builder.addTick("EURUSD_otc", 2_000_000, 1.0);
+        JSONObject first = builder.addTick("EURUSD_otc", 2_035_000, 1.2);
         assertNotNull(first);
-        assertEquals(1_000_000L, first.optLong("timestamp"));
-        assertNull(builder.addTick("EURUSD_otc", 31_009_000, 1.3));
-        JSONObject second = builder.addTick("EURUSD_otc", 1_040_000, 1.25);
+        assertEquals(2_000_000L, first.optLong("timestamp"));
+        assertNull(builder.addTick("EURUSD_otc", 2_039_000, 1.3));
+        JSONObject second = builder.addTick("EURUSD_otc", 2_040_000, 1.25);
         assertNotNull(second);
-        assertEquals(1_030_000L, second.optLong("timestamp"));
+        assertEquals(2_030_000L, second.optLong("timestamp"));
     }
 
     @Test public void resetsOnAssetChangeAndIgnoresOutOfOrderTicks() {
         LiveCandleBuilder builder = new LiveCandleBuilder();
-        builder.addTick("EURUSD_otc", 21_001_001_000, 1.0);
-        assertNull(builder.addTick("EURUSD_otc", 11_009_000, 9.0));
+        builder.addTick("EURUSD_otc", 3_021_000, 1.0);
+        assertNull(builder.addTick("EURUSD_otc", 3_019_000, 9.0));
         JSONObject forming = builder.getFormingCandle();
         assertEquals(1.0, forming.optDouble("close"), 0.0000001);
 
-        assertNull(builder.addTick("GBPUSD_otc", 31_001_000, 1.5));
+        assertNull(builder.addTick("GBPUSD_otc", 4_031_000, 1.5));
         JSONObject afterSwitch = builder.getFormingCandle();
-        assertEquals(1_030_000L, afterSwitch.optLong("timestamp"));
+        assertEquals(4_030_000L, afterSwitch.optLong("timestamp"));
         assertEquals(1.5, afterSwitch.optDouble("open"), 0.0000001);
     }
 }
