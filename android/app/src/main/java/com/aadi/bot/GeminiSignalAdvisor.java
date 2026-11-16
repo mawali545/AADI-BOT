@@ -115,8 +115,8 @@ public final class GeminiSignalAdvisor {
             URL url = new URL("https://generativelanguage.googleapis.com/v1beta/models/" + MODEL + ":generateContent");
             connection = (HttpURLConnection) url.openConnection();
             connection.setRequestMethod("POST");
-            connection.setConnectTimeout(9000);
-            connection.setReadTimeout(9000);
+            connection.setConnectTimeout(15000);
+            connection.setReadTimeout(20000);
             connection.setDoOutput(true);
             connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
             connection.setRequestProperty("x-goog-api-key", apiKey.trim());
