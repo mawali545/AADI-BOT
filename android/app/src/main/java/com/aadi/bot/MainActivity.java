@@ -47,7 +47,7 @@ public class MainActivity extends Activity {
     };
     private long depthEventCount = 0;
     private final java.util.ArrayDeque<String> depthRecent = new java.util.ArrayDeque<>();
-    private boolean botActive = false;
+    private volatile boolean botActive = false;
     private WebView web;
     private long receivedTicks = 0;
     private int sessionWins = 0;
@@ -66,10 +66,10 @@ public class MainActivity extends Activity {
     private volatile long lastGeminiRequestAt = 0;
     private final java.util.ArrayDeque<JSONObject> aiRecentTicks = new java.util.ArrayDeque<>();
     private final java.util.ArrayDeque<JSONObject> aiRecentCandles = new java.util.ArrayDeque<>();
-    private long aiTradeEntryTime = 0;
-    private double aiTradeEntryPrice = Double.NaN;
-    private String aiTradeSide = "";
-    private String aiTradeReason = "";
+    private volatile long aiTradeEntryTime = 0;
+    private volatile double aiTradeEntryPrice = Double.NaN;
+    private volatile String aiTradeSide = "";
+    private volatile String aiTradeReason = "";
     private volatile long geminiReviewToken = 0;
     private final java.util.concurrent.ExecutorService geminiExecutor =
             java.util.concurrent.Executors.newSingleThreadExecutor();
