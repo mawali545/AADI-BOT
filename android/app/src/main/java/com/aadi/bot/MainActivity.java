@@ -66,6 +66,13 @@ public class MainActivity extends Activity {
     private volatile long latestLiveTickMs = 0;
     private volatile long latestLiveFeedTimeMs = 0;
     private volatile boolean geminiReviewPending = false;
+    private volatile long lastGeminiRequestAt = 0;
+    private final java.util.ArrayDeque<JSONObject> aiRecentTicks = new java.util.ArrayDeque<>();
+    private final java.util.ArrayDeque<JSONObject> aiRecentCandles = new java.util.ArrayDeque<>();
+    private long aiTradeEntryTime = 0;
+    private double aiTradeEntryPrice = Double.NaN;
+    private String aiTradeSide = "";
+    private String aiTradeReason = "";
     private volatile long geminiReviewToken = 0;
     private final java.util.concurrent.ExecutorService geminiExecutor =
             java.util.concurrent.Executors.newSingleThreadExecutor();
@@ -283,7 +290,7 @@ public class MainActivity extends Activity {
         keyInput.setText(GeminiSignalAdvisor.loadApiKey(this));
         new AlertDialog.Builder(this)
                 .setTitle("AADI • GEMINI OTC AI")
-                .setMessage("Free Gemini 3.8 Flash second-opinion gate. Create a key in Google AI Studio, then paste it here. The key is encrypted with Android Keystore on this device.")
+                .setMessage("Gemini is the only signal decision-maker. It receives genuine QX ticks and candles, then returns CALL, PUT or WAIT. Create a free-tier key in Google AI Studio and paste it here. The key is encrypted on this device.")
                 .setView(keyInput)
                 .setPositiveButton("SAVE KEY",(dialog,which)->{
                     try{
@@ -317,68 +324,113 @@ public class MainActivity extends Activity {
         }catch(Exception ignored){return "[]";}
     }
 
-    private void requestGeminiReview(final String asset,final String side,final double price,
-                                     final String baseAnalysis,final String dailySummary,
-                                     final double move3s,final double move1s,final long token) {
+    private JSONObject buildAiMarketSnapshot() {
+        JSONObject snapshot=new JSONObject();
+        try {
+            snapshot.put("asset",activeMarketAsset);
+            snapshot.put("decisionHorizonSeconds",10);
+            snapshot.put("currentQuote",latestLivePrice);
+            snapshot.put("tickFeedType","real Market-QX chart WebSocket ticks");
+            JSONArray ticks=new JSONArray();
+            synchronized(aiRecentTicks){for(JSONObject item:aiRecentTicks)ticks.put(item);}
+            JSONArray candles=new JSONArray();
+            synchronized(aiRecentCandles){for(JSONObject item:aiRecentCandles)candles.put(item);}
+            snapshot.put("recentLiveTicks",ticks);
+            snapshot.put("recentHistorical10SecondCandles",candles);
+        } catch(Exception ignored) {}
+        return snapshot;
+    }
+
+    private void requestGeminiMarketDecision(final String asset,final long token) {
         final String key=GeminiSignalAdvisor.loadApiKey(this);
+        final JSONObject snapshot=buildAiMarketSnapshot();
         geminiExecutor.execute(()->{
             GeminiSignalAdvisor.Decision decision=null;
-            String error=null;
-            try{
-                decision=GeminiSignalAdvisor.review(key,asset,side,price,baseAnalysis,dailySummary,move3s,move1s);
-            }catch(Exception e){error=e.getMessage()==null?e.getClass().getSimpleName():e.getMessage();}
+            String failure=null;
+            try{decision=GeminiSignalAdvisor.reviewMarket(key,snapshot);}
+            catch(Exception e){failure=e.getMessage()==null?e.getClass().getSimpleName():e.getMessage();}
             final GeminiSignalAdvisor.Decision answer=decision;
-            final String failure=error;
+            final String error=failure;
             runOnUiThread(()->{
                 if(token!=geminiReviewToken||!botActive||!asset.equals(activeMarketAsset))return;
                 geminiReviewPending=false;
-                FiveSecondSignalEngine.Result finalResult;
-                if(answer!=null&&answer.approved
-                        &&latestLiveTickMs>0&&System.currentTimeMillis()-latestLiveTickMs<=1500L){
-                    finalResult=fiveSecondEngine.approvePendingByAi(latestLiveFeedTimeMs,latestLivePrice,
-                            answer.confidence,answer.reason);
-                }else{
-                    String why=answer==null?"Gemini unavailable • "+(failure==null?"request failed":failure)
-                            :answer.reason;
-                    finalResult=fiveSecondEngine.rejectPendingByAi(why);
+                if(latestLiveTickMs<=0||System.currentTimeMillis()-latestLiveTickMs>1800L){
+                    signalView.setText("WAIT");signalView.setTextColor(Color.WHITE);
+                    if(scanStatus!=null)scanStatus.setText("WAIT • QX live quote became stale during Gemini analysis");
+                    return;
                 }
-                if(!"[]".equals(finalResult.auditEvents))persistAuditEvents(finalResult.auditEvents);
-                signalView.setText(finalResult.signal);
-                signalView.setTextColor("CALL".equals(finalResult.signal)?Color.rgb(40,230,130)
-                        :"PUT".equals(finalResult.signal)?Color.rgb(255,75,85):Color.WHITE);
-                if(scanStatus!=null)scanStatus.setText(finalResult.reason);
-                if(finalResult.analysis!=null)analysisView.setText(finalResult.analysis);
+                if(aiTradeEntryTime>0)return;
+                String side="WAIT";
+                if(answer!=null&&answer.approved){
+                    if(answer.reason.startsWith("CALL"))side="CALL";
+                    else if(answer.reason.startsWith("PUT"))side="PUT";
+                }
+                if("CALL".equals(side)||"PUT".equals(side)){
+                    aiTradeEntryTime=latestLiveFeedTimeMs;
+                    aiTradeEntryPrice=latestLivePrice;
+                    aiTradeSide=side;
+                    aiTradeReason=answer.reason;
+                    signalView.setText(side);
+                    signalView.setTextColor("CALL".equals(side)?Color.rgb(40,230,130):Color.rgb(255,75,85));
+                    if(scanStatus!=null)scanStatus.setText("GEMINI AI • "+answer.reason+" • confidence "+answer.confidence);
+                }else{
+                    signalView.setText("WAIT");signalView.setTextColor(Color.WHITE);
+                    if(scanStatus!=null)scanStatus.setText(answer==null
+                            ?"WAIT • Gemini connection error: "+(error==null?"request failed":error)
+                            :"GEMINI AI • "+answer.reason+" • confidence "+answer.confidence);
+                }
             });
         });
+    }
+
+    private void settleAiTradeIfDue(long feedTimeMs,double price) {
+        if(aiTradeEntryTime<=0||feedTimeMs<aiTradeEntryTime+10000L)return;
+        long expiry=aiTradeEntryTime+10000L;
+        JSONObject event=new JSONObject();
+        try{
+            event.put("type","SETTLED");
+            event.put("tradeId",Long.toString(aiTradeEntryTime));
+            event.put("asset",activeMarketAsset);
+            event.put("signal",aiTradeSide);
+            event.put("entryTimeMs",aiTradeEntryTime);
+            event.put("entryPrice",aiTradeEntryPrice);
+            event.put("expiryTimeMs",expiry);
+            event.put("expiryPrice",price);
+            event.put("source","Gemini AI-only decision");
+            event.put("aiReason",aiTradeReason);
+            if(feedTimeMs-expiry>1500L){
+                event.put("outcome","UNVERIFIED");
+                event.put("reason","No QX quote close enough to the 10-second expiry");
+            }else{
+                boolean win="CALL".equals(aiTradeSide)?price>aiTradeEntryPrice:price<aiTradeEntryPrice;
+                event.put("outcome",price==aiTradeEntryPrice?"FLAT":win?"WIN":"LOSS");
+            }
+        }catch(Exception ignored){}
+        JSONArray events=new JSONArray();events.put(event);
+        persistAuditEvents(events.toString());
+        aiTradeEntryTime=0;aiTradeEntryPrice=Double.NaN;aiTradeSide="";aiTradeReason="";
+        signalView.setText("WAIT");signalView.setTextColor(Color.WHITE);
+        if(scanStatus!=null)scanStatus.setText("Trade settled • waiting for Gemini's next independent decision");
     }
 
     private boolean marketLoginDetected = false;
 
     private void setAutoAnalysis(boolean enabled) {
-        if (enabled == botActive) return;
-        botActive = enabled;
-        if (enabled) {
-            engine = new SignalEngine();
-            fiveSecondEngine = new FiveSecondSignalEngine();
-            geminiReviewToken++;geminiReviewPending=false;
-            receivedTicks = 0;
-            status.setText("AADI • LIVE FEED READY — AUTOMATIC SIGNALS");
-            scanInProgress=false;
-            if(scanStatus!=null)scanStatus.setText("Automatic signal analysis active • CALL / PUT / WAIT updates from live ticks");
-            lastTick.setText("Collecting real ticks from logged-in chart");
-            signalView.setText("WAIT");
-            signalView.setTextColor(Color.WHITE);
-            analysisView.setText("MARKET TREND • Waiting for verified candles");
-        } else {
-            status.setText("AADI • Logged out — analysis paused");
-            scanInProgress=false;
-            engine.cancelScan();
-            fiveSecondEngine.cancelScan();
-            geminiReviewToken++;geminiReviewPending=false;
-            if(generateSignalButton!=null)generateSignalButton.setText("GENERATE SIGNAL");
-            if(scanProgress!=null)scanProgress.setVisibility(ViewGroup.GONE);
-            signalView.setText("WAIT");
-            signalView.setTextColor(Color.WHITE);
+        if(enabled==botActive)return;
+        botActive=enabled;
+        geminiReviewToken++;geminiReviewPending=false;
+        if(enabled){
+            synchronized(aiRecentTicks){aiRecentTicks.clear();}
+            synchronized(aiRecentCandles){aiRecentCandles.clear();}
+            aiTradeEntryTime=0;aiTradeEntryPrice=Double.NaN;aiTradeSide="";aiTradeReason="";
+            receivedTicks=0;
+            status.setText("AADI • REAL QX FEED READY — GEMINI AI DECISIONS");
+            lastTick.setText("Collecting genuine QX ticks and historical candles");
+            signalView.setText("WAIT");signalView.setTextColor(Color.WHITE);
+            if(scanStatus!=null)scanStatus.setText("Gemini is the only signal decision-maker");
+        }else{
+            status.setText("AADI • Logged out — Gemini decisions paused");
+            signalView.setText("WAIT");signalView.setTextColor(Color.WHITE);
         }
     }
 
@@ -471,17 +523,13 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface public synchronized void onAssetChanged(String asset) {
             if (asset == null || asset.trim().isEmpty()) return;
-            scanInProgress=false;
-            if(generateSignalButton!=null)generateSignalButton.setText("GENERATE SIGNAL");
-            if(scanProgress!=null)scanProgress.setVisibility(ViewGroup.GONE);
-            engine = new SignalEngine();
-            activeMarketAsset = asset;
-            latestLivePrice = Double.NaN;
-            latestLiveTickMs = 0;
-            fiveSecondEngine.reset(asset);
-            geminiReviewToken++;geminiReviewPending=false;
-            latestLiveFeedTimeMs=0;
-            receivedTicks = 0;
+            activeMarketAsset=asset;
+            latestLivePrice=Double.NaN;latestLiveTickMs=0;latestLiveFeedTimeMs=0;
+            geminiReviewToken++;geminiReviewPending=false;lastGeminiRequestAt=0;
+            aiTradeEntryTime=0;aiTradeEntryPrice=Double.NaN;aiTradeSide="";aiTradeReason="";
+            synchronized(aiRecentTicks){aiRecentTicks.clear();}
+            synchronized(aiRecentCandles){aiRecentCandles.clear();}
+            receivedTicks=0;
             runOnUiThread(() -> {
                 lastSignalFlashBucket = Long.MIN_VALUE;
                 lastSignalFlashAsset = asset;
@@ -511,13 +559,13 @@ public class MainActivity extends Activity {
                 boolean quoteMatch = book != null && book.matchesQuote(latestLivePrice);
                 boolean level2Validated = book != null && sameAsset && freshDepth && freshQuote && quoteMatch;
                 if (level2Validated) {
-                    engine.onOrderBook(asset, book.imbalance, received);
+                    // Order-book data is diagnostic only; Gemini makes every signal decision.
                 }
                 // #124 depth/change samples may be [asset, scalar]. Use only as a provisional signal vote.
                 if ("depth/change".equals(event) && raw instanceof JSONArray) {
                     JSONArray depth = (JSONArray) raw;
                     if (depth.length() >= 2 && depth.opt(1) instanceof Number) {
-                        engine.onDepthChange(asset, depth.optDouble(1, Double.NaN), received);
+                        // Depth samples are not converted into local signal votes.
                     }
                 }
                 String payload = raw == null ? "null" : String.valueOf(raw);
@@ -568,100 +616,79 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface public synchronized void onHistory(String json) {
-            try {
-                JSONObject packet = new JSONObject(json);
-                String asset = packet.optString("asset", "");
-                JSONArray rows = packet.optJSONArray("candles");
-                if (asset.isEmpty() || rows == null || !botActive) return;
-                
-                int imported = engine.importHistoricalCandles(asset, rows);
-                dailyContext.importHistory(asset, rows);
-                if (imported > 0) runOnUiThread(() -> {
-                    lastTick.setText(asset + " • IMPORTED " + imported + " VERIFIED HISTORICAL 10s CANDLES");
-                    status.setText("AADI • HISTORY READY | " + engine.currentResult().closedCandles + " candles");
-                });
-            } catch (Exception e) {
-                runOnUiThread(() -> status.setText("AADI • Historical candle parse error"));
-            }
+            try{
+                JSONObject packet=new JSONObject(json);
+                String asset=packet.optString("asset","");
+                JSONArray rows=packet.optJSONArray("candles");
+                if(!botActive||!activeMarketAsset.equals(asset)||rows==null)return;
+                synchronized(aiRecentCandles){
+                    for(int i=0;i<rows.length();i++){
+                        JSONObject row=rows.optJSONObject(i);
+                        if(row==null)continue;
+                        long stamp=row.optLong("timestamp",0);
+                        if(stamp>0&&stamp<10000000000L)stamp*=1000L;
+                        double open=row.optDouble("open",Double.NaN),high=row.optDouble("high",Double.NaN);
+                        double low=row.optDouble("low",Double.NaN),close=row.optDouble("close",Double.NaN);
+                        if(stamp<=0||!Double.isFinite(open)||!Double.isFinite(high)
+                                ||!Double.isFinite(low)||!Double.isFinite(close))continue;
+                        JSONObject candle=new JSONObject();
+                        candle.put("timestamp",stamp);candle.put("open",open);candle.put("high",high);
+                        candle.put("low",low);candle.put("close",close);
+                        boolean duplicate=false;
+                        for(JSONObject old:aiRecentCandles)if(old.optLong("timestamp")==stamp){duplicate=true;break;}
+                        if(!duplicate)aiRecentCandles.addLast(candle);
+                    }
+                    while(aiRecentCandles.size()>60)aiRecentCandles.removeFirst();
+                }
+                runOnUiThread(()->status.setText("AADI • QX CANDLES READY FOR GEMINI"));
+            }catch(Exception ignored){}
         }
 
         @JavascriptInterface public synchronized void onTick(String json) {
-            try {
-                JSONObject o = new JSONObject(json);
-                String asset = o.optString("asset", "");
-                double price = o.optDouble("price", Double.NaN);
-                double ts = o.optDouble("timestamp", 0);
-                if (asset.trim().isEmpty() || !Double.isFinite(price) || price <= 0 || !Double.isFinite(ts)) return;
-                double feedSeconds = ts > 10000000000.0 ? ts / 1000.0 : ts;
-                double wallSeconds = System.currentTimeMillis() / 1000.0;
-                if (feedSeconds <= 0 || feedSeconds < wallSeconds - 45 || feedSeconds > wallSeconds + 8) return;
-                if (!botActive) return;
-                activeMarketAsset = asset;
-                latestLivePrice = price;
-                latestLiveTickMs = System.currentTimeMillis();
-                latestLiveFeedTimeMs = (long)(feedSeconds*1000.0);
-                SignalEngine.Result baseResult = engine.onTick(asset, price, ts);
-                long nowSeconds=(long)feedSeconds;
-                int dailyBias = dailyContext.bias(asset,price,nowSeconds);
-                String dailySummary = dailyContext.summary(asset,price,nowSeconds);
-                FiveSecondSignalEngine.Result result = fiveSecondEngine.onTick(asset, price,
-                        latestLiveFeedTimeMs, baseResult.signal, dailyBias, dailySummary, baseResult.analysis);
-
-                JSONObject issuedCandidate=null;
-                try{
-                    JSONArray events=new JSONArray(result.auditEvents);
-                    for(int i=0;i<events.length();i++){
-                        JSONObject event=events.optJSONObject(i);
-                        if(event!=null&&"ISSUED".equals(event.optString("type"))){issuedCandidate=event;break;}
-                    }
-                }catch(Exception ignored){}
-
-                if(issuedCandidate!=null&&!geminiReviewPending){
-                    String apiKey=GeminiSignalAdvisor.loadApiKey(MainActivity.this);
-                    if(apiKey.isEmpty()){
-                        result=fiveSecondEngine.rejectPendingByAi("Set up a free Gemini API key first");
+            try{
+                JSONObject packet=new JSONObject(json);
+                String asset=packet.optString("asset","");
+                double price=packet.optDouble("price",Double.NaN);
+                double ts=packet.optDouble("timestamp",0);
+                if(asset.trim().isEmpty()||!Double.isFinite(price)||price<=0||!Double.isFinite(ts))return;
+                double seconds=ts>10000000000.0?ts/1000.0:ts;
+                long feedTimeMs=(long)(seconds*1000.0);
+                long wallMs=System.currentTimeMillis();
+                if(feedTimeMs<=0||feedTimeMs<wallMs-45000L||feedTimeMs>wallMs+8000L||!botActive)return;
+                if(!asset.equals(activeMarketAsset))return;
+                latestLivePrice=price;latestLiveTickMs=wallMs;latestLiveFeedTimeMs=feedTimeMs;
+                JSONObject tick=new JSONObject();
+                tick.put("timestamp",feedTimeMs);tick.put("price",price);
+                synchronized(aiRecentTicks){
+                    aiRecentTicks.addLast(tick);
+                    while(!aiRecentTicks.isEmpty()&&feedTimeMs-aiRecentTicks.peekFirst().optLong("timestamp")>30000L)
+                        aiRecentTicks.removeFirst();
+                    while(aiRecentTicks.size()>80)aiRecentTicks.removeFirst();
+                }
+                settleAiTradeIfDue(feedTimeMs,price);
+                long count=++receivedTicks;
+                String line=asset+"  "+price+"  • TICK #"+count+"  |  REAL QX FEED";
+                if(aiTradeEntryTime<=0&&!geminiReviewPending&&count>=5
+                        &&wallMs-lastGeminiRequestAt>=3000L){
+                    String key=GeminiSignalAdvisor.loadApiKey(this);
+                    if(key.isEmpty()){
+                        signalView.setText("WAIT");signalView.setTextColor(Color.WHITE);
+                        if(scanStatus!=null)scanStatus.setText("Set up Gemini API key • long-press WINS/LOSSES");
                     }else{
-                        geminiReviewPending=true;
-                        final long token=++geminiReviewToken;
-                        final JSONObject candidate=issuedCandidate;
-                        requestGeminiReview(asset,candidate.optString("signal"),candidate.optDouble("entryPrice",price),
-                                candidate.optString("baseAnalysis",baseResult.analysis),
-                                candidate.optString("dailySummary",dailySummary),
-                                candidate.optDouble("microMove3s",0),candidate.optDouble("microMove1s",0),token);
-                        result=new FiveSecondSignalEngine.Result("WAIT","Gemini reviewing OTC setup • waiting for AI confirmation",
-                                baseResult.analysis+"\n"+dailySummary+"\nGEMINI REVIEW: PENDING • no entry until approved");
+                        geminiReviewPending=true;lastGeminiRequestAt=wallMs;
+                        long token=++geminiReviewToken;
+                        signalView.setText("WAIT");signalView.setTextColor(Color.WHITE);
+                        if(scanStatus!=null)scanStatus.setText("Gemini is independently analyzing live QX ticks and candles…");
+                        requestGeminiMarketDecision(asset,token);
                     }
-                }else if(geminiReviewPending){
-                    result=new FiveSecondSignalEngine.Result("WAIT","Gemini reviewing OTC setup • waiting for AI confirmation",
-                            baseResult.analysis+"\n"+dailySummary+"\nGEMINI REVIEW: PENDING • no entry until approved");
                 }
-
-                String safeAudit=withoutIssuedEvents(result.auditEvents);
-                if(!"[]".equals(safeAudit))persistAuditEvents(safeAudit);
-                final FiveSecondSignalEngine.Result displayResult=result;
-                long count = ++receivedTicks;
-                String line = asset + "  " + price + "  • TICK #" + count + "  |  REAL FEED";
                 long uiNow=SystemClock.uptimeMillis();
-                // Analyze every genuine tick, but coalesce display updates to protect the UI thread.
-                if(uiNow-lastUiTickAt>=200) {
+                if(uiNow-lastUiTickAt>=200){
                     lastUiTickAt=uiNow;
-                    runOnUiThread(() -> {
-                        lastTick.setText(line);
-                        signalView.setText(displayResult==null?"WAIT":displayResult.signal);
-                        if(displayResult!=null&&"CALL".equals(displayResult.signal))signalView.setTextColor(Color.rgb(40,230,130));
-                        else if(displayResult!=null&&"PUT".equals(displayResult.signal))signalView.setTextColor(Color.rgb(255,75,85));
-                        else signalView.setTextColor(Color.WHITE);
-                        if(scanStatus!=null)scanStatus.setText(displayResult==null?"Waiting for live analysis":displayResult.reason);
-                        if(displayResult!=null&&displayResult.analysis!=null)analysisView.setText(displayResult.analysis);
-                        if (receivedTicks == 1) status.setText("AADI • LIVE FEED CONNECTED");
-                    });
+                    runOnUiThread(()->lastTick.setText(line));
                 }
-            } catch (Exception e) {
-                runOnUiThread(() -> status.setText("AADI • Tick parse error"));
-            }
+            }catch(Exception ignored){}
         }
-    }
-
     @Override public void onBackPressed() {
         if (web != null && web.canGoBack()) web.goBack();
         else super.onBackPressed();
