@@ -368,6 +368,57 @@ public final class FiveSecondSignalEngine {
         return latest;
     }
 
+    /** Rebase a locally generated candidate at the current live quote after Gemini approves it. */
+    public synchronized Result approvePendingByAi(long nowMs,double currentPrice,int confidence,String aiReason) {
+        if(pending==null||nowMs<=0||!Double.isFinite(currentPrice)||currentPrice<=0)
+            return rejectPendingByAi("Candidate expired before Gemini approval");
+        Tick latestTick=ticks.peekLast();
+        Tick priorTick=null;
+        if(ticks.size()>=2){
+            java.util.Iterator<Tick> it=ticks.descendingIterator();
+            if(it.hasNext())it.next();
+            if(it.hasNext())priorTick=it.next();
+        }
+        if(latestTick==null||nowMs-latestTick.t>1500L||Math.abs(latestTick.p-currentPrice)>Math.max(1e-12,Math.abs(currentPrice)*1e-9))
+            return rejectPendingByAi("No fresh quote at Gemini approval time");
+        boolean directionStillValid=priorTick!=null&&("CALL".equals(pending.side)
+                ?latestTick.p>priorTick.p:latestTick.p<priorTick.p);
+        if(!directionStillValid||("CALL".equals(pending.side)&&currentPrice<=pending.price)
+                ||("PUT".equals(pending.side)&&currentPrice>=pending.price))
+            return rejectPendingByAi("Price direction changed while Gemini was reviewing");
+
+        Pending candidate=pending;
+        pending=new Pending(candidate.side,nowMs,currentPrice,candidate.baseSignal,candidate.dailyBias,
+                candidate.dailySummary,candidate.baseAnalysis,candidate.move,candidate.recent,candidate.tickCount);
+        lastIssued=nowMs;
+        lastIssuedPrice=currentPrice;
+        JSONObject event=new JSONObject();
+        try{
+            event.put("type","ISSUED");event.put("tradeId",Long.toString(nowMs));event.put("asset",asset);
+            event.put("signal",pending.side);event.put("entryTimeMs",nowMs);event.put("entryPrice",currentPrice);
+            event.put("baseSignal",pending.baseSignal);event.put("dailyBias",pending.dailyBias);
+            event.put("dailySummary",pending.dailySummary);event.put("baseAnalysis",pending.baseAnalysis);
+            event.put("microMove3s",pending.move);event.put("microMove1s",pending.recent);
+            event.put("tickCountAtEntry",pending.tickCount);event.put("expirySeconds",10);
+            event.put("aiReviewer","Gemini 3.6 Flash");event.put("aiDecision","APPROVE");
+            event.put("aiConfidence",confidence);event.put("aiReason",aiReason==null?"":aiReason);
+        }catch(Exception ignored){}
+        JSONArray events=new JSONArray();events.put(event);
+        latest=new Result(pending.side,"Gemini approved • "+(aiReason==null?"setup confirmed":aiReason),
+                pending.baseAnalysis+"\n"+pending.dailySummary+"\nGEMINI REVIEW: APPROVED ("+confidence+"/100) • "+(aiReason==null?"":aiReason)
+                +"\n10s ENTRY: "+String.format(Locale.US,"%.6f",currentPrice)+" | expiry 10 seconds\n"+lastOutcome+"\n"+performanceLine(),
+                events.toString());
+        return latest;
+    }
+
+    /** Fail closed: a rejected or unavailable AI review must not count as a trade. */
+    public synchronized Result rejectPendingByAi(String reason) {
+        pending=null;
+        latest=new Result("WAIT","WAIT • Gemini veto: "+(reason==null?"review not approved":reason),
+                "GEMINI REVIEW: WAIT • "+(reason==null?"review not approved":reason)+"\n"+lastOutcome+"\n"+performanceLine());
+        return latest;
+    }
+
     private double[] extractForecastThreshold(String analysis) {
         if(analysis==null)return null;
         java.util.regex.Matcher m=java.util.regex.Pattern
