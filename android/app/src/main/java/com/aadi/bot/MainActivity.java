@@ -130,7 +130,13 @@ public class MainActivity extends Activity {
         root.addView(signalView,new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT));
         scanStatus=new TextView(this);
-        scanStatus.setText("Automatic live signal analysis active");
+        scanStatus.setTextColor(Color.rgb(90,210,255));
+        scanStatus.setTextSize(12);
+        scanStatus.setGravity(Gravity.CENTER);
+        scanStatus.setPadding(12,6,12,8);
+        scanStatus.setText("GEMINI AI • Waiting for QX live data");
+        root.addView(scanStatus,new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT));
 
         statsView = new TextView(this);
         statsView.setTextColor(Color.WHITE);
@@ -140,14 +146,14 @@ public class MainActivity extends Activity {
         statsView.setText("WINS 0    LOSSES 0");
         root.addView(statsView, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        statsView.setOnClickListener(v -> showAuditLog());
 
         Button hiddenGeminiSettings=new Button(this);
         hiddenGeminiSettings.setText(GeminiSignalAdvisor.loadApiKey(this).isEmpty()
                 ? "SET UP FREE GEMINI API KEY" : "GEMINI AI • API KEY CONFIGURED");
-        statsView.setOnLongClickListener(v -> {
-            showGeminiSettings(hiddenGeminiSettings);
-            return true;
-        });
+        root.addView(hiddenGeminiSettings,new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT));
+        hiddenGeminiSettings.setOnClickListener(v -> showGeminiSettings(hiddenGeminiSettings));
 
         web = new WebView(this);
         web.getSettings().setJavaScriptEnabled(true);
@@ -378,8 +384,7 @@ public class MainActivity extends Activity {
             runOnUiThread(()->{
                 if(token!=geminiReviewToken||!botActive||!asset.equals(activeMarketAsset))return;
                 geminiReviewPending=false;
-                if(latestLiveTickMs<=0||System.currentTimeMillis()-latestLiveTickMs>1800L
-                        ||latestLiveFeedTimeMs-snapshotFeedTime>3500L){
+                if(latestLiveTickMs<=0||System.currentTimeMillis()-latestLiveTickMs>5000L){
                     signalView.setText("WAIT");signalView.setTextColor(Color.WHITE);
                     if(scanStatus!=null)scanStatus.setText("WAIT • QX live quote became stale during Gemini analysis");
                     return;
@@ -397,7 +402,7 @@ public class MainActivity extends Activity {
                     aiTradeReason=answer.reason;
                     signalView.setText(side);
                     signalView.setTextColor("CALL".equals(side)?Color.rgb(40,230,130):Color.rgb(255,75,85));
-                    if(scanStatus!=null)scanStatus.setText("GEMINI AI • "+answer.reason+" • confidence "+answer.confidence);
+                    if(scanStatus!=null)scanStatus.setText("GEMINI RESPONSE • "+answer.reason+" • confidence "+answer.confidence);
                 }else{
                     signalView.setText("WAIT");signalView.setTextColor(Color.WHITE);
                     if(scanStatus!=null)scanStatus.setText(answer==null
@@ -636,12 +641,12 @@ public class MainActivity extends Activity {
                     String key=GeminiSignalAdvisor.loadApiKey(MainActivity.this);
                     if(key.isEmpty()){
                         signalView.setText("WAIT");signalView.setTextColor(Color.WHITE);
-                        if(scanStatus!=null)scanStatus.setText("Set up Gemini API key • long-press WINS/LOSSES");
+                        if(scanStatus!=null)scanStatus.setText("GEMINI NOT CONNECTED • Tap SET UP GEMINI API KEY");
                     }else{
                         geminiReviewPending=true;lastGeminiRequestAt=wallMs;
                         long token=++geminiReviewToken;
                         signalView.setText("WAIT");signalView.setTextColor(Color.WHITE);
-                        if(scanStatus!=null)scanStatus.setText("Gemini is independently analyzing live QX ticks and candles…");
+                        if(scanStatus!=null)scanStatus.setText("GEMINI AI • Sending "+aiRecentTicks.size()+" live ticks + "+aiRecentCandles.size()+" QX candles • processing…");
                         requestGeminiMarketDecision(asset,token);
                     }
                 }
