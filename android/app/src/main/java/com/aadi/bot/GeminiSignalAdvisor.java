@@ -21,12 +21,12 @@ import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
 
-/** Gemini-only signal decision service. Only real QX market data is submitted. */
+/** Groq-hosted Qwen Vision chart analyzer. Invoked only by the user's Analyze button. */
 public final class GeminiSignalAdvisor {
-    private static final String MODEL = "gemini-3.8-flash";
-    private static final String PREFS = "aadi_gemini";
+    private static final String MODEL = "qwen/qwen3.8-27b";
+    private static final String PREFS = "aadi_groq";
     private static final String KEY_PREF = "encrypted_api_key";
-    private static final String KEY_ALIAS = "aadi_gemini_api_key_v1";
+    private static final String KEY_ALIAS = "aadi_groq_api_key_v1";
 
     public static final class Decision {
         public final boolean approved;
@@ -43,8 +43,7 @@ public final class GeminiSignalAdvisor {
 
     public static void saveApiKey(Context context, String apiKey) throws Exception {
         if (apiKey == null || apiKey.trim().isEmpty()) {
-            SharedPreferences p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-            p.edit().remove(KEY_PREF).apply();
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove(KEY_PREF).apply();
             return;
         }
         SecretKey key = getOrCreateKey();
@@ -55,33 +54,27 @@ public final class GeminiSignalAdvisor {
         byte[] combined = new byte[iv.length + encrypted.length];
         System.arraycopy(iv, 0, combined, 0, iv.length);
         System.arraycopy(encrypted, 0, combined, iv.length, encrypted.length);
-        String stored = Base64.encodeToString(combined, Base64.NO_WRAP);
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-                .putString(KEY_PREF, stored).apply();
+                .putString(KEY_PREF, Base64.encodeToString(combined, Base64.NO_WRAP)).apply();
     }
 
     public static String loadApiKey(Context context) {
         try {
-            String stored = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                    .getString(KEY_PREF, "");
+            String stored = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_PREF, "");
             if (stored == null || stored.isEmpty()) return "";
             byte[] combined = Base64.decode(stored, Base64.NO_WRAP);
             if (combined.length <= 12) return "";
-            byte[] iv = new byte[12];
-            byte[] encrypted = new byte[combined.length - 12];
+            byte[] iv = new byte[12], encrypted = new byte[combined.length - 12];
             System.arraycopy(combined, 0, iv, 0, 12);
             System.arraycopy(combined, 12, encrypted, 0, encrypted.length);
             Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
             cipher.init(Cipher.DECRYPT_MODE, getOrCreateKey(), new GCMParameterSpec(128, iv));
             return new String(cipher.doFinal(encrypted), StandardCharsets.UTF_8);
-        } catch (Exception ignored) {
-            return "";
-        }
+        } catch (Exception ignored) { return ""; }
     }
 
     private static SecretKey getOrCreateKey() throws Exception {
-        KeyStore store = KeyStore.getInstance("AndroidKeyStore");
-        store.load(null);
+        KeyStore store = KeyStore.getInstance("AndroidKeyStore");store.load(null);
         java.security.Key existing = store.getKey(KEY_ALIAS, null);
         if (existing instanceof SecretKey) return (SecretKey) existing;
         KeyGenerator generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore");
@@ -89,81 +82,58 @@ public final class GeminiSignalAdvisor {
                 KeyProperties.PURPOSE_ENCRYPT | KeyProperties.PURPOSE_DECRYPT)
                 .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
                 .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-                .setRandomizedEncryptionRequired(true)
-                .build());
+                .setRandomizedEncryptionRequired(true).build());
         return generator.generateKey();
     }
 
-    /** Gemini is the sole signal decision-maker. Input is raw QX candles and ticks, not a local candidate. */
-    public static Decision reviewMarket(String apiKey, JSONObject marketSnapshot) throws Exception {
-        if (apiKey == null || apiKey.trim().isEmpty())
-            throw new Exception("Gemini API key is not configured");
-        String instructions = "You are the ONLY decision engine for a 10-second binary-options signal on a platform-specific OTC chart. You receive a snapshot containing ONLY genuine live QX ticks and genuine QX historical 10-second OHLC candles. Independently analyze the market yourself: trend and structure, momentum and acceleration, candle bodies and wicks, support/resistance, breakouts and failed breakouts, reversals, volatility, choppiness, and whether an immediate 10-second entry is timely. Do not assume any local indicator engine has already selected a direction. Do not invent missing data, prices, candles, news, or external facts. Choose exactly one action: CALL, PUT, or WAIT. CALL means the next 10 seconds are more likely to close above the current quote; PUT means more likely below. If the data is insufficient, stale, conflicting, choppy, or the setup is late/unclear, choose WAIT. Be selective, but do not apply a separate numeric confidence threshold: your own market judgment is the decision. Return JSON only: {\"decision\":\"CALL\" or \"PUT\" or \"WAIT\",\"confidence\":0-100,\"reason\":\"brief evidence-based reason\"}. Market snapshot: " + marketSnapshot.toString();
-        JSONObject body = new JSONObject();
-        JSONArray parts = new JSONArray();
-        parts.put(new JSONObject().put("text", instructions));
-        JSONArray contents = new JSONArray();
-        contents.put(new JSONObject().put("role", "user").put("parts", parts));
-        body.put("contents", contents);
-        body.put("generationConfig", new JSONObject()
-                .put("temperature", 0.15)
-                .put("maxOutputTokens", 256)
-                .put("responseMimeType", "application/json")
-                .put("thinkingConfig", new JSONObject().put("thinkingLevel", "low")));
+    /** One user-triggered request containing the live QX screenshot and genuine tick/candle snapshot. */
+    public static Decision reviewMarket(String apiKey, JSONObject marketSnapshot, String chartDataUrl) throws Exception {
+        if (apiKey == null || apiKey.trim().isEmpty()) throw new Exception("Groq API key is not configured");
+        if (chartDataUrl == null || !chartDataUrl.startsWith("data:image/")) throw new Exception("QX chart screenshot is missing");
+        String instructions = "You are a careful technical chart analyst. Analyze the attached CURRENT Market-QX chart screenshot together with the genuine QX market data JSON. The screenshot and JSON describe the same selected asset. Use visible candle bodies/wicks, trend/structure, support/resistance, momentum, volatility, and the recent OHLC/tick sequence. Do not invent indicators, prices, candles, news or external facts. Decide only for the next 10-second expiry: CALL if evidence favors a higher close than the current quote, PUT if evidence favors a lower close, otherwise WAIT. Be selective; if screenshot is unclear, data is stale, chart and data conflict, or setup is ambiguous, choose WAIT. Do not promise accuracy. Return JSON only with keys decision (CALL, PUT, or WAIT), confidence (integer 0-100), reason (short evidence-based explanation), expirySeconds (10). Real QX data: " + marketSnapshot.toString();
+        JSONArray content = new JSONArray();
+        content.put(new JSONObject().put("type","text").put("text",instructions));
+        content.put(new JSONObject().put("type","image_url")
+                .put("image_url",new JSONObject().put("url",chartDataUrl)));
+        JSONObject message = new JSONObject().put("role","user").put("content",content);
+        JSONArray messages = new JSONArray().put(message);
+        JSONObject body = new JSONObject().put("model",MODEL).put("messages",messages)
+                .put("temperature",0.2).put("max_completion_tokens",512)
+                .put("response_format",new JSONObject().put("type","json_object"));
         HttpURLConnection connection = null;
         try {
-            URL url = new URL("https://generativelanguage.googleapis.com/v1beta/models/" + MODEL + ":generateContent");
-            connection = (HttpURLConnection) url.openConnection();
-            connection.setRequestMethod("POST");
-            connection.setConnectTimeout(15000);
-            connection.setReadTimeout(25000);
-            connection.setDoOutput(true);
-            connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
-            connection.setRequestProperty("x-goog-api-key", apiKey.trim());
-            byte[] payload = body.toString().getBytes(StandardCharsets.UTF_8);
+            connection = (HttpURLConnection)new URL("https://api.groq.com/openai/v1/chat/completions").openConnection();
+            connection.setRequestMethod("POST");connection.setConnectTimeout(15000);connection.setReadTimeout(45000);
+            connection.setDoOutput(true);connection.setRequestProperty("Content-Type","application/json; charset=utf-8");
+            connection.setRequestProperty("Authorization","Bearer "+apiKey.trim());
+            byte[] payload=body.toString().getBytes(StandardCharsets.UTF_8);
             connection.setFixedLengthStreamingMode(payload.length);
-            try (OutputStream out = connection.getOutputStream()) { out.write(payload); }
-            int status = connection.getResponseCode();
-            InputStream stream = status >= 200 && status < 300
-                    ? connection.getInputStream() : connection.getErrorStream();
-            String response = readAll(stream);
-            if (status < 200 || status >= 300)
-                throw new Exception("Gemini API HTTP " + status + ": " + response);
-            JSONObject root = new JSONObject(response);
-            JSONArray candidates = root.optJSONArray("candidates");
-            if (candidates == null || candidates.length() == 0)
-                throw new Exception("Gemini returned no candidate");
-            JSONObject content = candidates.getJSONObject(0).optJSONObject("content");
-            JSONArray responseParts = content == null ? null : content.optJSONArray("parts");
-            if (responseParts == null || responseParts.length() == 0)
-                throw new Exception("Gemini returned an empty response");
-            String raw = "";
-            for(int i=0;i<responseParts.length();i++){
-                JSONObject responsePart=responseParts.optJSONObject(i);
-                String partText=responsePart==null?"":responsePart.optString("text","").trim();
-                if(partText.indexOf('{')>=0&&partText.lastIndexOf('}')>partText.indexOf('{')){
-                    raw=partText;break;
-                }
-            }
-            int first = raw.indexOf('{'), last = raw.lastIndexOf('}');
-            if (first < 0 || last <= first) throw new Exception("Gemini response was not JSON");
-            JSONObject parsed = new JSONObject(raw.substring(first, last + 1));
-            String action = parsed.optString("decision", "WAIT").toUpperCase(java.util.Locale.US);
-            if (!"CALL".equals(action) && !"PUT".equals(action)) action = "WAIT";
-            return new Decision(!"WAIT".equals(action), parsed.optInt("confidence", 0),
-                    action + " • " + parsed.optString("reason", "No reason supplied"));
-        } finally {
-            if (connection != null) connection.disconnect();
-        }
+            try(OutputStream out=connection.getOutputStream()){out.write(payload);}
+            int status=connection.getResponseCode();
+            InputStream stream=status>=200&&status<300?connection.getInputStream():connection.getErrorStream();
+            String response=readAll(stream);
+            if(status<200||status>=300)throw new Exception("Groq API HTTP "+status+": "+response);
+            JSONObject root=new JSONObject(response);
+            JSONArray choices=root.optJSONArray("choices");
+            if(choices==null||choices.length()==0)throw new Exception("Groq returned no choices");
+            JSONObject msg=choices.getJSONObject(0).optJSONObject("message");
+            String raw=msg==null?"":msg.optString("content","").trim();
+            int first=raw.indexOf('{'),last=raw.lastIndexOf('}');
+            if(first<0||last<=first)throw new Exception("Qwen response was not valid JSON: "+raw);
+            JSONObject parsed=new JSONObject(raw.substring(first,last+1));
+            String action=parsed.optString("decision","WAIT").toUpperCase(java.util.Locale.US);
+            if(!"CALL".equals(action)&&!"PUT".equals(action))action="WAIT";
+            return new Decision(!"WAIT".equals(action),parsed.optInt("confidence",0),
+                    action+" • "+parsed.optString("reason","No reason supplied"));
+        } finally { if(connection!=null)connection.disconnect(); }
     }
 
     private static String readAll(InputStream stream) throws Exception {
-        if (stream == null) return "";
-        try (InputStream in = stream; ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-            byte[] buffer = new byte[4096];
-            int count;
-            while ((count = in.read(buffer)) != -1) out.write(buffer, 0, count);
-            return new String(out.toByteArray(), StandardCharsets.UTF_8);
+        if(stream==null)return "";
+        try(InputStream in=stream;ByteArrayOutputStream out=new ByteArrayOutputStream()){
+            byte[] buffer=new byte[4096];int count;
+            while((count=in.read(buffer))!=-1)out.write(buffer,0,count);
+            return new String(out.toByteArray(),StandardCharsets.UTF_8);
         }
     }
 }
