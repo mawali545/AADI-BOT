@@ -610,7 +610,7 @@ public class MainActivity extends Activity {
                 }catch(Exception ignored){}
 
                 if(issuedCandidate!=null&&!geminiReviewPending){
-                    String apiKey=GeminiSignalAdvisor.loadApiKey(this);
+                    String apiKey=GeminiSignalAdvisor.loadApiKey(MainActivity.this);
                     if(apiKey.isEmpty()){
                         result=fiveSecondEngine.rejectPendingByAi("Set up a free Gemini API key first");
                     }else{
