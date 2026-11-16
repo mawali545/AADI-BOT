@@ -479,6 +479,9 @@ public class MainActivity extends Activity {
                     synchronized (aiRecentTicks) { aiRecentTicks.clear(); }
                     synchronized (aiRecentCandles) { aiRecentCandles.clear(); }
                     liveCandleBuilder.reset();
+                    geminiReviewToken++;geminiReviewPending=false;scanInProgress=false;
+                    if (generateSignalButton != null) { generateSignalButton.setEnabled(true); generateSignalButton.setText("ANALYZE QX CHART • AI"); }
+                    if (scanProgress != null) scanProgress.setVisibility(android.view.View.GONE);
                     if (signalView != null) { signalView.setText("WAIT"); signalView.setTextColor(Color.WHITE); }
                     if (scanStatus != null) scanStatus.setText("QX SOCKET CLOSED • Waiting for reconnect");
                 }
@@ -499,6 +502,9 @@ public class MainActivity extends Activity {
             synchronized (aiRecentTicks) { aiRecentTicks.clear(); }
             synchronized (aiRecentCandles) { aiRecentCandles.clear(); }
             liveCandleBuilder.reset();
+            geminiReviewToken++;geminiReviewPending=false;scanInProgress=false;
+            if (generateSignalButton != null) { generateSignalButton.setEnabled(true); generateSignalButton.setText("ANALYZE QX CHART • AI"); }
+            if (scanProgress != null) scanProgress.setVisibility(android.view.View.GONE);
             runOnUiThread(() -> {
                 if (lastTick != null) lastTick.setText(asset + " • Waiting for genuine QX ticks");
                 if (signalView != null) { signalView.setText("WAIT"); signalView.setTextColor(Color.WHITE); }
