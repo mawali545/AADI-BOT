@@ -165,7 +165,7 @@ public class MainActivity extends Activity {
         // Keep the live QX WebView attached for its real WebSocket feed, but hide it from the compact dashboard.
         root.addView(web, new LinearLayout.LayoutParams(1, 1));
         setContentView(root);
-        refreshStats();
+        restoreStats();
 
         if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
             WebViewCompat.addDocumentStartJavaScript(web, HOOK,
@@ -235,6 +235,30 @@ public class MainActivity extends Activity {
     private void refreshStats() {
         if(statsView==null) return;
         statsView.setText("WINS "+sessionWins+"    LOSSES "+sessionLosses);
+    }
+
+    private void restoreStats() {
+        sessionWins=0;sessionLosses=0;
+        try{
+            android.content.SharedPreferences prefs=getSharedPreferences("aadi_signal_audit",MODE_PRIVATE);
+            JSONArray saved=new JSONArray(prefs.getString("events","[]"));
+            java.util.LinkedHashSet<String> recentSettledIds=new java.util.LinkedHashSet<>();
+            for(int i=saved.length()-1;i>=0&&recentSettledIds.size()<30;i--){
+                JSONObject item=saved.optJSONObject(i);
+                if(item!=null&&"SETTLED".equals(item.optString("type")))
+                    recentSettledIds.add(item.optString("tradeId",
+                            Long.toString(item.optLong("entryTimeMs",0))));
+            }
+            for(int i=0;i<saved.length();i++){
+                JSONObject item=saved.optJSONObject(i);
+                if(item==null||!"SETTLED".equals(item.optString("type")))continue;
+                String id=item.optString("tradeId",Long.toString(item.optLong("entryTimeMs",0)));
+                if(!recentSettledIds.contains(id))continue;
+                if("WIN".equals(item.optString("outcome")))sessionWins++;
+                else if("LOSS".equals(item.optString("outcome")))sessionLosses++;
+            }
+        }catch(Exception ignored){}
+        refreshStats();
     }
 
     private void showAuditLog() {
