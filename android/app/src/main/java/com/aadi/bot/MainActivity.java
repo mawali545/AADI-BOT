@@ -16,6 +16,10 @@ import android.widget.ProgressBar;
 import android.text.InputType;
 import android.text.TextUtils;
 import android.graphics.Color;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.util.Base64;
+import java.io.ByteArrayOutputStream;
 import android.text.SpannableString;
 import android.text.Spanned;
 import android.text.style.ForegroundColorSpan;
@@ -134,7 +138,7 @@ public class MainActivity extends Activity {
         scanStatus.setTextSize(12);
         scanStatus.setGravity(Gravity.CENTER);
         scanStatus.setPadding(12,6,12,8);
-        scanStatus.setText("GEMINI AI • Waiting for QX live data");
+        scanStatus.setText("GROQ QWEN VISION • Waiting for QX live data");
         root.addView(scanStatus,new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT));
 
@@ -150,10 +154,19 @@ public class MainActivity extends Activity {
 
         Button hiddenGeminiSettings=new Button(this);
         hiddenGeminiSettings.setText(GeminiSignalAdvisor.loadApiKey(this).isEmpty()
-                ? "SET UP FREE GEMINI API KEY" : "GEMINI AI • API KEY CONFIGURED");
+                ? "SET UP FREE GROQ AI KEY" : "GROQ QWEN VISION • API KEY CONFIGURED");
         root.addView(hiddenGeminiSettings,new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT));
         hiddenGeminiSettings.setOnClickListener(v -> showGeminiSettings(hiddenGeminiSettings));
+        generateSignalButton=new Button(this);
+        generateSignalButton.setText("ANALYZE QX CHART • AI");
+        root.addView(generateSignalButton,new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT));
+        scanProgress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);
+        scanProgress.setMax(100);scanProgress.setProgress(0);scanProgress.setVisibility(android.view.View.GONE);
+        root.addView(scanProgress,new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT));
+        generateSignalButton.setOnClickListener(v -> startManualChartAnalysis());
 
         web = new WebView(this);
         web.getSettings().setJavaScriptEnabled(true);
@@ -315,18 +328,18 @@ public class MainActivity extends Activity {
         EditText keyInput=new EditText(this);
         keyInput.setSingleLine(true);
         keyInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        keyInput.setHint("Paste Google AI Studio API key");
+        keyInput.setHint("Paste GroqCloud API key (gsk_...)");
         keyInput.setText(GeminiSignalAdvisor.loadApiKey(this));
         new AlertDialog.Builder(this)
-                .setTitle("AADI • GEMINI OTC AI")
-                .setMessage("Gemini is the only signal decision-maker. It receives genuine QX ticks and candles, then returns CALL, PUT or WAIT. Create a free-tier key in Google AI Studio and paste it here. The key is encrypted on this device.")
+                .setTitle("AADI • GROQ QWEN VISION AI")
+                .setMessage("Qwen 3.8 27B Vision analyzes the live QX chart screenshot together with genuine QX candles and ticks when you press ANALYZE. Create a free GroqCloud API key and paste it here. The key is encrypted on this device. Free quota is limited.")
                 .setView(keyInput)
                 .setPositiveButton("SAVE KEY",(dialog,which)->{
                     try{
                         GeminiSignalAdvisor.saveApiKey(this,keyInput.getText().toString());
                         settingsButton.setText(keyInput.getText().toString().trim().isEmpty()
-                                ? "SET UP FREE GEMINI API KEY" : "GEMINI AI • API KEY CONFIGURED");
-                        android.widget.Toast.makeText(this,"Gemini key saved securely on this device",android.widget.Toast.LENGTH_SHORT).show();
+                                ? "SET UP FREE GROQ AI KEY" : "GROQ QWEN VISION • API KEY CONFIGURED");
+                        android.widget.Toast.makeText(this,"Groq API key saved securely on this device",android.widget.Toast.LENGTH_SHORT).show();
                     }catch(Exception e){
                         android.widget.Toast.makeText(this,"Could not save Gemini key: "+e.getClass().getSimpleName(),android.widget.Toast.LENGTH_LONG).show();
                     }
@@ -334,7 +347,7 @@ public class MainActivity extends Activity {
                 .setNeutralButton("REMOVE KEY",(dialog,which)->{
                     try{
                         GeminiSignalAdvisor.saveApiKey(this,"");
-                        settingsButton.setText("SET UP FREE GEMINI API KEY");
+                        settingsButton.setText("SET UP FREE GROQ AI KEY");
                         android.widget.Toast.makeText(this,"Gemini key removed",android.widget.Toast.LENGTH_SHORT).show();
                     }catch(Exception ignored){}
                 })
@@ -376,6 +389,65 @@ public class MainActivity extends Activity {
 
     private int snapshotTickCount(JSONObject snapshot) {
         return snapshot == null ? 0 : snapshot.optInt("ticksIncluded",0);
+    }
+
+    private String captureQxChartImageDataUrl() throws Exception {
+        if(web==null||web.getWidth()<2||web.getHeight()<2)throw new Exception("QX chart view is not visible yet");
+        int width=web.getWidth(),height=web.getHeight();
+        float scale=Math.min(1.0f,1100.0f/Math.max(width,height));
+        int outW=Math.max(1,Math.round(width*scale)),outH=Math.max(1,Math.round(height*scale));
+        Bitmap bitmap=Bitmap.createBitmap(outW,outH,Bitmap.Config.RGB_565);
+        Canvas canvas=new Canvas(bitmap);canvas.scale(scale,scale);web.draw(canvas);
+        ByteArrayOutputStream bytes=new ByteArrayOutputStream();
+        bitmap.compress(Bitmap.CompressFormat.JPEG,78,bytes);bitmap.recycle();
+        return "data:image/jpeg;base64,"+Base64.encodeToString(bytes.toByteArray(),Base64.NO_WRAP);
+    }
+
+    private void startManualChartAnalysis() {
+        if(scanInProgress||geminiReviewPending)return;
+        if(!botActive||web==null){if(scanStatus!=null)scanStatus.setText("WAIT • QX chart login/feed is not ready");return;}
+        String key=GeminiSignalAdvisor.loadApiKey(this);
+        if(key.isEmpty()){if(scanStatus!=null)scanStatus.setText("GROQ KEY REQUIRED • Tap SET UP FREE GROQ AI KEY");return;}
+        if(latestLiveTickMs<=0||System.currentTimeMillis()-latestLiveTickMs>10000L){if(scanStatus!=null)scanStatus.setText("WAIT • No fresh QX tick; chart feed must be live");return;}
+        JSONObject snapshot=buildAiMarketSnapshot();
+        if(snapshot.optInt("candlesIncluded",0)<3){if(scanStatus!=null)scanStatus.setText("WAIT • Need at least 3 genuine QX candles before analysis");return;}
+        final String imageData;
+        try{imageData=captureQxChartImageDataUrl();}
+        catch(Exception e){if(scanStatus!=null)scanStatus.setText("CHART CAPTURE ERROR • "+e.getMessage());return;}
+        final String asset=activeMarketAsset;final long token=++geminiReviewToken;
+        geminiReviewPending=true;scanInProgress=true;scanProgressValue=8;
+        if(generateSignalButton!=null){generateSignalButton.setEnabled(false);generateSignalButton.setText("GROQ AI ANALYZING…");}
+        if(scanProgress!=null){scanProgress.setVisibility(android.view.View.VISIBLE);scanProgress.setProgress(8);}
+        if(scanStatus!=null)scanStatus.setText("GROQ QWEN VISION • Sending QX screenshot + "+snapshot.optInt("candlesIncluded")+" real candles + "+snapshot.optInt("ticksIncluded")+" ticks…");
+        geminiExecutor.execute(()->{
+            GeminiSignalAdvisor.Decision decision=null;String failure=null;
+            try{decision=GeminiSignalAdvisor.reviewMarket(key,snapshot,imageData);}
+            catch(Exception e){failure=e.getMessage()==null?e.getClass().getSimpleName():e.getMessage();}
+            final GeminiSignalAdvisor.Decision answer=decision;final String error=failure;
+            runOnUiThread(()->finishManualChartAnalysis(asset,token,snapshot,answer,error));
+        });
+    }
+
+    private void finishManualChartAnalysis(String asset,long token,JSONObject snapshot,
+            GeminiSignalAdvisor.Decision answer,String error) {
+        if(token!=geminiReviewToken||!asset.equals(activeMarketAsset))return;
+        geminiReviewPending=false;scanInProgress=false;
+        if(generateSignalButton!=null){generateSignalButton.setEnabled(true);generateSignalButton.setText("ANALYZE QX CHART • AI");}
+        if(scanProgress!=null){scanProgress.setProgress(100);scanProgress.setVisibility(android.view.View.GONE);}
+        if(latestLiveTickMs<=0||System.currentTimeMillis()-latestLiveTickMs>10000L){
+            signalView.setText("WAIT");signalView.setTextColor(Color.WHITE);
+            if(scanStatus!=null)scanStatus.setText("WAIT • QX quote became stale during analysis");return;
+        }
+        String side="WAIT";
+        if(answer!=null&&answer.approved){if(answer.reason.startsWith("CALL"))side="CALL";else if(answer.reason.startsWith("PUT"))side="PUT";}
+        if("CALL".equals(side)||"PUT".equals(side)){
+            aiTradeEntryTime=latestLiveFeedTimeMs;aiTradeEntryPrice=latestLivePrice;aiTradeSide=side;aiTradeReason=answer.reason;
+            signalView.setText(side);signalView.setTextColor("CALL".equals(side)?Color.rgb(40,230,130):Color.rgb(255,75,85));
+            if(scanStatus!=null)scanStatus.setText("GROQ QWEN VISION RESULT • "+answer.reason+" • confidence "+answer.confidence+" • screenshot + candles reviewed");
+        }else{
+            signalView.setText("WAIT");signalView.setTextColor(Color.WHITE);
+            if(scanStatus!=null)scanStatus.setText(answer==null?"GROQ AI ERROR • "+(error==null?"request failed":error):"GROQ QWEN VISION • "+answer.reason+" • confidence "+answer.confidence);
+        }
     }
 
     private void requestGeminiMarketDecision(final String asset,final long token) {
@@ -471,10 +543,10 @@ public class MainActivity extends Activity {
             synchronized(aiRecentCandles){aiRecentCandles.clear();}
             aiTradeEntryTime=0;aiTradeEntryPrice=Double.NaN;aiTradeSide="";aiTradeReason="";
             receivedTicks=0;
-            status.setText("AADI • REAL QX FEED READY — GEMINI AI DECISIONS");
+            status.setText("AADI • REAL QX FEED READY — MANUAL GROQ AI ANALYSIS");
             lastTick.setText("Collecting genuine QX ticks and historical candles");
             signalView.setText("WAIT");signalView.setTextColor(Color.WHITE);
-            if(scanStatus!=null)scanStatus.setText("Gemini is the only signal decision-maker");
+            if(scanStatus!=null)scanStatus.setText("GROQ QWEN VISION • Press ANALYZE to inspect chart + candles");
         }else{
             status.setText("AADI • Logged out — Gemini decisions paused");
             signalView.setText("WAIT");signalView.setTextColor(Color.WHITE);
@@ -518,7 +590,7 @@ public class MainActivity extends Activity {
             runOnUiThread(() -> {
                 lastSignalFlashBucket = Long.MIN_VALUE;
                 lastSignalFlashAsset = asset;
-                lastTick.setText(asset + " • loading real QX candles for Gemini AI");
+                lastTick.setText(asset + " • loading real QX candles for Groq Vision AI");
                 signalView.setText("WAIT");
                 signalView.setTextColor(Color.WHITE);
                 analysisView.setText("GEMINI AI • Waiting for genuine QX market data");
@@ -633,7 +705,7 @@ public class MainActivity extends Activity {
                 synchronized(aiRecentCandles){acceptedCandles=aiRecentCandles.size();}
                 runOnUiThread(()->{
                     status.setText("AADI • QX CANDLES READY FOR GEMINI");
-                    if(scanStatus!=null)scanStatus.setText("QX HISTORY RECEIVED • "+acceptedCandles+" genuine 10-second candles • Gemini ready");
+                    if(scanStatus!=null)scanStatus.setText("QX HISTORY RECEIVED • "+acceptedCandles+" genuine 10-second candles • Groq Vision ready");
                 });
             }catch(Exception ignored){}
         }
@@ -664,15 +736,6 @@ public class MainActivity extends Activity {
                 String uiMessage=null;
                 boolean shouldRequest=false;
                 long requestToken=0;
-                if(!geminiReviewPending&&count>=5&&wallMs-lastGeminiRequestAt>=5000L){
-                    String key=GeminiSignalAdvisor.loadApiKey(MainActivity.this);
-                    if(key.isEmpty()){uiMessage="GEMINI NOT CONNECTED • Tap SET UP GEMINI API KEY";}
-                    else{
-                        geminiReviewPending=true;lastGeminiRequestAt=wallMs;
-                        requestToken=++geminiReviewToken;shouldRequest=true;
-                        uiMessage="GEMINI AI • Preparing real QX snapshot: "+aiRecentTicks.size()+" recent ticks / "+count+" received • "+aiRecentCandles.size()+" real candles • sending…";
-                    }
-                }
                 long uiNow=SystemClock.uptimeMillis();
                 final String statusMessage=uiMessage;
                 if(uiNow-lastUiTickAt>=200||statusMessage!=null){
@@ -682,7 +745,7 @@ public class MainActivity extends Activity {
                         if(statusMessage!=null){signalView.setText("WAIT");signalView.setTextColor(Color.WHITE);if(scanStatus!=null)scanStatus.setText(statusMessage);}
                     });
                 }
-                if(shouldRequest)requestGeminiMarketDecision(asset,requestToken);
+                // AI analysis is manual only: no automatic API calls on incoming ticks.
             }catch(Exception error){
                 final String message=error.getMessage()==null?error.getClass().getSimpleName():error.getMessage();
                 geminiReviewPending=false;
