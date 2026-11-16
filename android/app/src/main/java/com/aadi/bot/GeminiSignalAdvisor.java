@@ -23,7 +23,7 @@ import javax.crypto.spec.GCMParameterSpec;
 
 /** Free-tier Gemini second-opinion gate. Only real QX-derived data is submitted. */
 public final class GeminiSignalAdvisor {
-    private static final String MODEL = "gemini-3.6-flash";
+    private static final String MODEL = "gemini-3.8-flash";
     private static final String PREFS = "aadi_gemini";
     private static final String KEY_PREF = "encrypted_api_key";
     private static final String KEY_ALIAS = "aadi_gemini_api_key_v1";
