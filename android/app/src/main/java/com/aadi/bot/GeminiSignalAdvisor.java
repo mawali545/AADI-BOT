@@ -21,7 +21,7 @@ import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
 
-/** Free-tier Gemini second-opinion gate. Only real QX-derived data is submitted. */
+/** Gemini-only signal decision service. Only real QX market data is submitted. */
 public final class GeminiSignalAdvisor {
     private static final String MODEL = "gemini-3.8-flash";
     private static final String PREFS = "aadi_gemini";
@@ -92,75 +92,6 @@ public final class GeminiSignalAdvisor {
                 .setRandomizedEncryptionRequired(true)
                 .build());
         return generator.generateKey();
-    }
-
-    public static Decision review(String apiKey, String asset, String side, double price,
-                                  String baseAnalysis, String dailySummary,
-                                  double move3s, double move1s) throws Exception {
-        if (apiKey == null || apiKey.trim().isEmpty())
-            return new Decision(false, 0, "Gemini API key is not configured");
-        JSONObject promptData = new JSONObject();
-        promptData.put("asset", asset);
-        promptData.put("candidate", side);
-        promptData.put("entryPrice", price);
-        promptData.put("realQxTickNetMove3s", move3s);
-        promptData.put("realQxTickNetMove1s", move1s);
-        promptData.put("technicalAnalysis", baseAnalysis == null ? "" : baseAnalysis);
-        promptData.put("dailyContext", dailySummary == null ? "" : dailySummary);
-
-        String instructions = "You are a conservative second-opinion filter for a 10-second binary-options signal on a platform-specific OTC feed. Analyze ONLY the supplied real QX-derived snapshot. Do not invent candles, indicators, news, prices, or external market facts. The local engine has already proposed " + side + ". Return APPROVE only if trend, momentum, very recent tick direction, and nearby support/resistance are mutually consistent for that exact direction and there is no material reversal, exhaustion, weak-trend, or late-entry warning. If data is incomplete, indicators conflict, support/resistance is too close, or evidence is ambiguous, return WAIT. Do not reverse CALL into PUT or PUT into CALL. Confidence is a subjective quality score, not a probability. Require confidence >= 80 for APPROVE. Respond ONLY as JSON: {\"decision\":\"APPROVE\" or \"WAIT\",\"confidence\":0-100,\"reason\":\"brief reason\"}. Snapshot: " + promptData.toString();
-
-        JSONObject body = new JSONObject();
-        JSONArray parts = new JSONArray();
-        parts.put(new JSONObject().put("text", instructions));
-        JSONArray contents = new JSONArray();
-        contents.put(new JSONObject().put("role", "user").put("parts", parts));
-        body.put("contents", contents);
-        body.put("generationConfig", new JSONObject()
-                .put("temperature", 0.1)
-                .put("maxOutputTokens", 160)
-                .put("responseMimeType", "application/json"));
-
-        HttpURLConnection connection = null;
-        try {
-            URL url = new URL("https://generativelanguage.googleapis.com/v1beta/models/" + MODEL + ":generateContent");
-            connection = (HttpURLConnection) url.openConnection();
-            connection.setRequestMethod("POST");
-            connection.setConnectTimeout(4500);
-            connection.setReadTimeout(4500);
-            connection.setDoOutput(true);
-            connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
-            connection.setRequestProperty("x-goog-api-key", apiKey.trim());
-            byte[] payload = body.toString().getBytes(StandardCharsets.UTF_8);
-            connection.setFixedLengthStreamingMode(payload.length);
-            try (OutputStream out = connection.getOutputStream()) { out.write(payload); }
-            int status = connection.getResponseCode();
-            InputStream stream = status >= 200 && status < 300
-                    ? connection.getInputStream() : connection.getErrorStream();
-            String response = readAll(stream);
-            if (status < 200 || status >= 300)
-                throw new Exception("Gemini API HTTP " + status + ": " + response);
-            JSONObject root = new JSONObject(response);
-            JSONArray candidates = root.optJSONArray("candidates");
-            if (candidates == null || candidates.length() == 0)
-                throw new Exception("Gemini returned no candidate");
-            JSONObject candidate = candidates.getJSONObject(0);
-            JSONObject content = candidate.optJSONObject("content");
-            JSONArray responseParts = content == null ? null : content.optJSONArray("parts");
-            if (responseParts == null || responseParts.length() == 0)
-                throw new Exception("Gemini returned an empty response");
-            String text = responseParts.getJSONObject(0).optString("text", "").trim();
-            int first = text.indexOf('{'), last = text.lastIndexOf('}');
-            if (first < 0 || last <= first) throw new Exception("Gemini response was not JSON");
-            JSONObject decision = new JSONObject(text.substring(first, last + 1));
-            String action = decision.optString("decision", "WAIT").toUpperCase(java.util.Locale.US);
-            int confidence = decision.optInt("confidence", 0);
-            String reason = decision.optString("reason", "No reason supplied");
-            boolean approved = "APPROVE".equals(action) && confidence >= 80;
-            return new Decision(approved, confidence, reason);
-        } finally {
-            if (connection != null) connection.disconnect();
-        }
     }
 
     /** Gemini is the sole signal decision-maker. Input is raw QX candles and ticks, not a local candidate. */
