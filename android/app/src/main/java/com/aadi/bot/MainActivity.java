@@ -353,7 +353,7 @@ public class MainActivity extends Activity {
                 if(token!=geminiReviewToken||!botActive||!asset.equals(activeMarketAsset))return;
                 geminiReviewPending=false;
                 if(latestLiveTickMs<=0||System.currentTimeMillis()-latestLiveTickMs>1800L
-                        ||latestLiveFeedTimeMs-snapshotFeedTime>2500L){
+                        ||latestLiveFeedTimeMs-snapshotFeedTime>3500L){
                     signalView.setText("WAIT");signalView.setTextColor(Color.WHITE);
                     if(scanStatus!=null)scanStatus.setText("WAIT • QX live quote became stale during Gemini analysis");
                     return;
