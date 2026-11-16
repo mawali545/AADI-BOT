@@ -116,7 +116,7 @@ public final class GeminiSignalAdvisor {
             connection = (HttpURLConnection) url.openConnection();
             connection.setRequestMethod("POST");
             connection.setConnectTimeout(15000);
-            connection.setReadTimeout(20000);
+            connection.setReadTimeout(25000);
             connection.setDoOutput(true);
             connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
             connection.setRequestProperty("x-goog-api-key", apiKey.trim());
