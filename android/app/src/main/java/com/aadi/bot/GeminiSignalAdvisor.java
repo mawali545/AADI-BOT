@@ -107,15 +107,16 @@ public final class GeminiSignalAdvisor {
         body.put("contents", contents);
         body.put("generationConfig", new JSONObject()
                 .put("temperature", 0.15)
-                .put("maxOutputTokens", 180)
-                .put("responseMimeType", "application/json"));
+                .put("maxOutputTokens", 256)
+                .put("responseMimeType", "application/json")
+                .put("thinkingConfig", new JSONObject().put("thinkingLevel", "low")));
         HttpURLConnection connection = null;
         try {
             URL url = new URL("https://generativelanguage.googleapis.com/v1beta/models/" + MODEL + ":generateContent");
             connection = (HttpURLConnection) url.openConnection();
             connection.setRequestMethod("POST");
-            connection.setConnectTimeout(6500);
-            connection.setReadTimeout(6500);
+            connection.setConnectTimeout(9000);
+            connection.setReadTimeout(9000);
             connection.setDoOutput(true);
             connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
             connection.setRequestProperty("x-goog-api-key", apiKey.trim());
@@ -136,7 +137,14 @@ public final class GeminiSignalAdvisor {
             JSONArray responseParts = content == null ? null : content.optJSONArray("parts");
             if (responseParts == null || responseParts.length() == 0)
                 throw new Exception("Gemini returned an empty response");
-            String raw = responseParts.getJSONObject(0).optString("text", "").trim();
+            String raw = "";
+            for(int i=0;i<responseParts.length();i++){
+                JSONObject responsePart=responseParts.optJSONObject(i);
+                String partText=responsePart==null?"":responsePart.optString("text","").trim();
+                if(partText.indexOf('{')>=0&&partText.lastIndexOf('}')>partText.indexOf('{')){
+                    raw=partText;break;
+                }
+            }
             int first = raw.indexOf('{'), last = raw.lastIndexOf('}');
             if (first < 0 || last <= first) throw new Exception("Gemini response was not JSON");
             JSONObject parsed = new JSONObject(raw.substring(first, last + 1));
