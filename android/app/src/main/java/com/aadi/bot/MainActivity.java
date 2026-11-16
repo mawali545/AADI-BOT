@@ -126,13 +126,7 @@ public class MainActivity extends Activity {
         root.addView(signalView,new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT));
         scanStatus=new TextView(this);
-        scanStatus.setTextColor(Color.LTGRAY);
-        scanStatus.setTextSize(11);
-        scanStatus.setGravity(Gravity.CENTER);
-        scanStatus.setPadding(8,4,8,8);
-        scanStatus.setText("Automatic live signal analysis • waiting for verified market data");
-        root.addView(scanStatus,new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT));
+        scanStatus.setText("Automatic live signal analysis active");
 
         statsView = new TextView(this);
         statsView.setTextColor(Color.WHITE);
@@ -143,16 +137,13 @@ public class MainActivity extends Activity {
         root.addView(statsView, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        Button geminiSettingsButton=new Button(this);
-        geminiSettingsButton.setText(GeminiSignalAdvisor.loadApiKey(this).isEmpty()
+        Button hiddenGeminiSettings=new Button(this);
+        hiddenGeminiSettings.setText(GeminiSignalAdvisor.loadApiKey(this).isEmpty()
                 ? "SET UP FREE GEMINI API KEY" : "GEMINI AI • API KEY CONFIGURED");
-        geminiSettingsButton.setOnClickListener(v -> showGeminiSettings(geminiSettingsButton));
-        root.addView(geminiSettingsButton);
-
-        Button auditButton=new Button(this);
-        auditButton.setText("OPEN SIGNAL AUDIT • LAST 30 EVENTS");
-        auditButton.setOnClickListener(v -> showAuditLog());
-        root.addView(auditButton);
+        statsView.setOnLongClickListener(v -> {
+            showGeminiSettings(hiddenGeminiSettings);
+            return true;
+        });
 
         web = new WebView(this);
         web.getSettings().setJavaScriptEnabled(true);
@@ -167,8 +158,8 @@ public class MainActivity extends Activity {
                 }
             }
         });
-        root.addView(web, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1));
+        // Keep the live QX WebView attached for its real WebSocket feed, but hide it from the compact dashboard.
+        root.addView(web, new LinearLayout.LayoutParams(1, 1));
         setContentView(root);
         refreshStats();
 
@@ -210,11 +201,27 @@ public class MainActivity extends Activity {
                 if("WIN".equals(outcome)) sessionWins++;
                 else if("LOSS".equals(outcome)) sessionLosses++;
             }
-            JSONArray trimmed=new JSONArray();
-            int start=Math.max(0,saved.length()-30);
-            for(int i=start;i<saved.length();i++) {
+            // Keep the last 30 settled trades (not merely 30 event rows).
+            java.util.LinkedHashSet<String> recentSettledIds=new java.util.LinkedHashSet<>();
+            for(int i=saved.length()-1;i>=0&&recentSettledIds.size()<30;i--) {
                 JSONObject item=saved.optJSONObject(i);
-                if(item!=null) trimmed.put(item);
+                if(item!=null&&"SETTLED".equals(item.optString("type"))) {
+                    recentSettledIds.add(item.optString("tradeId",
+                            Long.toString(item.optLong("entryTimeMs",0))));
+                }
+            }
+            JSONArray trimmed=new JSONArray();
+            sessionWins=0;sessionLosses=0;
+            for(int i=0;i<saved.length();i++) {
+                JSONObject item=saved.optJSONObject(i);
+                if(item==null)continue;
+                String id=item.optString("tradeId",Long.toString(item.optLong("entryTimeMs",0)));
+                if(!recentSettledIds.contains(id))continue;
+                trimmed.put(item);
+                if("SETTLED".equals(item.optString("type"))) {
+                    if("WIN".equals(item.optString("outcome")))sessionWins++;
+                    else if("LOSS".equals(item.optString("outcome")))sessionLosses++;
+                }
             }
             prefs.edit().putString("events",trimmed.toString()).apply();
             runOnUiThread(() -> refreshStats());
