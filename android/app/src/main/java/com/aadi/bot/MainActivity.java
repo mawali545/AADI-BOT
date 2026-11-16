@@ -163,7 +163,9 @@ public class MainActivity extends Activity {
             }
         });
         // Keep the live QX WebView attached for its real WebSocket feed, but hide it from the compact dashboard.
-        root.addView(web, new LinearLayout.LayoutParams(1, 1));
+        web.setBackgroundColor(Color.WHITE);
+        root.addView(web, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
         setContentView(root);
         restoreStats();
 
