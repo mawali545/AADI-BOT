@@ -5,11 +5,11 @@ android {
     compileSdk 35
     defaultConfig {
         // Separate stable package so the existing app stays installed.
-        applicationId 'com.aadi.bot.v3.stable'
+        applicationId 'com.aadi.bot.v3.installfix'
         minSdk 23
-        targetSdk 35
-        versionCode 12
-        versionName '2.4.5'
+        targetSdk 28
+        versionCode 13
+        versionName '2.4.6'
     }
 
     signingConfigs {
