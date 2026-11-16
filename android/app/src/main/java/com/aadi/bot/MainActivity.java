@@ -403,6 +403,7 @@ public class MainActivity extends Activity {
     private void startManualChartAnalysis() {
         if(scanInProgress||geminiReviewPending)return;
         if(!botActive||web==null){if(scanStatus!=null)scanStatus.setText("WAIT • QX chart login/feed is not ready");return;}
+        if(aiTradeEntryTime>0){if(scanStatus!=null)scanStatus.setText("WAIT • Previous AI signal is still under 10-second evaluation");return;}
         String key=GeminiSignalAdvisor.loadApiKey(this);
         if(key.isEmpty()){if(scanStatus!=null)scanStatus.setText("GROQ KEY REQUIRED • Tap SET UP FREE GROQ AI KEY");return;}
         if(latestLiveTickMs<=0||System.currentTimeMillis()-latestLiveTickMs>10000L){if(scanStatus!=null)scanStatus.setText("WAIT • No fresh QX tick; chart feed must be live");return;}
