@@ -452,20 +452,12 @@ public class MainActivity extends Activity {
     // JavaScript bridge used by the live Market-QX WebSocket hook.
     private class Bridge {
         @JavascriptInterface public void onLoginState(boolean loggedIn) {
-            runOnUiThread(() -> {
-                botActive = loggedIn;
-                if (!loggedIn) {
-                    latestLiveTickMs = 0;
-                    latestLivePrice = Double.NaN;
-                    latestLiveFeedTimeMs = 0;
-                    synchronized (aiRecentTicks) { aiRecentTicks.clear(); }
-                    synchronized (aiRecentCandles) { aiRecentCandles.clear(); }
-                    liveCandleBuilder.reset();
-                    if (signalView != null) { signalView.setText("WAIT"); signalView.setTextColor(Color.WHITE); }
-                    if (scanStatus != null) scanStatus.setText("WAIT • Market-QX login/feed disconnected");
-                } else if (scanStatus != null) {
-                    scanStatus.setText("QX LIVE CANDLES 0/3 • Logged in, waiting for real QX ticks");
-                }
+            // DOM-based login detection is advisory only. QX may render its chart without a
+            // canvas/login DOM signature; never let that heuristic block or erase real ticks.
+            botActive = loggedIn;
+            if (loggedIn) runOnUiThread(() -> {
+                if (scanStatus != null && receivedTicks == 0)
+                    scanStatus.setText("QX chart detected • waiting for genuine WebSocket ticks");
             });
         }
 
@@ -522,8 +514,10 @@ public class MainActivity extends Activity {
                 String asset = packet.optString("asset", "");
                 double price = packet.optDouble("price", Double.NaN);
                 double ts = packet.optDouble("timestamp", 0);
-                if (!botActive || asset.isEmpty() || !asset.equals(activeMarketAsset)
+                if (asset.isEmpty() || !asset.equals(activeMarketAsset)
                         || !Double.isFinite(price) || price <= 0 || !Double.isFinite(ts)) return;
+                // A valid, fresh tick is stronger evidence of an active feed than DOM heuristics.
+                botActive = true;
                 double seconds = ts > 10000000000.0 ? ts / 1000.0 : ts;
                 long feedTimeMs = (long) (seconds * 1000.0);
                 long wallMs = System.currentTimeMillis();
