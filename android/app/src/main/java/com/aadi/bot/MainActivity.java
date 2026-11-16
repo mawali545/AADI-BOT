@@ -11,7 +11,9 @@ import android.webkit.WebViewClient;
 import android.widget.LinearLayout;
 import android.widget.Button;
 import android.widget.TextView;
+import android.widget.EditText;
 import android.widget.ProgressBar;
+import android.text.InputType;
 import android.text.TextUtils;
 import android.graphics.Color;
 import android.text.SpannableString;
@@ -62,6 +64,11 @@ public class MainActivity extends Activity {
     private volatile String activeMarketAsset = "";
     private volatile double latestLivePrice = Double.NaN;
     private volatile long latestLiveTickMs = 0;
+    private volatile long latestLiveFeedTimeMs = 0;
+    private volatile boolean geminiReviewPending = false;
+    private volatile long geminiReviewToken = 0;
+    private final java.util.concurrent.ExecutorService geminiExecutor =
+            java.util.concurrent.Executors.newSingleThreadExecutor();
 
     private static final String MARKET_URL = "https://market-qx.trade/en/trade";
     private static final String HOOK =
@@ -135,6 +142,12 @@ public class MainActivity extends Activity {
         statsView.setText("WINS 0    LOSSES 0");
         root.addView(statsView, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        Button geminiSettingsButton=new Button(this);
+        geminiSettingsButton.setText(GeminiSignalAdvisor.loadApiKey(this).isEmpty()
+                ? "SET UP FREE GEMINI API KEY" : "GEMINI AI • API KEY CONFIGURED");
+        geminiSettingsButton.setOnClickListener(v -> showGeminiSettings(geminiSettingsButton));
+        root.addView(geminiSettingsButton);
 
         Button auditButton=new Button(this);
         auditButton.setText("OPEN SIGNAL AUDIT • LAST 30 EVENTS");
@@ -255,6 +268,83 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void showGeminiSettings(Button settingsButton) {
+        EditText keyInput=new EditText(this);
+        keyInput.setSingleLine(true);
+        keyInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        keyInput.setHint("Paste Google AI Studio API key");
+        keyInput.setText(GeminiSignalAdvisor.loadApiKey(this));
+        new AlertDialog.Builder(this)
+                .setTitle("AADI • GEMINI OTC AI")
+                .setMessage("Free Gemini 3.6 Flash second-opinion gate. Create a key in Google AI Studio, then paste it here. The key is encrypted with Android Keystore on this device.")
+                .setView(keyInput)
+                .setPositiveButton("SAVE KEY",(dialog,which)->{
+                    try{
+                        GeminiSignalAdvisor.saveApiKey(this,keyInput.getText().toString());
+                        settingsButton.setText(keyInput.getText().toString().trim().isEmpty()
+                                ? "SET UP FREE GEMINI API KEY" : "GEMINI AI • API KEY CONFIGURED");
+                        android.widget.Toast.makeText(this,"Gemini key saved securely on this device",android.widget.Toast.LENGTH_SHORT).show();
+                    }catch(Exception e){
+                        android.widget.Toast.makeText(this,"Could not save Gemini key: "+e.getClass().getSimpleName(),android.widget.Toast.LENGTH_LONG).show();
+                    }
+                })
+                .setNeutralButton("REMOVE KEY",(dialog,which)->{
+                    try{
+                        GeminiSignalAdvisor.saveApiKey(this,"");
+                        settingsButton.setText("SET UP FREE GEMINI API KEY");
+                        android.widget.Toast.makeText(this,"Gemini key removed",android.widget.Toast.LENGTH_SHORT).show();
+                    }catch(Exception ignored){}
+                })
+                .setNegativeButton("CANCEL",null).show();
+    }
+
+    private String withoutIssuedEvents(String json) {
+        try{
+            JSONArray input=new JSONArray(json==null?"[]":json);
+            JSONArray kept=new JSONArray();
+            for(int i=0;i<input.length();i++){
+                JSONObject event=input.optJSONObject(i);
+                if(event!=null&&!"ISSUED".equals(event.optString("type")))kept.put(event);
+            }
+            return kept.toString();
+        }catch(Exception ignored){return "[]";}
+    }
+
+    private void requestGeminiReview(final String asset,final String side,final double price,
+                                     final String baseAnalysis,final String dailySummary,
+                                     final double move3s,final double move1s,final long token) {
+        final String key=GeminiSignalAdvisor.loadApiKey(this);
+        geminiExecutor.execute(()->{
+            GeminiSignalAdvisor.Decision decision=null;
+            String error=null;
+            try{
+                decision=GeminiSignalAdvisor.review(key,asset,side,price,baseAnalysis,dailySummary,move3s,move1s);
+            }catch(Exception e){error=e.getMessage()==null?e.getClass().getSimpleName():e.getMessage();}
+            final GeminiSignalAdvisor.Decision answer=decision;
+            final String failure=error;
+            runOnUiThread(()->{
+                if(token!=geminiReviewToken||!botActive||!asset.equals(activeMarketAsset))return;
+                geminiReviewPending=false;
+                FiveSecondSignalEngine.Result finalResult;
+                if(answer!=null&&answer.approved
+                        &&latestLiveTickMs>0&&System.currentTimeMillis()-latestLiveTickMs<=1500L){
+                    finalResult=fiveSecondEngine.approvePendingByAi(latestLiveFeedTimeMs,latestLivePrice,
+                            answer.confidence,answer.reason);
+                }else{
+                    String why=answer==null?"Gemini unavailable • "+(failure==null?"request failed":failure)
+                            :answer.reason;
+                    finalResult=fiveSecondEngine.rejectPendingByAi(why);
+                }
+                if(!"[]".equals(finalResult.auditEvents))persistAuditEvents(finalResult.auditEvents);
+                signalView.setText(finalResult.signal);
+                signalView.setTextColor("CALL".equals(finalResult.signal)?Color.rgb(40,230,130)
+                        :"PUT".equals(finalResult.signal)?Color.rgb(255,75,85):Color.WHITE);
+                if(scanStatus!=null)scanStatus.setText(finalResult.reason);
+                if(finalResult.analysis!=null)analysisView.setText(finalResult.analysis);
+            });
+        });
+    }
+
     private boolean marketLoginDetected = false;
 
     private void setAutoAnalysis(boolean enabled) {
@@ -263,6 +353,7 @@ public class MainActivity extends Activity {
         if (enabled) {
             engine = new SignalEngine();
             fiveSecondEngine = new FiveSecondSignalEngine();
+            geminiReviewToken++;geminiReviewPending=false;
             receivedTicks = 0;
             status.setText("AADI • LIVE FEED READY — AUTOMATIC SIGNALS");
             scanInProgress=false;
@@ -276,6 +367,7 @@ public class MainActivity extends Activity {
             scanInProgress=false;
             engine.cancelScan();
             fiveSecondEngine.cancelScan();
+            geminiReviewToken++;geminiReviewPending=false;
             if(generateSignalButton!=null)generateSignalButton.setText("GENERATE SIGNAL");
             if(scanProgress!=null)scanProgress.setVisibility(ViewGroup.GONE);
             signalView.setText("WAIT");
@@ -361,6 +453,7 @@ public class MainActivity extends Activity {
                     fiveSecondEngine.cancelScan();
                     engine = new SignalEngine();
                     fiveSecondEngine.reset("");
+                    geminiReviewToken++;geminiReviewPending=false;
                     receivedTicks = 0;
                     lastTick.setText("Chart feed disconnected • waiting for verified reconnect");
                     signalView.setText("WAIT");
@@ -379,7 +472,8 @@ public class MainActivity extends Activity {
             latestLivePrice = Double.NaN;
             latestLiveTickMs = 0;
             fiveSecondEngine.reset(asset);
-            
+            geminiReviewToken++;geminiReviewPending=false;
+            latestLiveFeedTimeMs=0;
             receivedTicks = 0;
             runOnUiThread(() -> {
                 lastSignalFlashBucket = Long.MIN_VALUE;
@@ -498,13 +592,46 @@ public class MainActivity extends Activity {
                 activeMarketAsset = asset;
                 latestLivePrice = price;
                 latestLiveTickMs = System.currentTimeMillis();
+                latestLiveFeedTimeMs = (long)(feedSeconds*1000.0);
                 SignalEngine.Result baseResult = engine.onTick(asset, price, ts);
                 long nowSeconds=(long)feedSeconds;
                 int dailyBias = dailyContext.bias(asset,price,nowSeconds);
                 String dailySummary = dailyContext.summary(asset,price,nowSeconds);
                 FiveSecondSignalEngine.Result result = fiveSecondEngine.onTick(asset, price,
-                        (long)(feedSeconds*1000.0), baseResult.signal, dailyBias, dailySummary, baseResult.analysis);
-                if(!"[]".equals(result.auditEvents)) persistAuditEvents(result.auditEvents);
+                        latestLiveFeedTimeMs, baseResult.signal, dailyBias, dailySummary, baseResult.analysis);
+
+                JSONObject issuedCandidate=null;
+                try{
+                    JSONArray events=new JSONArray(result.auditEvents);
+                    for(int i=0;i<events.length();i++){
+                        JSONObject event=events.optJSONObject(i);
+                        if(event!=null&&"ISSUED".equals(event.optString("type"))){issuedCandidate=event;break;}
+                    }
+                }catch(Exception ignored){}
+
+                if(issuedCandidate!=null&&!geminiReviewPending){
+                    String apiKey=GeminiSignalAdvisor.loadApiKey(this);
+                    if(apiKey.isEmpty()){
+                        result=fiveSecondEngine.rejectPendingByAi("Set up a free Gemini API key first");
+                    }else{
+                        geminiReviewPending=true;
+                        final long token=++geminiReviewToken;
+                        final JSONObject candidate=issuedCandidate;
+                        requestGeminiReview(asset,candidate.optString("signal"),candidate.optDouble("entryPrice",price),
+                                candidate.optString("baseAnalysis",baseResult.analysis),
+                                candidate.optString("dailySummary",dailySummary),
+                                candidate.optDouble("microMove3s",0),candidate.optDouble("microMove1s",0),token);
+                        result=new FiveSecondSignalEngine.Result("WAIT","Gemini reviewing OTC setup • waiting for AI confirmation",
+                                baseResult.analysis+"\n"+dailySummary+"\nGEMINI REVIEW: PENDING • no entry until approved");
+                    }
+                }else if(geminiReviewPending){
+                    result=new FiveSecondSignalEngine.Result("WAIT","Gemini reviewing OTC setup • waiting for AI confirmation",
+                            baseResult.analysis+"\n"+dailySummary+"\nGEMINI REVIEW: PENDING • no entry until approved");
+                }
+
+                String safeAudit=withoutIssuedEvents(result.auditEvents);
+                if(!"[]".equals(safeAudit))persistAuditEvents(safeAudit);
+                final FiveSecondSignalEngine.Result displayResult=result;
                 long count = ++receivedTicks;
                 String line = asset + "  " + price + "  • TICK #" + count + "  |  REAL FEED";
                 long uiNow=SystemClock.uptimeMillis();
@@ -513,12 +640,12 @@ public class MainActivity extends Activity {
                     lastUiTickAt=uiNow;
                     runOnUiThread(() -> {
                         lastTick.setText(line);
-                        signalView.setText(result==null?"WAIT":result.signal);
-                        if(result!=null&&"CALL".equals(result.signal))signalView.setTextColor(Color.rgb(40,230,130));
-                        else if(result!=null&&"PUT".equals(result.signal))signalView.setTextColor(Color.rgb(255,75,85));
+                        signalView.setText(displayResult==null?"WAIT":displayResult.signal);
+                        if(displayResult!=null&&"CALL".equals(displayResult.signal))signalView.setTextColor(Color.rgb(40,230,130));
+                        else if(displayResult!=null&&"PUT".equals(displayResult.signal))signalView.setTextColor(Color.rgb(255,75,85));
                         else signalView.setTextColor(Color.WHITE);
-                        if(scanStatus!=null)scanStatus.setText(result==null?"Waiting for live analysis":result.reason);
-                        if(result!=null&&result.analysis!=null)analysisView.setText(result.analysis);
+                        if(scanStatus!=null)scanStatus.setText(displayResult==null?"Waiting for live analysis":displayResult.reason);
+                        if(displayResult!=null&&displayResult.analysis!=null)analysisView.setText(displayResult.analysis);
                         if (receivedTicks == 1) status.setText("AADI • LIVE FEED CONNECTED");
                     });
                 }
@@ -539,6 +666,8 @@ public class MainActivity extends Activity {
             web.destroy();
             web = null;
         }
+        geminiReviewToken++;geminiReviewPending=false;
+        geminiExecutor.shutdownNow();
         super.onDestroy();
     }
 }
