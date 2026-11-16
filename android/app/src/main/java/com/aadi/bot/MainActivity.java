@@ -626,6 +626,8 @@ public class MainActivity extends Activity {
                 }
             }catch(Exception ignored){}
         }
+    }
+
     @Override public void onBackPressed() {
         if (web != null && web.canGoBack()) web.goBack();
         else super.onBackPressed();
