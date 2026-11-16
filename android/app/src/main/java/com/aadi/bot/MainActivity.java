@@ -477,6 +477,7 @@ public class MainActivity extends Activity {
                     latestLiveFeedTimeMs = 0;
                     synchronized (aiRecentTicks) { aiRecentTicks.clear(); }
                     synchronized (aiRecentCandles) { aiRecentCandles.clear(); }
+                    liveCandleBuilder.reset();
                     if (signalView != null) { signalView.setText("WAIT"); signalView.setTextColor(Color.WHITE); }
                     if (scanStatus != null) scanStatus.setText("QX SOCKET CLOSED • Waiting for reconnect");
                 }
