@@ -399,7 +399,7 @@ public final class FiveSecondSignalEngine {
             event.put("dailySummary",pending.dailySummary);event.put("baseAnalysis",pending.baseAnalysis);
             event.put("microMove3s",pending.move);event.put("microMove1s",pending.recent);
             event.put("tickCountAtEntry",pending.tickCount);event.put("expirySeconds",10);
-            event.put("aiReviewer","Gemini 3.6 Flash");event.put("aiDecision","APPROVE");
+            event.put("aiReviewer","Gemini 3.8 Flash");event.put("aiDecision","APPROVE");
             event.put("aiConfidence",confidence);event.put("aiReason",aiReason==null?"":aiReason);
         }catch(Exception ignored){}
         JSONArray events=new JSONArray();events.put(event);
