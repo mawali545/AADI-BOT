@@ -283,7 +283,7 @@ public class MainActivity extends Activity {
         keyInput.setText(GeminiSignalAdvisor.loadApiKey(this));
         new AlertDialog.Builder(this)
                 .setTitle("AADI • GEMINI OTC AI")
-                .setMessage("Free Gemini 3.6 Flash second-opinion gate. Create a key in Google AI Studio, then paste it here. The key is encrypted with Android Keystore on this device.")
+                .setMessage("Free Gemini 3.8 Flash second-opinion gate. Create a key in Google AI Studio, then paste it here. The key is encrypted with Android Keystore on this device.")
                 .setView(keyInput)
                 .setPositiveButton("SAVE KEY",(dialog,which)->{
                     try{
