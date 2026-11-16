@@ -48,9 +48,6 @@ public class MainActivity extends Activity {
     private long depthEventCount = 0;
     private final java.util.ArrayDeque<String> depthRecent = new java.util.ArrayDeque<>();
     private boolean botActive = false;
-    private SignalEngine engine = new SignalEngine();
-    private FiveSecondSignalEngine fiveSecondEngine = new FiveSecondSignalEngine();
-    private final DailyContextTracker dailyContext = new DailyContextTracker();
     private WebView web;
     private long receivedTicks = 0;
     private int sessionWins = 0;
@@ -434,65 +431,6 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void startManualScan() {
-        if(scanInProgress)return;
-        if(!botActive||latestLiveTickMs<=0||System.currentTimeMillis()-latestLiveTickMs>2500L) {
-            generateSignalButton.setText("WAIT");
-            scanStatus.setText("WAIT • No fresh live market ticks");
-            return;
-        }
-        if(!fiveSecondEngine.requestScan()) {
-            generateSignalButton.setText("WAIT");
-            scanStatus.setText("WAIT • Previous 10-second signal is still being verified");
-            return;
-        }
-        engine.requestScan();
-        scanInProgress=true;
-        scanGeneration++;
-        final long thisScan=scanGeneration;
-        scanProgressValue=0;
-        scanProgress.setProgress(0);
-        scanProgress.setVisibility(ViewGroup.VISIBLE);
-        scanStatus.setText("Scanning trend, momentum, support/resistance and live tick confirmation…");
-        generateSignalButton.setText("SCANNING 0%");
-        uiHandler.removeCallbacks(scanProgressRunnable);
-        uiHandler.post(scanProgressRunnable);
-        uiHandler.postDelayed(() -> {
-            if(scanInProgress&&scanGeneration==thisScan) {
-                scanInProgress=false;
-                engine.cancelScan();
-                fiveSecondEngine.cancelScan();
-                uiHandler.removeCallbacks(scanProgressRunnable);
-                scanProgress.setProgress(0);
-                scanProgress.setVisibility(ViewGroup.GONE);
-                generateSignalButton.setText("WAIT");
-                scanStatus.setText("WAIT • Scan timed out: fresh confirmation ticks were insufficient");
-            }
-        },5000L);
-    }
-
-    private void finishManualScan(FiveSecondSignalEngine.Result result,double tickTimestamp,String asset) {
-        if(!scanInProgress)return;
-        scanInProgress=false;
-        uiHandler.removeCallbacks(scanProgressRunnable);
-        scanProgress.setProgress(100);
-        scanProgress.setVisibility(ViewGroup.GONE);
-        showSignal(result,tickTimestamp,asset);
-        String reason=result==null?"No confirmed entry":result.reason;
-        scanStatus.setText(("CALL".equals(result==null?"WAIT":result.signal)?"CALL • "
-                :"PUT".equals(result==null?"WAIT":result.signal)?"PUT • ":"WAIT • ")+reason);
-    }
-
-    private void showSignal(FiveSecondSignalEngine.Result result, double tickTimestamp, String asset) {
-        String signal=result==null?"WAIT":result.signal;
-        signalView.setText(signal);
-        if("CALL".equals(signal)) signalView.setTextColor(Color.rgb(40,230,130));
-        else if("PUT".equals(signal)) signalView.setTextColor(Color.rgb(255,75,85));
-        else signalView.setTextColor(Color.WHITE);
-        if(generateSignalButton!=null)generateSignalButton.setText(signal);
-        if(result!=null && result.analysis!=null && analysisView!=null)
-            analysisView.setText(result.analysis);
-    }
     private class Bridge {
         @JavascriptInterface public void onLoginState(boolean loggedIn) {
             runOnUiThread(() -> {
@@ -505,15 +443,12 @@ public class MainActivity extends Activity {
             runOnUiThread(() -> {
                 status.setText("AADI • " + message);
                 if (message != null && message.contains("CLOSED")) {
-                    scanInProgress=false;
-                    if(generateSignalButton!=null)generateSignalButton.setText("GENERATE SIGNAL");
-                    if(scanProgress!=null)scanProgress.setVisibility(ViewGroup.GONE);
-                    engine.cancelScan();
-                    fiveSecondEngine.cancelScan();
-                    engine = new SignalEngine();
-                    fiveSecondEngine.reset("");
                     geminiReviewToken++;geminiReviewPending=false;
-                    receivedTicks = 0;
+                    receivedTicks=0;
+                    latestLivePrice=Double.NaN;latestLiveTickMs=0;latestLiveFeedTimeMs=0;
+                    synchronized(aiRecentTicks){aiRecentTicks.clear();}
+                    synchronized(aiRecentCandles){aiRecentCandles.clear();}
+                    aiTradeEntryTime=0;aiTradeEntryPrice=Double.NaN;aiTradeSide="";aiTradeReason="";
                     lastTick.setText("Chart feed disconnected • waiting for verified reconnect");
                     signalView.setText("WAIT");
                     signalView.setTextColor(Color.WHITE);
@@ -533,10 +468,10 @@ public class MainActivity extends Activity {
             runOnUiThread(() -> {
                 lastSignalFlashBucket = Long.MIN_VALUE;
                 lastSignalFlashAsset = asset;
-                lastTick.setText(asset + " • refreshing full history and daily reference");
+                lastTick.setText(asset + " • loading real QX candles for Gemini AI");
                 signalView.setText("WAIT");
                 signalView.setTextColor(Color.WHITE);
-                analysisView.setText("MARKET TREND • Loading previous day + current day context");
+                analysisView.setText("GEMINI AI • Waiting for genuine QX market data");
             });
         }
 
@@ -561,7 +496,7 @@ public class MainActivity extends Activity {
                 if (level2Validated) {
                     // Order-book data is diagnostic only; Gemini makes every signal decision.
                 }
-                // #124 depth/change samples may be [asset, scalar]. Use only as a provisional signal vote.
+                // Depth events are diagnostic only. They never create or veto a signal.
                 if ("depth/change".equals(event) && raw instanceof JSONArray) {
                     JSONArray depth = (JSONArray) raw;
                     if (depth.length() >= 2 && depth.opt(1) instanceof Number) {
