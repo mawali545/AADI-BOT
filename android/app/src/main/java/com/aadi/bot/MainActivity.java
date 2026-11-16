@@ -78,7 +78,7 @@ public class MainActivity extends Activity {
     private static final String HOOK =
         "(function(){'use strict';" +
         "if(window.__AADI_HOOKED__)return;window.__AADI_HOOKED__=true;" +
-        "const NativeWS=window.WebSocket;let activeAsset=null,chartWs=null,pendingBinaryPacket=null,depthRequestedAsset=null;let historyPages=0,historyOldest=0,historyTarget=0;function requestHistory(asset,anchorTime){try{if(!chartWs||chartWs.readyState!==1||!asset||historyPages>=64)return;const payload={asset:String(asset),index:Math.floor(Date.now()/10)+historyPages,offset:3600,period:10,time:Math.floor(anchorTime||Date.now()/1000)};chartWs.send('42[\"history/load\",'+JSON.stringify(payload)+']');historyPages++;AadiNative.onDepthStatus('Historical candles request '+historyPages+' sent');}catch(e){}}function collectHistory(root,assetHint){const out=[],seen=new Set();function walk(x,asset,d){if(!x||typeof x!=='object'||d>10||seen.has(x))return;seen.add(x);if(Array.isArray(x)){const rows=[];if(x.length&&Array.isArray(x[0])){for(const r of x){if(!Array.isArray(r)||r.length<5)continue;const t=normTime(r[0]),o=Number(r[1]),cl=Number(r[2]),h=Number(r[3]),l=Number(r[4]);if(t&&[o,cl,h,l].every(Number.isFinite)&&o>0&&cl>0&&h>=Math.max(o,cl)&&l<=Math.min(o,cl)&&l>0&&h>=l)rows.push({timestamp:t,open:o,high:h,low:l,close:cl});}}else if(x.length&&x[0]&&typeof x[0]==='object'){for(const r of x){if(!r||typeof r!=='object')continue;const t=normTime(r.timestamp||r.time||r.ts||r.date),o=Number(r.open??r.o),h=Number(r.high??r.h),l=Number(r.low??r.l),cl=Number(r.close??r.c);if(t&&[o,h,l,cl].every(Number.isFinite)&&o>0&&h>=Math.max(o,cl)&&l<=Math.min(o,cl)&&l>0&&h>=l&&cl>0)rows.push({timestamp:t,open:o,high:h,low:l,close:cl});}}if(rows.length>=10)out.push({asset:asset||assetHint||activeAsset||'',candles:rows});for(const v of x)walk(v,asset,d+1);return;}const a=x.asset||x.symbol||x.pair||x.instrument||asset;for(const v of Object.values(x))if(v&&typeof v==='object')walk(v,a,d+1);}walk(root,assetHint,0);return out;}function depthTap(ev,payload){try{const raw=JSON.stringify(payload);const txt=String(ev||'')+' '+raw.slice(0,12000);if(/depth|order.?book|book|bids|asks/i.test(txt)){AadiNative.onDepthMessage(JSON.stringify({asset:activeAsset||'',event:String(ev||'unknown'),receivedAt:Date.now(),payload:payload}));}}catch(e){}}function followDepth(){try{if(!chartWs||chartWs.readyState!==1||!activeAsset||depthRequestedAsset===activeAsset)return;depthRequestedAsset=activeAsset;chartWs.send('42[\"depth/follow\",'+JSON.stringify(activeAsset)+']');AadiNative.onDepthStatus('depth/follow sent • '+activeAsset);}catch(e){depthRequestedAsset=null;AadiNative.onDepthStatus('depth/follow send failed');}}" +
+        "const NativeWS=window.WebSocket;let activeAsset=null,chartWs=null,pendingBinaryPacket=null,depthRequestedAsset=null;let historyPages=0,historyOldest=0,historyTarget=0;function requestHistory(asset,anchorTime){try{if(!chartWs||chartWs.readyState!==1||!asset||historyPages>=64)return;const payload={asset:String(asset),index:Math.floor(Date.now()/10)+historyPages,offset:3600,period:10,time:Math.floor(anchorTime||Date.now()/1000)};chartWs.send('42[\"history/load\",'+JSON.stringify(payload)+']');historyPages++;AadiNative.onDepthStatus('Historical candles request '+historyPages+' sent');}catch(e){}}function collectHistory(root,assetHint){const out=[],seen=new Set();function walk(x,asset,d){if(!x||typeof x!=='object'||d>10||seen.has(x))return;seen.add(x);if(Array.isArray(x)){const rows=[];if(x.length&&Array.isArray(x[0])){for(const r of x){if(!Array.isArray(r)||r.length<5)continue;const t=normTime(r[0]),o=Number(r[1]),cl=Number(r[2]),h=Number(r[3]),l=Number(r[4]);if(t&&[o,cl,h,l].every(Number.isFinite)&&o>0&&cl>0&&h>=Math.max(o,cl)&&l<=Math.min(o,cl)&&l>0&&h>=l)rows.push({timestamp:t,open:o,high:h,low:l,close:cl});}}else if(x.length&&x[0]&&typeof x[0]==='object'){for(const r of x){if(!r||typeof r!=='object')continue;const t=normTime(r.timestamp||r.time||r.ts||r.date),o=Number(r.open??r.o),h=Number(r.high??r.h),l=Number(r.low??r.l),cl=Number(r.close??r.c);if(t&&[o,h,l,cl].every(Number.isFinite)&&o>0&&h>=Math.max(o,cl)&&l<=Math.min(o,cl)&&l>0&&h>=l&&cl>0)rows.push({timestamp:t,open:o,high:h,low:l,close:cl});}}if(rows.length>=1)out.push({asset:asset||assetHint||activeAsset||'',candles:rows});for(const v of x)walk(v,asset,d+1);return;}const a=x.asset||x.symbol||x.pair||x.instrument||asset;for(const v of Object.values(x))if(v&&typeof v==='object')walk(v,a,d+1);}walk(root,assetHint,0);return out;}function depthTap(ev,payload){try{const raw=JSON.stringify(payload);const txt=String(ev||'')+' '+raw.slice(0,12000);if(/depth|order.?book|book|bids|asks/i.test(txt)){AadiNative.onDepthMessage(JSON.stringify({asset:activeAsset||'',event:String(ev||'unknown'),receivedAt:Date.now(),payload:payload}));}}catch(e){}}function followDepth(){try{if(!chartWs||chartWs.readyState!==1||!activeAsset||depthRequestedAsset===activeAsset)return;depthRequestedAsset=activeAsset;chartWs.send('42[\"depth/follow\",'+JSON.stringify(activeAsset)+']');AadiNative.onDepthStatus('depth/follow sent • '+activeAsset);}catch(e){depthRequestedAsset=null;AadiNative.onDepthStatus('depth/follow send failed');}}" +
         "function networkTap(source,url,text){try{if(!/json/i.test(String(text).slice(0,80))&&!/bid|ask|depth|book/i.test(String(text).slice(0,3000)))return;const obj=JSON.parse(text);depthTap('network:'+source+':'+String(url||'').slice(-180),obj);}catch(e){}}try{const nativeFetch=window.fetch;if(nativeFetch)window.fetch=function(){const args=arguments;return nativeFetch.apply(this,args).then(function(response){try{const clone=response.clone();clone.text().then(function(t){networkTap('fetch',args[0]&&args[0].url||args[0],t);}).catch(function(){});}catch(e){}return response;});};}catch(e){}try{const xo=XMLHttpRequest.prototype.open,xs=XMLHttpRequest.prototype.send;XMLHttpRequest.prototype.open=function(m,u){this.__aadiUrl=u;return xo.apply(this,arguments);};XMLHttpRequest.prototype.send=function(){this.addEventListener('load',function(){try{if(this.responseType===''||this.responseType==='text')networkTap('xhr',this.__aadiUrl,this.responseText);}catch(e){};});return xs.apply(this,arguments);};}catch(e){}function normTime(v){let n=Number(v);if(!Number.isFinite(n)||n<=0)return 0;if(n>1e12)n/=1000;return n;}" +
         "function emit(price,asset,time){price=Number(price);if(!Number.isFinite(price)||price<=0||!asset||!activeAsset||String(asset)!==String(activeAsset))return;const feedTime=normTime(time);if(!feedTime)return;const now=Date.now()/1000;if(feedTime<now-45||feedTime>now+8)return;try{AadiNative.onTick(JSON.stringify({price:price,asset:String(asset),timestamp:feedTime}));}catch(e){}}" +
         "function walkTicks(x,d){if(d>10||x==null)return;if(Array.isArray(x)){if(x.length>=3&&typeof x[0]==='string'&&Number.isFinite(Number(x[1]))&&Number(x[1])>1000000000&&Number.isFinite(Number(x[2]))&&Number(x[2])>0){emit(x[2],x[0],x[1]);return;}for(const v of x)walkTicks(v,d+1);return;}if(typeof x!=='object')return;const asset=x.asset||x.symbol||x.pair||x.instrument||x.assetName||x.ticker||x.active;const time=x.timestamp||x.time||x.ts||x.created_at;for(const [k,v] of Object.entries(x)){if(/^(price|currentprice|lastprice|closeprice|rate|quote)$/i.test(k)&&asset&&(typeof v==='number'||typeof v==='string')&&Number(v)>0){emit(v,asset,time);return;}}for(const v of Object.values(x))if(v&&typeof v==='object')walkTicks(v,d+1);}" +
@@ -366,6 +366,10 @@ public class MainActivity extends Activity {
             synchronized(aiRecentCandles){for(JSONObject item:aiRecentCandles)candles.put(item);}
             snapshot.put("recentLiveTicks",ticks);
             snapshot.put("recentHistorical10SecondCandles",candles);
+            snapshot.put("totalLiveTicksReceived",receivedTicks);
+            snapshot.put("ticksIncluded",ticks.length());
+            snapshot.put("candlesIncluded",candles.length());
+            snapshot.put("snapshotCreatedAt",System.currentTimeMillis());
         } catch(Exception ignored) {}
         return snapshot;
     }
@@ -439,8 +443,10 @@ public class MainActivity extends Activity {
         JSONArray events=new JSONArray();events.put(event);
         persistAuditEvents(events.toString());
         aiTradeEntryTime=0;aiTradeEntryPrice=Double.NaN;aiTradeSide="";aiTradeReason="";
-        signalView.setText("WAIT");signalView.setTextColor(Color.WHITE);
-        if(scanStatus!=null)scanStatus.setText("Trade settled • waiting for Gemini's next independent decision");
+        runOnUiThread(()->{
+            signalView.setText("WAIT");signalView.setTextColor(Color.WHITE);
+            if(scanStatus!=null)scanStatus.setText("Trade settled • waiting for Gemini's next independent decision");
+        });
     }
 
     private boolean marketLoginDetected = false;
@@ -629,33 +635,39 @@ public class MainActivity extends Activity {
                 tick.put("timestamp",feedTimeMs);tick.put("price",price);
                 synchronized(aiRecentTicks){
                     aiRecentTicks.addLast(tick);
-                    while(!aiRecentTicks.isEmpty()&&feedTimeMs-aiRecentTicks.peekFirst().optLong("timestamp")>30000L)
-                        aiRecentTicks.removeFirst();
-                    while(aiRecentTicks.size()>80)aiRecentTicks.removeFirst();
+                    while(!aiRecentTicks.isEmpty()&&feedTimeMs-aiRecentTicks.peekFirst().optLong("timestamp")>60000L)aiRecentTicks.removeFirst();
+                    while(aiRecentTicks.size()>120)aiRecentTicks.removeFirst();
                 }
                 settleAiTradeIfDue(feedTimeMs,price);
                 long count=++receivedTicks;
                 String line=asset+"  "+price+"  • TICK #"+count+"  |  REAL QX FEED";
-                if(aiTradeEntryTime<=0&&!geminiReviewPending&&count>=5
-                        &&wallMs-lastGeminiRequestAt>=5000L){
+                String uiMessage=null;
+                boolean shouldRequest=false;
+                long requestToken=0;
+                if(aiTradeEntryTime<=0&&!geminiReviewPending&&count>=5&&wallMs-lastGeminiRequestAt>=5000L){
                     String key=GeminiSignalAdvisor.loadApiKey(MainActivity.this);
-                    if(key.isEmpty()){
-                        signalView.setText("WAIT");signalView.setTextColor(Color.WHITE);
-                        if(scanStatus!=null)scanStatus.setText("GEMINI NOT CONNECTED • Tap SET UP GEMINI API KEY");
-                    }else{
+                    if(key.isEmpty()){uiMessage="GEMINI NOT CONNECTED • Tap SET UP GEMINI API KEY";}
+                    else{
                         geminiReviewPending=true;lastGeminiRequestAt=wallMs;
-                        long token=++geminiReviewToken;
-                        signalView.setText("WAIT");signalView.setTextColor(Color.WHITE);
-                        if(scanStatus!=null)scanStatus.setText("GEMINI AI • Sending "+aiRecentTicks.size()+" live ticks + "+aiRecentCandles.size()+" QX candles • processing…");
-                        requestGeminiMarketDecision(asset,token);
+                        requestToken=++geminiReviewToken;shouldRequest=true;
+                        uiMessage="GEMINI AI • Preparing real QX snapshot: "+aiRecentTicks.size()+" recent ticks / "+count+" received • "+aiRecentCandles.size()+" real candles • sending…";
                     }
                 }
                 long uiNow=SystemClock.uptimeMillis();
-                if(uiNow-lastUiTickAt>=200){
+                final String statusMessage=uiMessage;
+                if(uiNow-lastUiTickAt>=200||statusMessage!=null){
                     lastUiTickAt=uiNow;
-                    runOnUiThread(()->lastTick.setText(line));
+                    runOnUiThread(()->{
+                        lastTick.setText(line);
+                        if(statusMessage!=null){signalView.setText("WAIT");signalView.setTextColor(Color.WHITE);if(scanStatus!=null)scanStatus.setText(statusMessage);}
+                    });
                 }
-            }catch(Exception ignored){}
+                if(shouldRequest)requestGeminiMarketDecision(asset,requestToken);
+            }catch(Exception error){
+                final String message=error.getMessage()==null?error.getClass().getSimpleName():error.getMessage();
+                geminiReviewPending=false;
+                runOnUiThread(()->{if(scanStatus!=null)scanStatus.setText("QX/GEMINI BRIDGE ERROR • "+message);});
+            }
         }
     }
 
