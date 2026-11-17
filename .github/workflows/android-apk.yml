@@ -1,7 +1,7 @@
 name: Build AADI Android APK
 on:
   push:
-    branches: [ android-webview-app ]
+    branches: [ android-webview-app, chinese-engine-history-merge-2026-11-13 ]
     paths: [ 'android/**', '.github/workflows/android-apk.yml' ]
   workflow_dispatch:
 permissions:
