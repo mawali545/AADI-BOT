@@ -49,7 +49,9 @@ public class MainActivity extends Activity {
             uiHandler.postDelayed(this,120L);
         }
     };
-    private long depthEventCount = 0;
+    private volatile long depthEventCount = 0;
+    private volatile long binaryFrameCount = 0;
+    private volatile long textFrameCount = 0;
     private final java.util.ArrayDeque<String> depthRecent = new java.util.ArrayDeque<>();
     private volatile boolean botActive = false;
     private WebView web;
@@ -80,7 +82,7 @@ public class MainActivity extends Activity {
             java.util.concurrent.Executors.newSingleThreadExecutor();
 
     private static final String MARKET_URL = "https://market-qx.trade/en/trade";
-    private static final String HOOK = "(function(){'use strict';if(window.__AADI_HOOKED__)return;window.__AADI_HOOKED__=true;const NativeWS=window.WebSocket;let activeAsset='',socketNo=0,rx=0,emitted=0;function say(s){try{AadiNative.onSocket(s)}catch(e){}}function assetFrom(x){if(!x||typeof x!=='object')return '';for(const k of ['asset','symbol','pair','instrument','assetName','ticker','active']){const v=x[k];if(typeof v==='string'&&v.length<40)return v;}return '';}function setAsset(a){if(!a||typeof a!=='string'||a.length>40)return;if(a!==activeAsset){activeAsset=a;try{AadiNative.onAssetChanged(a)}catch(e){}say('QX selected asset detected: '+a)}}function normTime(v){let n=Number(v);if(!Number.isFinite(n)||n<=0)return 0;if(n>1e12)n/=1000;return n;}function emit(p,a,t){p=Number(p);a=String(a||activeAsset||'');if(!Number.isFinite(p)||p<=0||!a)return;let sec=normTime(t);if(!sec)sec=Date.now()/1000;const now=Date.now()/1000;if(sec<now-60||sec>now+10)return;if(a!==activeAsset)setAsset(a);try{AadiNative.onTick(JSON.stringify({price:p,asset:a,timestamp:sec}));emitted++;if(emitted===1||emitted%25===0)say('QX ticks parsed: '+emitted+' • WS '+socketNo+' • RX '+rx)}catch(e){}}function walk(x,d){if(d>14||x==null)return;if(Array.isArray(x)){if(x.length>=3&&typeof x[0]==='string'&&Number(x[1])>1000000000&&Number(x[2])>0){emit(x[2],x[0],x[1]);return;}if(x.length>=2&&Number(x[0])>1000000000&&Number(x[1])>0){emit(x[1],activeAsset,x[0]);return;}for(const v of x)walk(v,d+1);return;}if(typeof x!=='object')return;const a=assetFrom(x)||activeAsset;const t=x.timestamp||x.time||x.ts||x.created_at||x.at;for(const k of ['price','currentPrice','lastPrice','closePrice','rate','quote','value','close']){const v=x[k];if((typeof v==='number'||typeof v==='string')&&Number(v)>0){emit(v,a,t);return;}}for(const v of Object.values(x))if(v&&typeof v==='object')walk(v,d+1)}function parse(s){try{let q=String(s).trim();if(q.startsWith('42')&&(q[2]==='['||q[2]==='{'))q=q.slice(2);else if(q.charCodeAt(0)===4)q=q.slice(1);const o=JSON.parse(q);if(Array.isArray(o)&&typeof o[0]==='string'){const ev=o[0],data=o[1],a=assetFrom(data);if(a&&/(instrument|asset|symbol|subscribe|stream|quote|change)/i.test(ev))setAsset(a);if(!/history|candle|ohlc/i.test(ev))walk(data,0)}else walk(o,0)}catch(e){}}window.WebSocket=new Proxy(NativeWS,{construct:function(T,args){const ws=Reflect.construct(T,args,T);socketNo++;const nativeSend=ws.send.bind(ws);ws.send=function(data){try{if(typeof data==='string'){let q=data;if(q.startsWith('42'))q=q.slice(2);const o=JSON.parse(q);if(Array.isArray(o)){const ev=String(o[0]||''),a=assetFrom(o[1]);if(a&&/(instrument|asset|symbol|subscribe|stream|quote|change)/i.test(ev))setAsset(a)}}}catch(e){}return nativeSend(data)};ws.addEventListener('open',()=>say('QX WebSocket opened • '+socketNo));ws.addEventListener('message',ev=>{rx++;if(typeof ev.data==='string')parse(ev.data);else if(ev.data instanceof Blob)ev.data.text().then(parse).catch(()=>{});else if(ev.data instanceof ArrayBuffer){try{parse(new TextDecoder().decode(ev.data))}catch(e){}}if(rx===1||rx%50===0)say('QX WebSocket RX '+rx+' • ticks '+emitted+' • sockets '+socketNo)});ws.addEventListener('close',()=>say('QX WebSocket closed • RX '+rx+' • ticks '+emitted));return ws}});say('QX live WebSocket hook active • waiting for market frames');})();";
+    private static final String HOOK = "(function(){'use strict';if(window.__AADI_HOOKED__)return;window.__AADI_HOOKED__=true;const NativeWS=window.WebSocket;let activeAsset='',socketNo=0,rx=0,emitted=0;function say(s){try{AadiNative.onSocket(s)}catch(e){}}function assetFrom(x){if(!x||typeof x!=='object')return '';for(const k of ['asset','symbol','pair','instrument','assetName','ticker','active']){const v=x[k];if(typeof v==='string'&&v.length<40)return v;}return '';}function setAsset(a){if(!a||typeof a!=='string'||a.length>40)return;if(a!==activeAsset){activeAsset=a;try{AadiNative.onAssetChanged(a)}catch(e){}say('QX selected asset detected: '+a)}}function normTime(v){let n=Number(v);if(!Number.isFinite(n)||n<=0)return 0;if(n>1e12)n/=1000;return n;}function emit(p,a,t){p=Number(p);a=String(a||activeAsset||'');if(!Number.isFinite(p)||p<=0||!a)return;let sec=normTime(t);if(!sec)sec=Date.now()/1000;const now=Date.now()/1000;if(sec<now-60||sec>now+10)return;if(a!==activeAsset)setAsset(a);try{AadiNative.onTick(JSON.stringify({price:p,asset:a,timestamp:sec}));emitted++;if(emitted===1||emitted%25===0)say('QX ticks parsed: '+emitted+' • WS '+socketNo+' • RX '+rx)}catch(e){}}function walk(x,d){if(d>14||x==null)return;if(Array.isArray(x)){if(x.length>=3&&typeof x[0]==='string'&&Number(x[1])>1000000000&&Number(x[2])>0){emit(x[2],x[0],x[1]);return;}if(x.length>=2&&Number(x[0])>1000000000&&Number(x[1])>0){emit(x[1],activeAsset,x[0]);return;}for(const v of x)walk(v,d+1);return;}if(typeof x!=='object')return;const a=assetFrom(x)||activeAsset;const t=x.timestamp||x.time||x.ts||x.created_at||x.at;for(const k of ['price','currentPrice','lastPrice','closePrice','rate','quote','value','close']){const v=x[k];if((typeof v==='number'||typeof v==='string')&&Number(v)>0){emit(v,a,t);return;}}for(const v of Object.values(x))if(v&&typeof v==='object')walk(v,d+1)}function inspectDepth(x,d){if(d>10||!x||typeof x!=='object')return;if(!Array.isArray(x)){const keys=Object.keys(x).map(k=>k.toLowerCase());const hasSides=(Array.isArray(x.bids)&&Array.isArray(x.asks))||(Array.isArray(x.buy)&&Array.isArray(x.sell))||(Array.isArray(x.buyOrders)&&Array.isArray(x.sellOrders));const hasDepthKey=keys.some(k=>/(order.?book|market.?depth|depth)/i.test(k));if(hasSides||hasDepthKey){try{AadiNative.onDepthMessage(JSON.stringify(x))}catch(e){}}}for(const v of Object.values(x))if(v&&typeof v==='object')inspectDepth(v,d+1)}function parse(s){try{let q=String(s).trim();if(q.startsWith('42')&&(q[2]==='['||q[2]==='{'))q=q.slice(2);else if(q.charCodeAt(0)===4)q=q.slice(1);const o=JSON.parse(q);inspectDepth(o,0);if(Array.isArray(o)&&typeof o[0]==='string'){const ev=o[0],data=o[1],a=assetFrom(data);if(a&&/(instrument|asset|symbol|subscribe|stream|quote|change)/i.test(ev))setAsset(a);if(!/history|candle|ohlc/i.test(ev))walk(data,0)}else walk(o,0)}catch(e){}}window.WebSocket=new Proxy(NativeWS,{construct:function(T,args){const ws=Reflect.construct(T,args,T);socketNo++;const nativeSend=ws.send.bind(ws);ws.send=function(data){try{if(typeof data==='string'){let q=data;if(q.startsWith('42'))q=q.slice(2);const o=JSON.parse(q);if(Array.isArray(o)){const ev=String(o[0]||''),a=assetFrom(o[1]);if(a&&/(instrument|asset|symbol|subscribe|stream|quote|change)/i.test(ev))setAsset(a)}}}catch(e){}return nativeSend(data)};ws.addEventListener('open',()=>say('QX WebSocket opened • '+socketNo));ws.addEventListener('message',ev=>{rx++;if(typeof ev.data==='string'){try{AadiNative.onFrameMeta('text',ev.data.length)}catch(e){}parse(ev.data)}else if(ev.data instanceof Blob){try{AadiNative.onFrameMeta('binary',ev.data.size)}catch(e){}ev.data.text().then(parse).catch(()=>{});}else if(ev.data instanceof ArrayBuffer){try{AadiNative.onFrameMeta('binary',ev.data.byteLength);parse(new TextDecoder().decode(ev.data))}catch(e){}}if(rx===1||rx%50===0)say('QX WebSocket RX '+rx+' • ticks '+emitted+' • sockets '+socketNo)});ws.addEventListener('close',()=>say('QX WebSocket closed • RX '+rx+' • ticks '+emitted));return ws}});say('QX live WebSocket hook active • waiting for market frames');})();";
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -134,6 +136,13 @@ public class MainActivity extends Activity {
         scanStatus.setText("QX LIVE CANDLES 0/3 • Waiting for real QX ticks");
         root.addView(scanStatus,new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,(int)(22*getResources().getDisplayMetrics().density)));
+        depthView.setTextColor(Color.rgb(255,190,90));
+        depthView.setTextSize(9);
+        depthView.setSingleLine(true);
+        depthView.setEllipsize(TextUtils.TruncateAt.END);
+        depthView.setText("WS FRAMES • waiting for Market-QX messages");
+        root.addView(depthView,new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,(int)(20*getResources().getDisplayMetrics().density)));
 
         statsView = new TextView(this);
         statsView.setTextColor(Color.WHITE);
@@ -502,8 +511,36 @@ public class MainActivity extends Activity {
             });
         }
 
+        @JavascriptInterface public void onFrameMeta(String kind, int bytes) {
+            if ("binary".equals(kind)) binaryFrameCount++;
+            else textFrameCount++;
+            if (depthView != null && (binaryFrameCount + textFrameCount == 1
+                    || (binaryFrameCount + textFrameCount) % 50 == 0)) {
+                runOnUiThread(() -> depthView.setText("WS FRAMES • text " + textFrameCount
+                        + " • binary " + binaryFrameCount + " • depth candidates " + depthEventCount));
+            }
+        }
+
         @JavascriptInterface public void onDepthMessage(String json) {
-            // Depth packets are diagnostic only; the AI decision uses the chart, candles and ticks.
+            try {
+                JSONObject packet = new JSONObject(json);
+                boolean paired = (packet.opt("bids") instanceof JSONArray && packet.opt("asks") instanceof JSONArray)
+                        || (packet.opt("buy") instanceof JSONArray && packet.opt("sell") instanceof JSONArray)
+                        || (packet.opt("buyOrders") instanceof JSONArray && packet.opt("sellOrders") instanceof JSONArray);
+                boolean named = false;
+                java.util.Iterator<String> keys = packet.keys();
+                while (keys.hasNext()) {
+                    String key = keys.next().toLowerCase(java.util.Locale.US);
+                    if (key.contains("depth") || key.contains("orderbook") || key.contains("order_book")) named = true;
+                }
+                if (!paired && !named) return;
+                depthEventCount++;
+                final String label = paired ? "BID/ASK ARRAY CANDIDATE" : "DEPTH-NAMED PACKET";
+                runOnUiThread(() -> {
+                    if (depthView != null) depthView.setText("DEPTH DIAGNOSTIC • " + label
+                            + " • candidates " + depthEventCount + " • NOT YET VERIFIED AS LEVEL 2");
+                });
+            } catch (Exception ignored) { }
         }
 
         @JavascriptInterface public synchronized void onTick(String json) {
