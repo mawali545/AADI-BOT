@@ -7,8 +7,8 @@ android {
         applicationId 'com.aadi.bot.v3.installfix'
         minSdk 23
         targetSdk 28
-        versionCode 15
-        versionName '2.4.8'
+        versionCode 16
+        versionName '2.4.9'
     }
 
     signingConfigs {
