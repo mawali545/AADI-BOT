@@ -146,13 +146,13 @@ public class MainActivity extends Activity {
         statsView.setOnClickListener(v -> showAuditLog());
 
         Button hiddenGeminiSettings=new Button(this);
-        hiddenGeminiSettings.setText(GeminiSignalAdvisor.loadApiKey(this).isEmpty()
-                ? "SET UP FREE GROQ AI KEY" : "AI RESULT • API KEY CONFIGURED");
+        hiddenGeminiSettings.setText(HuggingFaceSignalAdvisor.loadSpaceUrl(this).isEmpty()
+                ? "SET HUGGING FACE SPACE URL" : "HUGGING FACE AI • SPACE CONFIGURED");
         root.addView(hiddenGeminiSettings,new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT));
-        hiddenGeminiSettings.setOnClickListener(v -> showGeminiSettings(hiddenGeminiSettings));
+        hiddenGeminiSettings.setOnClickListener(v -> showHuggingFaceSettings(hiddenGeminiSettings));
         generateSignalButton=new Button(this);
-        generateSignalButton.setText("ANALYZE QX CHART • AI");
+        generateSignalButton.setText("AI GENERATE SIGNAL");
         root.addView(generateSignalButton,new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT));
         scanProgress=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);
@@ -317,32 +317,30 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void showGeminiSettings(Button settingsButton) {
-        EditText keyInput=new EditText(this);
-        keyInput.setSingleLine(true);
-        keyInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        keyInput.setHint("Paste GroqCloud API key (gsk_...)");
-        keyInput.setText(GeminiSignalAdvisor.loadApiKey(this));
+    private void showHuggingFaceSettings(Button settingsButton) {
+        EditText urlInput=new EditText(this);
+        urlInput.setSingleLine(true);
+        urlInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+        urlInput.setHint("https://your-space-name.hf.space");
+        urlInput.setText(HuggingFaceSignalAdvisor.loadSpaceUrl(this));
         new AlertDialog.Builder(this)
-                .setTitle("AADI • GROQ QWEN VISION AI")
-                .setMessage("Qwen 3.8 27B Vision analyzes the live QX chart screenshot together with genuine QX candles and ticks when you press ANALYZE. Create a free GroqCloud API key and paste it here. The key is encrypted on this device. Free quota is limited.")
-                .setView(keyInput)
-                .setPositiveButton("SAVE KEY",(dialog,which)->{
+                .setTitle("AADI • FREE HUGGING FACE AI")
+                .setMessage("Paste your PUBLIC Hugging Face Space app URL (the *.hf.space URL). The bot will send its own live QX chart screenshot and real ticks/candles to that Space only when you press AI GENERATE SIGNAL. No Groq API key is used. Hugging Face free ZeroGPU has a shared usage quota.")
+                .setView(urlInput)
+                .setPositiveButton("SAVE SPACE URL",(dialog,which)->{
                     try{
-                        GeminiSignalAdvisor.saveApiKey(this,keyInput.getText().toString());
-                        settingsButton.setText(keyInput.getText().toString().trim().isEmpty()
-                                ? "SET UP FREE GROQ AI KEY" : "GROQ QWEN VISION • API KEY CONFIGURED");
-                        android.widget.Toast.makeText(this,"Groq API key saved securely on this device",android.widget.Toast.LENGTH_SHORT).show();
+                        HuggingFaceSignalAdvisor.saveSpaceUrl(this,urlInput.getText().toString());
+                        settingsButton.setText(urlInput.getText().toString().trim().isEmpty()
+                                ? "SET HUGGING FACE SPACE URL" : "HUGGING FACE AI • SPACE CONFIGURED");
+                        android.widget.Toast.makeText(this,"Hugging Face Space URL saved",android.widget.Toast.LENGTH_SHORT).show();
                     }catch(Exception e){
-                        android.widget.Toast.makeText(this,"Could not save Gemini key: "+e.getClass().getSimpleName(),android.widget.Toast.LENGTH_LONG).show();
+                        android.widget.Toast.makeText(this,"Could not save Space URL: "+e.getMessage(),android.widget.Toast.LENGTH_LONG).show();
                     }
                 })
-                .setNeutralButton("REMOVE KEY",(dialog,which)->{
-                    try{
-                        GeminiSignalAdvisor.saveApiKey(this,"");
-                        settingsButton.setText("SET UP FREE GROQ AI KEY");
-                        android.widget.Toast.makeText(this,"Gemini key removed",android.widget.Toast.LENGTH_SHORT).show();
-                    }catch(Exception ignored){}
+                .setNeutralButton("REMOVE URL",(dialog,which)->{
+                    HuggingFaceSignalAdvisor.saveSpaceUrl(this,"");
+                    settingsButton.setText("SET HUGGING FACE SPACE URL");
+                    android.widget.Toast.makeText(this,"Hugging Face Space URL removed",android.widget.Toast.LENGTH_SHORT).show();
                 })
                 .setNegativeButton("CANCEL",null).show();
     }
@@ -404,8 +402,8 @@ public class MainActivity extends Activity {
         if(scanInProgress||geminiReviewPending)return;
         if(!botActive||web==null){if(scanStatus!=null)scanStatus.setText("WAIT • QX chart login/feed is not ready");return;}
         if(aiTradeEntryTime>0){if(scanStatus!=null)scanStatus.setText("WAIT • Previous AI signal is still under 10-second evaluation");return;}
-        String key=GeminiSignalAdvisor.loadApiKey(this);
-        if(key.isEmpty()){if(scanStatus!=null)scanStatus.setText("GROQ KEY REQUIRED • Tap SET UP FREE GROQ AI KEY");return;}
+        String spaceUrl=HuggingFaceSignalAdvisor.loadSpaceUrl(this);
+        if(spaceUrl.isEmpty()){if(scanStatus!=null)scanStatus.setText("HUGGING FACE SPACE URL REQUIRED • Tap SET HUGGING FACE SPACE URL");return;}
         if(latestLiveTickMs<=0||System.currentTimeMillis()-latestLiveTickMs>10000L){if(scanStatus!=null)scanStatus.setText("WAIT • No fresh QX tick; chart feed must be live");return;}
         JSONObject snapshot=buildAiMarketSnapshot();
         if(snapshot.optInt("candlesIncluded",0)<3){if(scanStatus!=null)scanStatus.setText("WAIT • Need 3 completed live QX candles; keep chart running");return;}
@@ -414,23 +412,23 @@ public class MainActivity extends Activity {
         catch(Exception e){if(scanStatus!=null)scanStatus.setText("CHART CAPTURE ERROR • "+e.getMessage());return;}
         final String asset=activeMarketAsset;final long token=++geminiReviewToken;
         geminiReviewPending=true;scanInProgress=true;scanProgressValue=8;
-        if(generateSignalButton!=null){generateSignalButton.setEnabled(false);generateSignalButton.setText("GROQ AI ANALYZING…");}
+        if(generateSignalButton!=null){generateSignalButton.setEnabled(false);generateSignalButton.setText("AI GENERATING SIGNAL…");}
         if(scanProgress!=null){scanProgress.setVisibility(android.view.View.VISIBLE);scanProgress.setProgress(8);}
         if(scanStatus!=null)scanStatus.setText("AI LIVE SCAN • Sending chart screenshot + "+snapshot.optInt("candlesIncluded")+" real candles + "+snapshot.optInt("ticksIncluded")+" ticks…");
         geminiExecutor.execute(()->{
-            GeminiSignalAdvisor.Decision decision=null;String failure=null;
-            try{decision=GeminiSignalAdvisor.reviewMarket(key,snapshot,imageData);}
+            HuggingFaceSignalAdvisor.Decision decision=null;String failure=null;
+            try{decision=HuggingFaceSignalAdvisor.reviewMarket(spaceUrl,snapshot,imageData);}
             catch(Exception e){failure=e.getMessage()==null?e.getClass().getSimpleName():e.getMessage();}
-            final GeminiSignalAdvisor.Decision answer=decision;final String error=failure;
+            final HuggingFaceSignalAdvisor.Decision answer=decision;final String error=failure;
             runOnUiThread(()->finishManualChartAnalysis(asset,token,snapshot,answer,error));
         });
     }
 
     private void finishManualChartAnalysis(String asset,long token,JSONObject snapshot,
-            GeminiSignalAdvisor.Decision answer,String error) {
+            HuggingFaceSignalAdvisor.Decision answer,String error) {
         if(token!=geminiReviewToken||!asset.equals(activeMarketAsset))return;
         geminiReviewPending=false;scanInProgress=false;
-        if(generateSignalButton!=null){generateSignalButton.setEnabled(true);generateSignalButton.setText("ANALYZE QX CHART • AI");}
+        if(generateSignalButton!=null){generateSignalButton.setEnabled(true);generateSignalButton.setText("AI GENERATE SIGNAL");}
         if(scanProgress!=null){scanProgress.setProgress(100);scanProgress.setVisibility(android.view.View.GONE);}
         if(latestLiveTickMs<=0||System.currentTimeMillis()-latestLiveTickMs>10000L){
             signalView.setText("WAIT");signalView.setTextColor(Color.WHITE);
@@ -444,7 +442,7 @@ public class MainActivity extends Activity {
             if(scanStatus!=null)scanStatus.setText("AI SIGNAL • "+answer.reason+" • confidence "+answer.confidence+" • screenshot + candles reviewed");
         }else{
             signalView.setText("WAIT");signalView.setTextColor(Color.WHITE);
-            if(scanStatus!=null)scanStatus.setText(answer==null?"GROQ AI ERROR • "+(error==null?"request failed":error):"GROQ QWEN VISION • "+answer.reason+" • confidence "+answer.confidence);
+            if(scanStatus!=null)scanStatus.setText(answer==null?"HUGGING FACE AI ERROR • "+(error==null?"request failed":error):"HUGGING FACE QWEN VISION • "+answer.reason+" • confidence "+answer.confidence);
         }
     }
 
@@ -472,7 +470,7 @@ public class MainActivity extends Activity {
                     synchronized (aiRecentCandles) { aiRecentCandles.clear(); }
                     liveCandleBuilder.reset();
                     geminiReviewToken++;geminiReviewPending=false;scanInProgress=false;
-                    if (generateSignalButton != null) { generateSignalButton.setEnabled(true); generateSignalButton.setText("ANALYZE QX CHART • AI"); }
+                    if (generateSignalButton != null) { generateSignalButton.setEnabled(true); generateSignalButton.setText("AI GENERATE SIGNAL"); }
                     if (scanProgress != null) scanProgress.setVisibility(android.view.View.GONE);
                     if (signalView != null) { signalView.setText("WAIT"); signalView.setTextColor(Color.WHITE); }
                     if (scanStatus != null) scanStatus.setText("QX SOCKET CLOSED • Waiting for reconnect");
@@ -495,7 +493,7 @@ public class MainActivity extends Activity {
             synchronized (aiRecentCandles) { aiRecentCandles.clear(); }
             liveCandleBuilder.reset();
             geminiReviewToken++;geminiReviewPending=false;scanInProgress=false;
-            if (generateSignalButton != null) { generateSignalButton.setEnabled(true); generateSignalButton.setText("ANALYZE QX CHART • AI"); }
+            if (generateSignalButton != null) { generateSignalButton.setEnabled(true); generateSignalButton.setText("AI GENERATE SIGNAL"); }
             if (scanProgress != null) scanProgress.setVisibility(android.view.View.GONE);
             runOnUiThread(() -> {
                 if (lastTick != null) lastTick.setText(asset + " • Waiting for genuine QX ticks");
