@@ -4,15 +4,18 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import org.json.JSONArray;
+import org.json.JSONException;
 
 /** Background next-candle engine. It consumes validated live ticks only. */
 public final class SignalEngine {
-    private static final long CANDLE_MS = 10_000L;
+    private static final long DEFAULT_CANDLE_MS = 60_000L;
     private static final int MAX_CANDLES = 900, MAX_TICKS = 600;
     private final List<Candle> candles = new ArrayList<>();
     private final List<Tick> tape = new ArrayList<>();
     private final Map<String, Long> lastTimestampByAsset = new HashMap<>();
     private final Map<String, Long> issuedBucketByAsset = new HashMap<>();
+    private final Map<String, Long> periodMsByAsset = new HashMap<>();
     private Pending pending;
     private String asset = "WAITING FOR QX", signal = "WAIT";
     private String reason = "Waiting for real Market-QX candles.";
@@ -21,12 +24,19 @@ public final class SignalEngine {
     private double lastPrice = Double.NaN;
 
     public synchronized void acceptTick(String symbol, double price, long timestamp) {
+        acceptTick(symbol, price, timestamp, 60L);
+    }
+
+    /** Consume a genuine QX quote event using the chart's selected candle period. */
+    public synchronized void acceptTick(String symbol, double price, long timestamp, long periodSeconds) {
         if (symbol == null || !symbol.matches("[A-Za-z0-9_./-]{3,32}") ||
             !Double.isFinite(price) || price <= 0 || timestamp <= 0) return;
+        long duration = Math.max(1L, Math.min(86400L, periodSeconds)) * 1000L;
+        periodMsByAsset.put(symbol, duration);
         Long previous = lastTimestampByAsset.get(symbol);
         if (previous != null && timestamp < previous) return;
         lastTimestampByAsset.put(symbol, timestamp);
-        long bucket = timestamp / CANDLE_MS * CANDLE_MS;
+        long bucket = timestamp / duration * duration;
         Candle current = lastCandle(symbol);
         if (current != null && bucket < current.bucket) return;
         if (current == null || bucket > current.bucket) {
@@ -34,7 +44,7 @@ public final class SignalEngine {
             current = new Candle(symbol, bucket, price);
             candles.add(current);
             if (candles.size() > MAX_CANDLES) candles.remove(0);
-            if (!symbol.equals(asset)) { asset = symbol; signal = "WAIT"; reason = "Scanning real candles for " + symbol; }
+            if (!symbol.equals(asset)) { asset = symbol; signal = "WAIT"; reason = "Scanning original QX candle interval for " + symbol; }
         }
         current.update(price);
         lastTimestamp = timestamp;
@@ -47,10 +57,51 @@ public final class SignalEngine {
             signal = scan.signal;
             reason = scan.reason;
             if (!"WAIT".equals(scan.signal)) {
-                pending = new Pending(symbol, scan.signal, price, bucket + CANDLE_MS);
+                pending = new Pending(symbol, scan.signal, price, bucket + duration);
                 issuedBucketByAsset.put(symbol, bucket);
             }
         }
+    }
+
+    /** Load broker-supplied OHLC history; rows are [time, open, close, high, low, ...]. */
+    public synchronized void acceptHistory(String symbol, long periodSeconds, JSONArray rows) {
+        if (symbol == null || !symbol.matches("[A-Za-z0-9_./-]{3,32}") || rows == null) return;
+        long duration = Math.max(1L, Math.min(86400L, periodSeconds)) * 1000L;
+        periodMsByAsset.put(symbol, duration);
+        List<Candle> imported = new ArrayList<>();
+        for (int i = 0; i < rows.length(); i++) {
+            try {
+                JSONArray row = rows.optJSONArray(i);
+                if (row == null || row.length() < 5) continue;
+                double rawTime = row.getDouble(0);
+                long time = (long) rawTime;
+                if (time > 0 && time < 100000000000L) time *= 1000L;
+                double open = row.getDouble(1), close = row.getDouble(2);
+                double high = row.getDouble(3), low = row.getDouble(4);
+                if (time <= 0 || !Double.isFinite(open) || !Double.isFinite(close) ||
+                    !Double.isFinite(high) || !Double.isFinite(low) || open <= 0 || close <= 0 ||
+                    high < Math.max(open, close) || low > Math.min(open, close) || low <= 0) continue;
+                long bucket = time / duration * duration;
+                imported.add(new Candle(symbol, bucket, open, high, low, close));
+            } catch (JSONException ignored) {}
+        }
+        if (imported.isEmpty()) return;
+        imported.sort((a, b) -> Long.compare(a.bucket, b.bucket));
+        for (int i = candles.size() - 1; i >= 0; i--)
+            if (candles.get(i).asset.equals(symbol)) candles.remove(i);
+        for (Candle candle : imported) {
+            if (!candles.isEmpty()) {
+                Candle last = lastCandle(symbol);
+                if (last != null && last.bucket == candle.bucket) continue;
+            }
+            candles.add(candle);
+        }
+        while (candles.size() > MAX_CANDLES) candles.remove(0);
+        asset = symbol;
+        pending = null;
+        issuedBucketByAsset.remove(symbol);
+        reason = "Loaded " + imported.size() + " original QX OHLC candles; waiting for live quote.";
+        signal = "WAIT";
     }
 
     private Candle lastCandle(String symbol) {
