@@ -5,6 +5,7 @@ on:
     branches:
       - chinese-engine-history-merge-2026-11-13
       - aadi-114-manual-generate-signal
+      - dr-candle-tracker-android
   pull_request:
     branches:
       - android-webview-app
@@ -40,15 +41,20 @@ jobs:
         run: |
           mkdir -p android/.android-signing
           if [ ! -f android/.android-signing/aadi-debug.keystore ]; then
-            keytool -genkeypair -v -keystore android/.android-signing/aadi-debug.keystore -storepass aadi-debug-store -alias aadi-debug -keypass aadi-debug-store -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=AADI Debug,O=AADI,C=PK"
+            keytool -genkeypair -v -keystore android/.android-signing/aadi-debug.keystore -storepass aadi-debug-store -alias aadi-debug -keypass aadi-debug-store -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=DR Candle Tracker,O=DR,C=PK"
           fi
       - name: Run JVM unit tests
         run: gradle -p android testDebugUnitTest
       - name: Build debug APK
         run: gradle -p android assembleDebug
+      - name: Verify APK package identity
+        run: |
+          APK=android/app/build/outputs/apk/debug/app-debug.apk
+          test -s "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep -F "package: name='com.dr.candletracker'"
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: aadi-history-merge-debug-apk
+          name: dr-candle-tracker-debug-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error

@@ -1,37 +1,18 @@
 plugins { id 'com.android.application' }
 
 android {
-    namespace 'com.aadi.bot'
+    namespace 'com.dr.candletracker'
     compileSdk 35
     defaultConfig {
-        applicationId 'com.aadi.bot.v3.installfix'
+        applicationId 'com.dr.candletracker'
         minSdk 23
         targetSdk 28
-        versionCode 16
-        versionName '2.4.9'
-    }
-
-    signingConfigs {
-        stableDebug {
-            storeFile file("${rootProject.projectDir}/.android-signing/aadi-debug.keystore")
-            storePassword 'aadi-debug-store'
-            keyAlias 'aadi-debug'
-            keyPassword 'aadi-debug-store'
-            // Keep compatibility with Android 6 through Android 10+ installers.
-            v1SigningEnabled true
-            v2SigningEnabled true
-        }
-    }
-
-    buildTypes {
-        debug {
-            signingConfig signingConfigs.stableDebug
-        }
+        versionCode 1
+        versionName '1.0.0'
     }
 }
 
 dependencies {
     implementation 'androidx.webkit:webkit:1.12.1'
     testImplementation 'junit:junit:4.13.2'
-    testImplementation 'org.json:json:20240303'
 }
