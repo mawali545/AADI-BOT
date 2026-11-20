@@ -1,0 +1,40 @@
+name: DR Candle Tracker Build
+on:
+  push:
+    branches: [dr-candle-tracker]
+    paths:
+      - 'DR_CANDLE_TRACKER.zip'
+      - '.github/workflows/dr-candle-tracker.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Unpack source package
+        run: unzip -q DR_CANDLE_TRACKER.zip -d .
+      - name: Python syntax check
+        working-directory: DR_CANDLE_TRACKER
+        run: python -m py_compile app.py
+      - name: Unit tests
+        working-directory: DR_CANDLE_TRACKER
+        run: python -m unittest discover -s tests -v
+      - name: Userscript syntax check
+        working-directory: DR_CANDLE_TRACKER
+        run: node --check dr-market-qx.user.js
+      - name: Build clean Termux ZIP
+        working-directory: DR_CANDLE_TRACKER
+        run: |
+          mkdir -p dist
+          zip -r dist/DR_CANDLE_TRACKER.zip app.py index.html dr-market-qx.user.js start.sh README.md .gitignore tests
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DR_CANDLE_TRACKER
+          path: DR_CANDLE_TRACKER/dist/DR_CANDLE_TRACKER.zip
+          if-no-files-found: error
+          retention-days: 30
