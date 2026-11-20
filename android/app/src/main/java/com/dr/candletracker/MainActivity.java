@@ -84,7 +84,7 @@ public final class MainActivity extends Activity {
                 }
                 web = null;
                 android.widget.TextView recovery = new android.widget.TextView(MainActivity.this);
-                recovery.setText("DR CANDLE TRACKER\\n\\nMarket-QX page stopped unexpectedly.\\nTap to reopen the secure chart.");
+                recovery.setText("DR CANDLE TRACKER\n\nMarket-QX page stopped unexpectedly.\nTap to reopen the secure chart.");
                 recovery.setTextColor(Color.rgb(160, 255, 190));
                 recovery.setTextSize(16);
                 recovery.setGravity(android.view.Gravity.CENTER);
@@ -96,7 +96,8 @@ public final class MainActivity extends Activity {
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 String host = request.getUrl().getHost();
                 if (host != null && (host.equals("market-qx.trade") || host.endsWith(".market-qx.trade"))) return false;
-                return false;
+                // Do not let an untrusted page take over the WebView that owns the native bridge.
+                return true;
             }
         });
         setContentView(web, new FrameLayout.LayoutParams(-1, -1));
