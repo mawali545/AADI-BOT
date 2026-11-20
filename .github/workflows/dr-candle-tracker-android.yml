@@ -31,6 +31,9 @@ jobs:
         with:
           gradle-version: '8.9'
 
+      - name: Validate tracker JavaScript
+        run: node --check android/app/src/main/assets/dr-tracker.js
+
       - name: Run unit tests and assemble debug APK
         working-directory: android
         run: gradle --no-daemon --stacktrace clean testDebugUnitTest assembleDebug

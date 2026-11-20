@@ -34,7 +34,10 @@ public final class MainActivity extends Activity {
     private volatile boolean documentStartScriptInstalled = false;
     private long tickCount = 0, lastTickAt = 0;
     private String currentAsset = "WAITING FOR MARKET";
+    private String currentFingerprint = "";
+    private int currentFrameBytes = 0;
     private double lastPrice = Double.NaN;
+    private final SignalEngine signalEngine = new SignalEngine();
     private final ExecutorService cryptoExecutor = Executors.newSingleThreadExecutor();
 
     @Override public void onCreate(Bundle state) {
@@ -107,12 +110,19 @@ public final class MainActivity extends Activity {
                                 JSONObject tick = new JSONObject(active.decryptEnvelope(message.getData()));
                                 double price = tick.optDouble("price", Double.NaN);
                                 String asset = tick.optString("asset", "");
-                                long stamp = tick.optLong("timestamp", System.currentTimeMillis());
+                                long stamp = tick.optLong("timestamp", 0);
+                                String fingerprint = tick.optString("frameFingerprint", "");
+                                int frameBytes = tick.optInt("frameBytes", 0);
                                 if (!Double.isFinite(price) || price <= 0 || price >= 1e12 ||
-                                    !asset.matches("[A-Za-z0-9_./-]{3,32}")) return;
-                                final long tickTime = stamp > 0 ? stamp : System.currentTimeMillis();
+                                    !asset.matches("[A-Za-z0-9_./-]{3,32}") || stamp <= 0 ||
+                                    !fingerprint.matches("(?i)[a-f0-9]{64}") || frameBytes < 1 || frameBytes > 1048576) return;
+                                final long tickTime = stamp;
+                                final String frameHash = fingerprint.toLowerCase(java.util.Locale.ROOT);
+                                final int observedFrameBytes = frameBytes;
                                 runOnUiThread(() -> {
                                     tickCount++; lastPrice = price; currentAsset = asset; lastTickAt = tickTime;
+                                    currentFingerprint = frameHash; currentFrameBytes = observedFrameBytes;
+                                    signalEngine.acceptTick(asset, price, tickTime);
                                     if (web != null) web.evaluateJavascript(
                                         "window.DRUpdate && window.DRUpdate(" + snapshot().toString() + ")", null);
                                 });
@@ -198,6 +208,18 @@ public final class MainActivity extends Activity {
             o.put("lastTickAt", lastTickAt);
             o.put("connected", lastTickAt > 0 && System.currentTimeMillis() - lastTickAt < 8000);
             o.put("secureBridge", secureBridgeReady && crypto != null);
+            o.put("fingerprint", currentFingerprint);
+            o.put("frameBytes", currentFrameBytes);
+            o.put("signal", signalEngine.getSignal());
+            o.put("signalReason", signalEngine.getReason());
+            o.put("wins", signalEngine.getWins());
+            o.put("losses", signalEngine.getLosses());
+            o.put("ties", signalEngine.getTies());
+            o.put("candleCount", signalEngine.getCandleCount());
+            o.put("open", Double.isFinite(signalEngine.getOpen()) ? signalEngine.getOpen() : JSONObject.NULL);
+            o.put("high", Double.isFinite(signalEngine.getHigh()) ? signalEngine.getHigh() : JSONObject.NULL);
+            o.put("low", Double.isFinite(signalEngine.getLow()) ? signalEngine.getLow() : JSONObject.NULL);
+            o.put("close", Double.isFinite(signalEngine.getClose()) ? signalEngine.getClose() : JSONObject.NULL);
         } catch (Exception ignored) {}
         return o;
     }
