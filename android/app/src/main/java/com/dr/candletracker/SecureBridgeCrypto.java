@@ -28,6 +28,12 @@ public final class SecureBridgeCrypto {
         keys = generator.generateKeyPair();
     }
 
+    public SecureBridgeCrypto(KeyPair protectedKeyPair) {
+        if (protectedKeyPair == null || protectedKeyPair.getPrivate() == null || protectedKeyPair.getPublic() == null)
+            throw new IllegalArgumentException("Protected RSA key pair is required");
+        keys = protectedKeyPair;
+    }
+
     public String publicKeyBase64() {
         return Base64.getEncoder().encodeToString(keys.getPublic().getEncoded());
     }
