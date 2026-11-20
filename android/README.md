@@ -1,17 +1,22 @@
 # DR CANDLE TRACKER — Android
 
-This is a separate Android application built from a clean DR package namespace. It does not compile or package the AADI signal-engine source files.
+Standalone Android package: `com.dr.candletracker` (version 1.0.1). This branch does not compile or package the AADI signal-engine source files.
 
-## App behavior
-- Opens the official Market-QX trade page in an Android WebView so the user signs in on the official site.
-- Installs a document-start WebSocket observer on the Market-QX origin when supported by Android System WebView.
-- Displays the DR floating bubble, NEXT / QUANT SIGNALS mini-card, and neon green full-screen DR CANDLE TRACKER panel.
-- Shows only market ticks recognized from the live page stream. No sample/demo prices are generated.
-- OHLC memory is accumulated locally from received live ticks; no historical candles are fabricated.
-- Signal analysis stays locked until a separately specified and verified analysis system is implemented.
+## Current implementation
 
-## Honest limitations
-The WebSocket parser is a diagnostic first pass. Market-QX may change its message format; if the actual feed uses an unrecognized or binary protocol, the dashboard will remain in WAITING rather than inventing prices. A successful APK build does not prove that Market-QX live ticks were received on a physical device. The RSA CIPHER tile is explicitly marked NOT INITIALIZED; it does not claim to encrypt data.
+- Opens Market-QX in an Android WebView and installs the DR WebSocket observer at document start when supported by Android System WebView.
+- Displays the floating DR bubble, NEXT / QUANT SIGNALS card, and neon-on-black tracker panel.
+- Builds OHLC candles only from ticks explicitly recognized in Market-QX WebSocket messages. No sample/demo ticks or synthetic candles are generated.
+- Includes a separate prototype next-candle scan: the last eight completed real 10-second candles, candle-body votes, close-to-close momentum and directional agreement. This formula comes from the supplied DR prototype ZIP; it is **not confirmed as the hidden algorithm in the reference video**, and its displayed session win rate is not a prediction guarantee.
+- Initializes an actual local RSA-OAEP 2048-bit key pair using WebCrypto with SHA-256, performs an encrypt/decrypt round-trip self-test, and displays a public-key fingerprint. Keys are ephemeral and remain in app memory. This validates local cryptography; it does not mean market traffic is encrypted to a remote server.
+- Does not place trades or perform unauthorized access, port scanning, credential attacks, or interception of protected account traffic.
+
+## Verification status
+
+A successful GitHub APK build verifies compilation and package identity only. It cannot verify a signed-in Market-QX account or its live WebSocket protocol on the user's physical phone. The observer currently accepts recognized JSON price/asset fields and the documented `[symbol, timestamp, price]` array form; unknown binary/protobuf/compressed frames are not guessed. A physical-device test is still required to confirm actual tick receipt, selected-asset mapping, and reconnect stability.
+
+The reference video is the visual master. The current UI is an implementation pass, not yet certified pixel-for-pixel. Exact comparison and layout refinement must be performed against its captured screens; the video does not expose a verifiable signal formula or prove the displayed security actions are real.
 
 ## Build
-The AADI Android build and tests GitHub Actions workflow is reused as the build mechanism only. This branch builds com.dr.candletracker and uploads dr-candle-tracker-debug-apk.
+
+The existing Android workflow is reused only as build infrastructure (Java 17, Android SDK 35, Gradle 8.9). The DR branch builds `com.dr.candletracker` independently.
