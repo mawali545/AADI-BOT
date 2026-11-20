@@ -44,6 +44,8 @@ jobs:
           if [ ! -f android/.android-signing/aadi-debug.keystore ]; then
             keytool -genkeypair -v -keystore android/.android-signing/aadi-debug.keystore -storepass aadi-debug-store -alias aadi-debug -keypass aadi-debug-store -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=DR Candle Tracker,O=DR,C=PK"
           fi
+      - name: Validate DR tracker JavaScript
+        run: node --check android/app/src/main/assets/dr-tracker.js
       - name: Run JVM unit tests
         run: gradle -p android testDebugUnitTest
       - name: Build debug APK
