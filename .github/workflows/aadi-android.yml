@@ -6,6 +6,7 @@ on:
       - chinese-engine-history-merge-2026-11-13
       - aadi-114-manual-generate-signal
       - dr-candle-tracker-android
+      - dr-candle-tracker-build207-secure-fix
   pull_request:
     branches:
       - android-webview-app
