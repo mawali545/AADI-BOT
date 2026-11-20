@@ -1,0 +1,55 @@
+name: DR Candle Tracker Android Build
+
+on:
+  push:
+    branches:
+      - dr-candle-tracker-build207-secure-fix
+  pull_request:
+    branches:
+      - dr-candle-tracker-android
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Run unit tests and assemble debug APK
+        working-directory: android
+        run: gradle --no-daemon --stacktrace clean testDebugUnitTest assembleDebug
+
+      - name: Package Android source
+        working-directory: android
+        run: zip -r ../dr-candle-tracker-android-source.zip app build.gradle settings.gradle gradle.properties
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: dr-candle-tracker-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload Android source ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: dr-candle-tracker-android-source
+          path: dr-candle-tracker-android-source.zip
+          if-no-files-found: error
+          retention-days: 14
