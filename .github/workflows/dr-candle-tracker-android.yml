@@ -1,4 +1,5 @@
 name: DR Candle Tracker Android Build
+# Scoped to the dedicated DR Candle Tracker feature branch.
 
 on:
   push:
