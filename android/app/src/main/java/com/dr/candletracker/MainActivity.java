@@ -170,7 +170,7 @@ public final class MainActivity extends Activity {
     private void initializeCryptoOffMainThread() {
         cryptoExecutor.execute(() -> {
             try {
-                SecureBridgeCrypto generated = new SecureBridgeCrypto();
+                SecureBridgeCrypto generated = new SecureBridgeCrypto(AndroidKeyStoreRsaKeyStore.loadOrCreate(MainActivity.this));
                 crypto = generated;
                 runOnUiThread(this::publishNativeKey);
             } catch (Throwable e) {
