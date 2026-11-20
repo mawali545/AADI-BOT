@@ -31,6 +31,7 @@ public final class MainActivity extends Activity {
     private volatile SecureBridgeCrypto crypto;
     private volatile boolean secureBridgeReady = false;
     private volatile boolean pageReady = false;
+    private volatile boolean documentStartScriptInstalled = false;
     private long tickCount = 0, lastTickAt = 0;
     private String currentAsset = "WAITING FOR MARKET";
     private double lastPrice = Double.NaN;
@@ -130,8 +131,11 @@ public final class MainActivity extends Activity {
         if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT) && !trackerScript.isEmpty()) {
             try {
                 WebViewCompat.addDocumentStartJavaScript(web, trackerScript,
-                    Collections.singleton("https://market-qx.trade/*"));
-            } catch (Throwable ignored) {}
+                    Collections.singleton("https://market-qx.trade"));
+                documentStartScriptInstalled = true;
+            } catch (Throwable ignored) {
+                documentStartScriptInstalled = false;
+            }
         }
 
         web.setWebChromeClient(new WebChromeClient());
@@ -139,7 +143,8 @@ public final class MainActivity extends Activity {
             @Override public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
                 pageReady = true;
-                if (!WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT) && !trackerScript.isEmpty())
+                // Feature support alone does not prove document-start registration succeeded.
+                if (!documentStartScriptInstalled && !trackerScript.isEmpty())
                     view.evaluateJavascript(trackerScript, null);
                 publishNativeKey();
                 view.evaluateJavascript("window.DRUpdate && window.DRUpdate(" + snapshot().toString() + ")", null);
