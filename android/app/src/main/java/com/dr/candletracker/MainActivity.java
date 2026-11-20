@@ -80,7 +80,7 @@ public final class MainActivity extends Activity {
                                     !asset.matches("[A-Za-z0-9_./-]{3,32}")) return;
                             final long tickTime = sourceTime > 0 ? sourceTime : System.currentTimeMillis();
                             runOnUiThread(() -> {
-                                tickCount++; lastPrice = price; currentAsset = asset; lastTickAt = System.currentTimeMillis();
+                                tickCount++; lastPrice = price; currentAsset = asset; lastTickAt = tickTime;
                                 if (web != null) web.evaluateJavascript("window.DRUpdate && window.DRUpdate(" + snapshot().toString() + ")", null);
                             });
                         } catch (Exception e) {
