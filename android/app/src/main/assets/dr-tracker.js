@@ -83,9 +83,10 @@ function separateChartFromTicker(){
   if(pr.width>=vw*.65&&pr.height>=130&&pr.height<=window.innerHeight*.95){target=p;break;}
   target=p;
  }
+ if(target.dataset.drTickerOffset)return;
  var r=target.getBoundingClientRect(),overlap=Math.ceil(stripRect.bottom+4-r.top);
- if(overlap<=0){if(target.dataset.drTickerOffset){target.style.marginTop=target.dataset.drOriginalMarginTop||'';delete target.dataset.drTickerOffset;delete target.dataset.drOriginalMarginTop;}return;}
- if(!target.dataset.drTickerOffset){target.dataset.drOriginalMarginTop=target.style.marginTop||'';target.dataset.drTickerOffset='1';}
+ if(overlap<=0)return;
+ target.dataset.drOriginalMarginTop=target.style.marginTop||'';target.dataset.drTickerOffset='1';
  var base=parseFloat(target.dataset.drOriginalMarginTop)||0;
  target.style.marginTop=(base+Math.min(overlap,180))+'px';
 }
