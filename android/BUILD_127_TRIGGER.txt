@@ -1,0 +1,1 @@
+Build trigger for AADI #127. Implementation is in MainActivity.java, SignalEngine.java, and OrderBookSnapshot.java.

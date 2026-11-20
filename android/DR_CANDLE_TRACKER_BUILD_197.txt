@@ -1,8 +1,4 @@
 DR Candle Tracker Android build 197
-
 Standalone package: com.dr.candletracker
-No AADI signal engine or AADI dashboard is used.
-Quant scan: last 8 completed real 10-second candles; normalized candle-body votes; close-to-close momentum; directional agreement gate.
-Accuracy: session-only outcome tracking, resolved against the close of the next real 10-second candle. Ties and unavailable outcomes are excluded from the win-rate denominator.
-Market data: explicit price fields paired with a recognized market asset only. Unknown/binary frames are not guessed.
-No synthetic ticks, sample candles, automatic trades, or guaranteed accuracy.
+Quant scan uses 8 completed real 10-second candles, candle body votes, close-to-close momentum and directional agreement.
+Accuracy is measured only from resolved next-candle outcomes; no synthetic ticks or guaranteed accuracy.
