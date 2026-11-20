@@ -15,7 +15,8 @@ class FeedTests(unittest.TestCase):
   for p in (0,-1,float("nan"),float("inf"),"bad"):
    with self.subTest(p=p),self.assertRaises(ValueError):app.accept({"asset":"EURUSD_otc","price":p})
  def test_ohlc_aggregation(self):
-  now=time.time();app.accept({"asset":"EURUSD_otc","price":1.1,"timestamp":now});app.accept({"asset":"EURUSD_otc","price":1.3,"timestamp":now+1})
+  now=int(time.time()//10)*10+1
+  app.accept({"asset":"EURUSD_otc","price":1.1,"timestamp":now});app.accept({"asset":"EURUSD_otc","price":1.3,"timestamp":now+1})
   c=app.status()["candle"];self.assertEqual((c["open"],c["high"],c["low"],c["close"],c["ticks"]),(1.1,1.3,1.1,1.3,2))
  def test_quant_waits_without_candles(self):
   d=app.analyze();self.assertEqual(d["signal"],"WAIT");self.assertFalse(d["ready"])
