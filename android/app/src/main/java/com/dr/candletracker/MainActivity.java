@@ -72,7 +72,7 @@ public final class MainActivity extends Activity {
                                 !"market-qx.trade".equals(sourceOrigin.getHost()) ||
                                 crypto == null || message == null) return;
                         try {
-                            JSONObject tick = crypto.decryptEnvelope(message.getData());
+                            JSONObject tick = new JSONObject(crypto.decryptEnvelope(message.getData()));
                             final double price = tick.optDouble("price", Double.NaN);
                             final String asset = tick.optString("asset", "");
                             long sourceTime = tick.optLong("timestamp", System.currentTimeMillis());
