@@ -108,21 +108,36 @@ public final class MainActivity extends Activity {
                                 active == null || message == null) return;
                             try {
                                 JSONObject tick = new JSONObject(active.decryptEnvelope(message.getData()));
-                                double price = tick.optDouble("price", Double.NaN);
+                                String type = tick.optString("type", "tick");
                                 String asset = tick.optString("asset", "");
-                                long stamp = tick.optLong("timestamp", 0);
                                 String fingerprint = tick.optString("frameFingerprint", "");
                                 int frameBytes = tick.optInt("frameBytes", 0);
-                                if (!Double.isFinite(price) || price <= 0 || price >= 1e12 ||
-                                    !asset.matches("[A-Za-z0-9_./-]{3,32}") || stamp <= 0 ||
-                                    !fingerprint.matches("(?i)[a-f0-9]{64}") || frameBytes < 1 || frameBytes > 1048576) return;
-                                final long tickTime = stamp;
+                                long period = tick.optLong("period", 60);
+                                if (!asset.matches("[A-Za-z0-9_./-]{3,32}") ||
+                                    !fingerprint.matches("(?i)[a-f0-9]{64}") ||
+                                    frameBytes < 1 || frameBytes > 1048576 || period < 1 || period > 86400) return;
                                 final String frameHash = fingerprint.toLowerCase(java.util.Locale.ROOT);
                                 final int observedFrameBytes = frameBytes;
+                                if ("history".equals(type)) {
+                                    org.json.JSONArray candles = tick.optJSONArray("candles");
+                                    if (candles == null || candles.length() == 0) return;
+                                    runOnUiThread(() -> {
+                                        currentAsset = asset;
+                                        currentFingerprint = frameHash; currentFrameBytes = observedFrameBytes;
+                                        signalEngine.acceptHistory(asset, period, candles);
+                                        if (web != null) web.evaluateJavascript(
+                                            "window.DRUpdate && window.DRUpdate(" + snapshot().toString() + ")", null);
+                                    });
+                                    return;
+                                }
+                                double price = tick.optDouble("price", Double.NaN);
+                                long stamp = tick.optLong("timestamp", 0);
+                                if (!"tick".equals(type) || !Double.isFinite(price) || price <= 0 || price >= 1e12 || stamp <= 0) return;
+                                final long tickTime = stamp;
                                 runOnUiThread(() -> {
                                     tickCount++; lastPrice = price; currentAsset = asset; lastTickAt = tickTime;
                                     currentFingerprint = frameHash; currentFrameBytes = observedFrameBytes;
-                                    signalEngine.acceptTick(asset, price, tickTime);
+                                    signalEngine.acceptTick(asset, price, tickTime, period);
                                     if (web != null) web.evaluateJavascript(
                                         "window.DRUpdate && window.DRUpdate(" + snapshot().toString() + ")", null);
                                 });
