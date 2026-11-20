@@ -3,7 +3,7 @@ on:
   push:
     branches: [dr-candle-tracker]
     paths:
-      - 'DR_CANDLE_TRACKER.zip'
+      - 'DR_CANDLE_TRACKER/**'
       - '.github/workflows/dr-candle-tracker.yml'
   workflow_dispatch:
 permissions:
@@ -16,8 +16,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Unpack source package
-        run: unzip -q DR_CANDLE_TRACKER.zip -d .
       - name: Python syntax check
         working-directory: DR_CANDLE_TRACKER
         run: python -m py_compile app.py
@@ -31,7 +29,7 @@ jobs:
         working-directory: DR_CANDLE_TRACKER
         run: |
           mkdir -p dist
-          zip -r dist/DR_CANDLE_TRACKER.zip app.py index.html dr-market-qx.user.js start.sh README.md .gitignore tests
+          zip -r dist/DR_CANDLE_TRACKER.zip app.py index.html dr-market-qx.user.js start.sh README.md tests
       - uses: actions/upload-artifact@v4
         with:
           name: DR_CANDLE_TRACKER
