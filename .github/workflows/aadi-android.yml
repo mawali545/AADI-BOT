@@ -49,6 +49,8 @@ jobs:
         run: node --check android/app/src/main/assets/dr-tracker.js
       - name: Verify native crypto regression tests are present
         run: test -s android/app/src/test/java/com/dr/candletracker/SecureBridgeCryptoTest.java
+      - name: Verify legacy plaintext bridge is absent
+        run: '! grep -q "addJavascriptInterface" android/app/src/main/java/com/dr/candletracker/MainActivity.java'
       - name: Run JVM unit tests
         run: gradle -p android testDebugUnitTest
       - name: Build debug APK
