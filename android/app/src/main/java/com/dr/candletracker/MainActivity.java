@@ -2,129 +2,156 @@ package com.dr.candletracker;
 
 import android.app.Activity;
 import android.os.Bundle;
-import android.webkit.WebView;
-import android.webkit.WebViewClient;
-import android.webkit.WebChromeClient;
-import android.webkit.WebResourceRequest;
-import android.webkit.SslErrorHandler;
-import android.net.http.SslError;
-import android.widget.Toast;
-import android.view.WindowManager;
-import android.graphics.Color;
 import android.os.Build;
+import android.graphics.Color;
+import android.net.Uri;
+import android.net.http.SslError;
+import android.view.Gravity;
+import android.view.WindowManager;
+import android.webkit.*;
 import android.widget.FrameLayout;
+import android.widget.TextView;
+import android.widget.Toast;
 import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
 import androidx.webkit.WebMessageCompat;
+import androidx.webkit.JavaScriptReplyProxy;
 import androidx.webkit.WebViewCompat.WebMessageListener;
 import java.io.InputStream;
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import org.json.JSONObject;
 
 public final class MainActivity extends Activity {
     private WebView web;
     private String trackerScript = "";
-    private SecureBridgeCrypto crypto;
-    private long tickCount = 0;
+    private volatile SecureBridgeCrypto crypto;
+    private volatile boolean secureBridgeReady = false;
+    private volatile boolean pageReady = false;
+    private long tickCount = 0, lastTickAt = 0;
     private String currentAsset = "WAITING FOR MARKET";
     private double lastPrice = Double.NaN;
-    private long lastTickAt = 0;
-    private boolean secureBridgeReady = false;
+    private final ExecutorService cryptoExecutor = Executors.newSingleThreadExecutor();
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
-        getWindow().setStatusBarColor(Color.rgb(3, 9, 8));
-        getWindow().setNavigationBarColor(Color.rgb(3, 9, 8));
+        getWindow().setStatusBarColor(Color.rgb(3, 12, 8));
+        getWindow().setNavigationBarColor(Color.rgb(3, 12, 8));
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        try { crypto = new SecureBridgeCrypto(); }
-        catch (Exception e) { crypto = null; }
-        web = new WebView(this);
-        web.setBackgroundColor(Color.rgb(3, 9, 8));
-        web.getSettings().setJavaScriptEnabled(true);
-        web.getSettings().setDomStorageEnabled(true);
-        web.getSettings().setDatabaseEnabled(true);
-        web.getSettings().setMediaPlaybackRequiresUserGesture(true);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP)
-            web.getSettings().setMixedContentMode(android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
-            web.getSettings().setSafeBrowsingEnabled(true);
-        web.setWebChromeClient(new WebChromeClient());
         try {
-            InputStream in = getAssets().open("dr-tracker.js");
-            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            showStartup();
+            loadTrackerScript();
+            createWebView();
+            setContentView(web, new FrameLayout.LayoutParams(-1, -1));
+            web.loadUrl("https://market-qx.trade/en/trade");
+            initializeCryptoOffMainThread();
+        } catch (Throwable error) {
+            showFatal("Startup error", error);
+        }
+    }
+
+    private void showStartup() {
+        TextView v = new TextView(this);
+        v.setText("DR CANDLE TRACKER\\n\\nStarting secure Market-QX connection…");
+        v.setTextColor(Color.rgb(150, 255, 185));
+        v.setTextSize(16);
+        v.setGravity(Gravity.CENTER);
+        v.setBackgroundColor(Color.rgb(3, 12, 8));
+        setContentView(v, new FrameLayout.LayoutParams(-1, -1));
+    }
+
+    private void loadTrackerScript() {
+        try (InputStream in = getAssets().open("dr-tracker.js");
+             ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             byte[] buf = new byte[8192]; int n;
             while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
-            in.close();
             trackerScript = new String(out.toByteArray(), StandardCharsets.UTF_8);
-        } catch (Exception ignored) { trackerScript = ""; }
+        } catch (Exception e) {
+            trackerScript = "";
+        }
+    }
 
-        if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
-            WebViewCompat.addWebMessageListener(web, "DRSecure",
-                Collections.singleton("https://market-qx.trade"),
-                new WebMessageListener() {
-                    @Override public void onPostMessage(WebView view, WebMessageCompat message,
-                            android.net.Uri sourceOrigin, boolean isMainFrame,
-                            androidx.webkit.JavaScriptReplyProxy replyProxy) {
-                        if (!isMainFrame || sourceOrigin == null ||
-                                !"https".equals(sourceOrigin.getScheme()) ||
-                                !"market-qx.trade".equals(sourceOrigin.getHost()) ||
-                                crypto == null || message == null) return;
-                        try {
-                            JSONObject tick = new JSONObject(crypto.decryptEnvelope(message.getData()));
-                            final double price = tick.optDouble("price", Double.NaN);
-                            final String asset = tick.optString("asset", "");
-                            long sourceTime = tick.optLong("timestamp", System.currentTimeMillis());
-                            if (!Double.isFinite(price) || price <= 0 || price >= 1e12 ||
-                                    !asset.matches("[A-Za-z0-9_./-]{3,32}")) return;
-                            final long tickTime = sourceTime > 0 ? sourceTime : System.currentTimeMillis();
-                            runOnUiThread(() -> {
-                                tickCount++; lastPrice = price; currentAsset = asset; lastTickAt = tickTime;
-                                if (web != null) web.evaluateJavascript("window.DRUpdate && window.DRUpdate(" + snapshot().toString() + ")", null);
-                            });
-                        } catch (Exception e) {
-                            runOnUiThread(() -> Toast.makeText(MainActivity.this,
-                                "Secure market bridge rejected an invalid message.", Toast.LENGTH_SHORT).show());
-                        }
-                    }
-                });
-            secureBridgeReady = true;
+    private void createWebView() {
+        web = new WebView(this);
+        web.setBackgroundColor(Color.rgb(3, 12, 8));
+        WebSettings settings = web.getSettings();
+        settings.setJavaScriptEnabled(true);
+        settings.setDomStorageEnabled(true);
+        settings.setDatabaseEnabled(true);
+        settings.setMediaPlaybackRequiresUserGesture(true);
+        settings.setAllowFileAccess(false);
+        settings.setAllowContentAccess(false);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP)
+            settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            try { settings.setSafeBrowsingEnabled(true); } catch (Throwable ignored) {}
         }
 
-        if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT) && !trackerScript.isEmpty())
-            WebViewCompat.addDocumentStartJavaScript(web, trackerScript,
-                Collections.singleton("https://market-qx.trade/*"));
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
+            try {
+                WebViewCompat.addWebMessageListener(web, "DRSecure",
+                    Collections.singleton("https://market-qx.trade"),
+                    new WebMessageListener() {
+                        @Override public void onPostMessage(WebView view, WebMessageCompat message,
+                                Uri origin, boolean mainFrame, JavaScriptReplyProxy reply) {
+                            SecureBridgeCrypto active = crypto;
+                            if (!mainFrame || origin == null ||
+                                !"https".equals(origin.getScheme()) ||
+                                !"market-qx.trade".equals(origin.getHost()) ||
+                                active == null || message == null) return;
+                            try {
+                                JSONObject tick = new JSONObject(active.decryptEnvelope(message.getData()));
+                                double price = tick.optDouble("price", Double.NaN);
+                                String asset = tick.optString("asset", "");
+                                long stamp = tick.optLong("timestamp", System.currentTimeMillis());
+                                if (!Double.isFinite(price) || price <= 0 || price >= 1e12 ||
+                                    !asset.matches("[A-Za-z0-9_./-]{3,32}")) return;
+                                final long tickTime = stamp > 0 ? stamp : System.currentTimeMillis();
+                                runOnUiThread(() -> {
+                                    tickCount++; lastPrice = price; currentAsset = asset; lastTickAt = tickTime;
+                                    if (web != null) web.evaluateJavascript(
+                                        "window.DRUpdate && window.DRUpdate(" + snapshot().toString() + ")", null);
+                                });
+                            } catch (Exception ignored) {
+                                runOnUiThread(() -> Toast.makeText(MainActivity.this,
+                                    "Secure market message rejected.", Toast.LENGTH_SHORT).show());
+                            }
+                        }
+                    });
+                secureBridgeReady = true;
+            } catch (Throwable listenerError) {
+                secureBridgeReady = false;
+            }
+        }
 
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT) && !trackerScript.isEmpty()) {
+            try {
+                WebViewCompat.addDocumentStartJavaScript(web, trackerScript,
+                    Collections.singleton("https://market-qx.trade/*"));
+            } catch (Throwable ignored) {}
+        }
+
+        web.setWebChromeClient(new WebChromeClient());
         web.setWebViewClient(new WebViewClient() {
             @Override public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
+                pageReady = true;
                 if (!WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT) && !trackerScript.isEmpty())
                     view.evaluateJavascript(trackerScript, null);
-                if (crypto != null && secureBridgeReady) {
-                    String key = JSONObject.quote(crypto.publicKeyBase64());
-                    view.evaluateJavascript("window.DRSetPublicKey && window.DRSetPublicKey(" + key + ")", null);
-                }
+                publishNativeKey();
                 view.evaluateJavascript("window.DRUpdate && window.DRUpdate(" + snapshot().toString() + ")", null);
             }
             @Override public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
                 handler.cancel();
-                final String detail = error == null ? "TLS certificate validation failed" :
-                    "TLS certificate validation failed (" + error.getPrimaryError() + ")";
-                runOnUiThread(() -> Toast.makeText(MainActivity.this,
-                    detail + ". Secure connection blocked.", Toast.LENGTH_LONG).show());
+                Toast.makeText(MainActivity.this, "TLS validation failed. Secure connection blocked.", Toast.LENGTH_LONG).show();
             }
-            @Override public boolean onRenderProcessGone(WebView view, android.webkit.RenderProcessGoneDetail detail) {
+            @Override public boolean onRenderProcessGone(WebView view, RenderProcessGoneDetail detail) {
                 if (view != null) view.destroy();
                 web = null;
-                android.widget.TextView recovery = new android.widget.TextView(MainActivity.this);
-                recovery.setText("DR CANDLE TRACKER\n\nMarket-QX page stopped unexpectedly.\nTap to reopen the secure chart.");
-                recovery.setTextColor(Color.rgb(160, 255, 190));
-                recovery.setTextSize(16);
-                recovery.setGravity(android.view.Gravity.CENTER);
-                recovery.setBackgroundColor(Color.rgb(3, 9, 8));
-                recovery.setOnClickListener(v -> recreate());
-                setContentView(recovery, new FrameLayout.LayoutParams(-1, -1));
+                showFatal("Market chart stopped", new RuntimeException("Android WebView renderer exited. Tap RESTART to reopen."));
                 return true;
             }
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
@@ -133,8 +160,29 @@ public final class MainActivity extends Activity {
                 return host == null || !(host.equals("market-qx.trade") || host.endsWith(".market-qx.trade"));
             }
         });
-        setContentView(web, new FrameLayout.LayoutParams(-1, -1));
-        web.loadUrl("https://market-qx.trade/en/trade");
+    }
+
+    private void initializeCryptoOffMainThread() {
+        cryptoExecutor.execute(() -> {
+            try {
+                SecureBridgeCrypto generated = new SecureBridgeCrypto();
+                crypto = generated;
+                runOnUiThread(this::publishNativeKey);
+            } catch (Throwable e) {
+                runOnUiThread(() -> Toast.makeText(this,
+                    "Secure key initialization failed. Live feed remains locked.", Toast.LENGTH_LONG).show());
+            }
+        });
+    }
+
+    private void publishNativeKey() {
+        WebView current = web;
+        SecureBridgeCrypto active = crypto;
+        if (!pageReady || current == null || active == null || !secureBridgeReady) return;
+        try {
+            String key = JSONObject.quote(active.publicKeyBase64());
+            current.evaluateJavascript("window.DRSetPublicKey && window.DRSetPublicKey(" + key + ")", null);
+        } catch (Throwable ignored) {}
     }
 
     private JSONObject snapshot() {
@@ -149,12 +197,28 @@ public final class MainActivity extends Activity {
         return o;
     }
 
+    private void showFatal(String heading, Throwable error) {
+        String detail = error == null ? "Unknown startup failure" :
+            error.getClass().getSimpleName() + ": " + String.valueOf(error.getMessage());
+        TextView v = new TextView(this);
+        v.setText("DR CANDLE TRACKER\\n\\n" + heading + "\\n\\n" + detail +
+            "\\n\\nThe app protected the startup screen instead of closing.\\nTap to restart.");
+        v.setTextColor(Color.rgb(160, 255, 190));
+        v.setTextSize(14);
+        v.setGravity(Gravity.CENTER);
+        v.setPadding(28, 28, 28, 28);
+        v.setBackgroundColor(Color.rgb(3, 12, 8));
+        v.setOnClickListener(x -> recreate());
+        setContentView(v, new FrameLayout.LayoutParams(-1, -1));
+    }
+
     @Override public void onBackPressed() {
         if (web != null) web.evaluateJavascript("window.DRBack && window.DRBack()", null);
         else super.onBackPressed();
     }
     @Override protected void onDestroy() {
         if (web != null) { web.destroy(); web = null; }
+        cryptoExecutor.shutdownNow();
         super.onDestroy();
     }
 }
