@@ -9,6 +9,7 @@ on:
   pull_request:
     branches:
       - android-webview-app
+      - dr-ci-base
   workflow_dispatch:
 
 jobs:
