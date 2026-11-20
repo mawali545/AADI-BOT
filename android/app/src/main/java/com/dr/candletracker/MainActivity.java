@@ -7,6 +7,9 @@ import android.webkit.WebViewClient;
 import android.webkit.WebChromeClient;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebResourceRequest;
+import android.webkit.SslErrorHandler;
+import android.net.http.SslError;
+import android.widget.Toast;
 import android.view.View;
 import android.view.WindowManager;
 import android.graphics.Color;
@@ -38,6 +41,12 @@ public final class MainActivity extends Activity {
         web.getSettings().setDomStorageEnabled(true);
         web.getSettings().setDatabaseEnabled(true);
         web.getSettings().setMediaPlaybackRequiresUserGesture(true);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            web.getSettings().setMixedContentMode(android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            web.getSettings().setSafeBrowsingEnabled(true);
+        }
         web.setWebChromeClient(new WebChromeClient());
         web.addJavascriptInterface(new Bridge(), "DRNative");
         try {
@@ -60,6 +69,29 @@ public final class MainActivity extends Activity {
                     view.evaluateJavascript(trackerScript, null);
                 }
                 view.evaluateJavascript("window.DRUpdate && window.DRUpdate(" + snapshot().toString() + ")", null);
+            }
+            @Override public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
+                // FAIL CLOSED: never bypass certificate, hostname, or trust-chain errors.
+                handler.cancel();
+                final String detail = error == null ? "TLS certificate validation failed" : "TLS certificate validation failed (" + error.getPrimaryError() + ")";
+                runOnUiThread(() -> Toast.makeText(MainActivity.this, detail + ". Secure connection blocked.", Toast.LENGTH_LONG).show());
+            }
+            @Override public boolean onRenderProcessGone(WebView view, android.webkit.RenderProcessGoneDetail detail) {
+                // A renderer crash must not take down the activity or leave a dead WebView on screen.
+                if (view != null) {
+                    view.removeJavascriptInterface("DRNative");
+                    view.destroy();
+                }
+                web = null;
+                android.widget.TextView recovery = new android.widget.TextView(MainActivity.this);
+                recovery.setText("DR CANDLE TRACKER\\n\\nMarket-QX page stopped unexpectedly.\\nTap to reopen the secure chart.");
+                recovery.setTextColor(Color.rgb(160, 255, 190));
+                recovery.setTextSize(16);
+                recovery.setGravity(android.view.Gravity.CENTER);
+                recovery.setBackgroundColor(Color.rgb(3, 9, 8));
+                recovery.setOnClickListener(v -> recreate());
+                setContentView(recovery, new FrameLayout.LayoutParams(-1, -1));
+                return true;
             }
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 String host = request.getUrl().getHost();
