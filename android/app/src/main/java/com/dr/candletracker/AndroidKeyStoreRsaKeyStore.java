@@ -1,105 +1,30 @@
 package com.dr.candletracker;
 
 import android.content.Context;
-import android.content.SharedPreferences;
-import android.security.keystore.KeyGenParameterSpec;
-import android.security.keystore.KeyProperties;
-
-import java.security.KeyFactory;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
-import java.security.KeyStore;
-import java.security.PrivateKey;
-import java.security.PublicKey;
 import java.security.SecureRandom;
-import java.security.spec.PKCS8EncodedKeySpec;
-import java.security.spec.X509EncodedKeySpec;
-import android.util.Base64;
-
-import javax.crypto.Cipher;
-import javax.crypto.KeyGenerator;
-import javax.crypto.SecretKey;
-import javax.crypto.spec.GCMParameterSpec;
 
 /**
- * Persists the RSA private key encrypted by a non-exportable Android Keystore AES-GCM key.
- * This keeps RSA-OAEP SHA-256/MGF1 SHA-256 compatible with WebCrypto on Android 10,
- * while the wrapping AES key itself never leaves Android Keystore.
+ * Creates a fresh, in-memory RSA identity for each app session.
+ *
+ * The bridge key is transport-only: it protects messages between this app's
+ * trusted Market-QX WebView and its native listener. Persisting it is unnecessary.
+ * Using a session key avoids device-vendor AndroidKeyStore AES-GCM provisioning,
+ * stale wrapped-key records, and key invalidation failures seen on some Android 10
+ * devices. The private key never leaves this process and is discarded on exit.
  */
 public final class AndroidKeyStoreRsaKeyStore {
-    private static final String STORE = "dr_secure_key_material";
-    private static final String AES_ALIAS = "dr_candle_tracker_wrapping_aes_v1";
-    private static final String PREF_PUBLIC = "rsa_public_x509";
-    private static final String PREF_PRIVATE_IV = "rsa_private_iv";
-    private static final String PREF_PRIVATE_CIPHER = "rsa_private_ciphertext";
-
     private AndroidKeyStoreRsaKeyStore() {}
 
-    private static String encode(byte[] value) { return Base64.encodeToString(value, Base64.NO_WRAP); }
-    private static byte[] decode(String value) { return Base64.decode(value, Base64.NO_WRAP); }
-
     public static KeyPair loadOrCreate(Context context) throws Exception {
-        Context app = context.getApplicationContext();
-        KeyStore ks = KeyStore.getInstance("AndroidKeyStore");
-        ks.load(null);
-        SecretKey wrappingKey;
-        if (ks.containsAlias(AES_ALIAS)) {
-            try {
-                wrappingKey = (SecretKey) ks.getKey(AES_ALIAS, null);
-            } catch (Exception invalidated) {
-                try { ks.deleteEntry(AES_ALIAS); } catch (Exception ignored) {}
-                wrappingKey = null;
-            }
-        } else {
-            wrappingKey = null;
+        if (context == null) throw new IllegalArgumentException("Application context is required");
+        KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA");
+        generator.initialize(2048, new SecureRandom());
+        KeyPair pair = generator.generateKeyPair();
+        if (pair == null || pair.getPrivate() == null || pair.getPublic() == null) {
+            throw new IllegalStateException("Session RSA identity generation returned an incomplete key pair");
         }
-        if (wrappingKey == null) {
-            KeyGenerator generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore");
-            generator.init(new KeyGenParameterSpec.Builder(AES_ALIAS,
-                    KeyProperties.PURPOSE_ENCRYPT | KeyProperties.PURPOSE_DECRYPT)
-                    .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-                    .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-                    .setRandomizedEncryptionRequired(true)
-                    .build());
-            wrappingKey = generator.generateKey();
-        }
-        if (wrappingKey == null) throw new IllegalStateException("Android Keystore wrapping key unavailable");
-
-        SharedPreferences prefs = app.getSharedPreferences(STORE, Context.MODE_PRIVATE);
-        String pub = prefs.getString(PREF_PUBLIC, null);
-        String ivText = prefs.getString(PREF_PRIVATE_IV, null);
-        String cipherText = prefs.getString(PREF_PRIVATE_CIPHER, null);
-        if (pub != null && ivText != null && cipherText != null) {
-            try {
-                byte[] iv = decode(ivText);
-                byte[] encrypted = decode(cipherText);
-                Cipher aes = Cipher.getInstance("AES/GCM/NoPadding");
-                aes.init(Cipher.DECRYPT_MODE, wrappingKey, new GCMParameterSpec(128, iv));
-                byte[] privateBytes = aes.doFinal(encrypted);
-                KeyFactory factory = KeyFactory.getInstance("RSA");
-                PublicKey publicKey = factory.generatePublic(new X509EncodedKeySpec(decode(pub)));
-                PrivateKey privateKey = factory.generatePrivate(new PKCS8EncodedKeySpec(privateBytes));
-                return new KeyPair(publicKey, privateKey);
-            } catch (Exception corrupted) {
-                // Corrupt or invalidated material is replaced with a fresh session identity.
-                prefs.edit().clear().commit();
-            }
-        }
-
-        KeyPairGenerator rsa = KeyPairGenerator.getInstance("RSA");
-        rsa.initialize(2048, new SecureRandom());
-        KeyPair pair = rsa.generateKeyPair();
-        byte[] iv = new byte[12];
-        new SecureRandom().nextBytes(iv);
-        Cipher aes = Cipher.getInstance("AES/GCM/NoPadding");
-        aes.init(Cipher.ENCRYPT_MODE, wrappingKey, new GCMParameterSpec(128, iv));
-        byte[] encryptedPrivate = aes.doFinal(pair.getPrivate().getEncoded());
-        boolean saved = prefs.edit()
-                .putString(PREF_PUBLIC, encode(pair.getPublic().getEncoded()))
-                .putString(PREF_PRIVATE_IV, encode(iv))
-                .putString(PREF_PRIVATE_CIPHER, encode(encryptedPrivate))
-                .commit();
-        if (!saved) throw new IllegalStateException("Unable to persist protected RSA identity");
         return pair;
     }
 }
