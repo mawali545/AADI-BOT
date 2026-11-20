@@ -38,23 +38,17 @@ var css=[
 host=document.createElement('div');host.id='dr-candle-tracker-host';Object.assign(host.style,{position:'fixed',inset:'0',zIndex:'2147483646',pointerEvents:'none'});var mount=document.documentElement||document.body;if(mount)mount.appendChild(host);else document.addEventListener('DOMContentLoaded',function(){var t=document.documentElement||document.body;if(t&&!host.isConnected)t.appendChild(host);},{once:true});root=host.attachShadow({mode:'open'});
 root.innerHTML='<style>'+css+'</style><section id="strip" aria-label="AADI live market ticker"><div id="ticker"><span id="brand">AADI · LIVE TICKER</span><span id="status">WAITING FOR QX</span><span id="market">—</span></div><div id="signals"><span id="wait" class="sig active wait">WAIT</span><span id="call" class="sig">CALL</span><span id="put" class="sig">PUT</span></div><div id="stats"><span id="wins">WINS <b>0</b></span><span id="losses">LOSSES <b>0</b></span></div></section>';
 function el(id){return root.getElementById(id);}
-var reservedSpace=null;
 function reserveTopSpace(){
  if(!document.body)return;
  var height=92;
- if(!reservedSpace||!reservedSpace.isConnected){
-  reservedSpace=document.getElementById('dr-ticker-reserved-space');
-  if(!reservedSpace){
-   reservedSpace=document.createElement('div');
-   reservedSpace.id='dr-ticker-reserved-space';
-   reservedSpace.setAttribute('aria-hidden','true');
-   reservedSpace.style.cssText='display:block!important;position:relative!important;visibility:hidden!important;pointer-events:none!important;width:100%!important;height:'+height+'px!important;min-height:'+height+'px!important;max-height:'+height+'px!important;flex:0 0 '+height+'px!important;margin:0!important;padding:0!important;border:0!important;clear:both!important;';
-   document.body.insertBefore(reservedSpace,document.body.firstChild);
-  }
- }
- reservedSpace.style.height=height+'px';
- reservedSpace.style.minHeight=height+'px';
- reservedSpace.style.maxHeight=height+'px';
+ var oldSpace=document.getElementById('dr-ticker-reserved-space');
+ if(oldSpace)oldSpace.remove();
+ // Use the page's own top padding instead of a full-width flex/grid child.
+ // A 100%-width spacer can push QX's chart sideways when its body is a flex row.
+ document.body.style.setProperty('padding-top',height+'px','important');
+ document.body.style.setProperty('box-sizing','border-box','important');
+ document.documentElement.style.setProperty('overflow-x','hidden','important');
+ document.body.style.setProperty('overflow-x','hidden','important');
 }
 function fitMarketText(){
  var market=el('market');if(!market)return;
