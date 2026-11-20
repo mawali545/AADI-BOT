@@ -14,7 +14,7 @@ import java.security.PublicKey;
 import java.security.SecureRandom;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.security.spec.X509EncodedKeySpec;
-import java.util.Base64;
+import android.util.Base64;
 
 import javax.crypto.Cipher;
 import javax.crypto.KeyGenerator;
@@ -35,14 +35,25 @@ public final class AndroidKeyStoreRsaKeyStore {
 
     private AndroidKeyStoreRsaKeyStore() {}
 
+    private static String encode(byte[] value) { return Base64.encodeToString(value, Base64.NO_WRAP); }
+    private static byte[] decode(String value) { return Base64.decode(value, Base64.NO_WRAP); }
+
     public static KeyPair loadOrCreate(Context context) throws Exception {
         Context app = context.getApplicationContext();
         KeyStore ks = KeyStore.getInstance("AndroidKeyStore");
         ks.load(null);
         SecretKey wrappingKey;
         if (ks.containsAlias(AES_ALIAS)) {
-            wrappingKey = (SecretKey) ks.getKey(AES_ALIAS, null);
+            try {
+                wrappingKey = (SecretKey) ks.getKey(AES_ALIAS, null);
+            } catch (Exception invalidated) {
+                try { ks.deleteEntry(AES_ALIAS); } catch (Exception ignored) {}
+                wrappingKey = null;
+            }
         } else {
+            wrappingKey = null;
+        }
+        if (wrappingKey == null) {
             KeyGenerator generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore");
             generator.init(new KeyGenParameterSpec.Builder(AES_ALIAS,
                     KeyProperties.PURPOSE_ENCRYPT | KeyProperties.PURPOSE_DECRYPT)
@@ -60,13 +71,13 @@ public final class AndroidKeyStoreRsaKeyStore {
         String cipherText = prefs.getString(PREF_PRIVATE_CIPHER, null);
         if (pub != null && ivText != null && cipherText != null) {
             try {
-                byte[] iv = Base64.getDecoder().decode(ivText);
-                byte[] encrypted = Base64.getDecoder().decode(cipherText);
+                byte[] iv = decode(ivText);
+                byte[] encrypted = decode(cipherText);
                 Cipher aes = Cipher.getInstance("AES/GCM/NoPadding");
                 aes.init(Cipher.DECRYPT_MODE, wrappingKey, new GCMParameterSpec(128, iv));
                 byte[] privateBytes = aes.doFinal(encrypted);
                 KeyFactory factory = KeyFactory.getInstance("RSA");
-                PublicKey publicKey = factory.generatePublic(new X509EncodedKeySpec(Base64.getDecoder().decode(pub)));
+                PublicKey publicKey = factory.generatePublic(new X509EncodedKeySpec(decode(pub)));
                 PrivateKey privateKey = factory.generatePrivate(new PKCS8EncodedKeySpec(privateBytes));
                 return new KeyPair(publicKey, privateKey);
             } catch (Exception corrupted) {
@@ -84,9 +95,9 @@ public final class AndroidKeyStoreRsaKeyStore {
         aes.init(Cipher.ENCRYPT_MODE, wrappingKey, new GCMParameterSpec(128, iv));
         byte[] encryptedPrivate = aes.doFinal(pair.getPrivate().getEncoded());
         boolean saved = prefs.edit()
-                .putString(PREF_PUBLIC, Base64.getEncoder().encodeToString(pair.getPublic().getEncoded()))
-                .putString(PREF_PRIVATE_IV, Base64.getEncoder().encodeToString(iv))
-                .putString(PREF_PRIVATE_CIPHER, Base64.getEncoder().encodeToString(encryptedPrivate))
+                .putString(PREF_PUBLIC, encode(pair.getPublic().getEncoded()))
+                .putString(PREF_PRIVATE_IV, encode(iv))
+                .putString(PREF_PRIVATE_CIPHER, encode(encryptedPrivate))
                 .commit();
         if (!saved) throw new IllegalStateException("Unable to persist protected RSA identity");
         return pair;
