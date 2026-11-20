@@ -1,6 +1,6 @@
 package com.dr.candletracker;
 
-import android.util.Base64;
+import java.util.Base64;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
@@ -26,14 +26,14 @@ public final class SecureBridgeCrypto {
     }
 
     public String publicKeyBase64() {
-        return Base64.encodeToString(keys.getPublic().getEncoded(), Base64.NO_WRAP);
+        return Base64.getEncoder().encodeToString(keys.getPublic().getEncoded());
     }
 
     public JSONObject decryptEnvelope(String json) throws Exception {
         JSONObject envelope = new JSONObject(json);
-        byte[] wrapped = Base64.decode(envelope.getString("wrappedKey"), Base64.NO_WRAP);
-        byte[] iv = Base64.decode(envelope.getString("iv"), Base64.NO_WRAP);
-        byte[] ciphertext = Base64.decode(envelope.getString("ciphertext"), Base64.NO_WRAP);
+        byte[] wrapped = Base64.getDecoder().decode(envelope.getString("wrappedKey"));
+        byte[] iv = Base64.getDecoder().decode(envelope.getString("iv"));
+        byte[] ciphertext = Base64.getDecoder().decode(envelope.getString("ciphertext"));
         if (iv.length != 12 || wrapped.length == 0 || ciphertext.length < 16)
             throw new IllegalArgumentException("Invalid AES-GCM envelope");
         Cipher rsa = Cipher.getInstance("RSA/ECB/OAEPPadding");
@@ -61,9 +61,9 @@ public final class SecureBridgeCrypto {
         gcm.init(Cipher.ENCRYPT_MODE, aes, new GCMParameterSpec(128, iv));
         byte[] encrypted = gcm.doFinal(plaintext.getBytes(StandardCharsets.UTF_8));
         JSONObject out = new JSONObject();
-        out.put("wrappedKey", Base64.encodeToString(wrapped, Base64.NO_WRAP));
-        out.put("iv", Base64.encodeToString(iv, Base64.NO_WRAP));
-        out.put("ciphertext", Base64.encodeToString(encrypted, Base64.NO_WRAP));
+        out.put("wrappedKey", Base64.getEncoder().encodeToString(wrapped));
+        out.put("iv", Base64.getEncoder().encodeToString(iv));
+        out.put("ciphertext", Base64.getEncoder().encodeToString(encrypted));
         return out.toString();
     }
 }
