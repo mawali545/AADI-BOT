@@ -1,24 +1,28 @@
 # DR Candle Tracker — Build Specification
 
-## Reference-driven interface
+## Current interface
 - Market-QX trade page inside Android WebView.
-- Floating neon-green DR bubble, NEXT / QUANT SIGNALS mini-card, and dark neon-green full tracker panel.
-- Live memory stream, OHLC, tick count, feed diagnostics, latency, cipher status, event log, signal history and settled outcome counts.
-- Manual signals only. No order placement and no synthetic/demo market ticks.
+- One simple, always-visible DR Candle Tracker panel over the chart.
+- No floating bubble and no NEXT / QUANT mini-card.
+- Panel shows next-candle CALL / PUT / WAIT, estimated probabilities, live asset/price, current OHLC, latency, tick count, secure bridge status, event log and settled results.
+- Manual trading only. No order placement and no synthetic/demo market ticks.
 
-## Indicator set (only)
-- EMA 9, EMA 20, EMA 50, EMA 100, EMA 200
-- RSI 14
-- MACD 12/26/9
+## Probability-based signal approximation
+The reference video does not expose its hidden model weights or source code. The app therefore uses a transparent, best-effort probability approximation from live observations only:
+- Short-term real-tick momentum.
+- Recent tick-direction consistency.
+- Current real candle body pressure.
+- Upper/lower wick imbalance.
+- Price location inside the current candle range.
+- Latest tick impulse relative to recent absolute tick movement.
 
-No ADX, DMI, Supertrend, Bollinger Bands, Stochastic, or other unrequested indicators are included.
+These features are blended into a bounded direction score and converted to CALL/PUT probabilities with a sigmoid mapping. CALL/PUT are issued only when the estimated directional probability reaches 58%; otherwise the result is WAIT. The first directional estimate is available after three real ticks; there is no 200-candle warm-up, no EMA/RSI/MACD gating and no invented historical candles. The probability is a heuristic estimate, not a statistically calibrated win probability or a guarantee.
 
-## Signal readiness
-- Candle structure uses the latest eight completed real 10-second candles.
-- Full indicator confirmation waits until 200 completed real 10-second candles are collected for EMA 200; RSI 14 and MACD 12/26/9 must also be ready.
-- Until warm-up completes, the app displays WAIT and the exact number of completed candles collected. It must not substitute simulated or partial data.
-- CALL / PUT require directional candle agreement, ordered EMA stack, RSI range confirmation and MACD histogram direction. Otherwise the result is WAIT.
-- Indicator values and the signal score are informational, not a guarantee of trading outcome.
+## Data integrity
+- Only accepted real Market-QX messages enter the tick tape and OHLC stream.
+- No synthetic/demo/sample prices or candles are generated.
+- Signals are for the next 10-second candle and remain manual; no trade orders are placed.
+- Outcomes are evaluated against the real candle data received for the target interval.
 
 ## Secure bridge scope
 - WebView JavaScript creates an AES-256-GCM envelope and wraps the AES key using RSA-OAEP-2048 / SHA-256.
@@ -28,7 +32,6 @@ No ADX, DMI, Supertrend, Bollinger Bands, Stochastic, or other unrequested indic
 - TLS certificate errors fail closed. The secure WebMessage listener is restricted to the Market-QX HTTPS origin and main frame.
 - Android app backup is disabled so device-bound key material is not restored without its Keystore wrapping key.
 
-## Verification still required
-- CI compile and JVM crypto tests.
-- Physical Android 10 device launch and Market-QX authenticated session test.
-- Confirm real tick subscription, envelope decrypt, asset/price validation, reconnect behavior, and signal settlement using live data.
+## Verification
+- CI JavaScript syntax validation, JVM crypto tests and Android APK assembly are required.
+- Physical Android 10 launch, authenticated Market-QX live tick capture, real candle comparison, reconnect handling and on-device signal settlement remain separate device checks.
