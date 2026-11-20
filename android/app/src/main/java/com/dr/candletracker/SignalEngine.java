@@ -188,7 +188,8 @@ public final class SignalEngine {
 
     private static final class Candle {
         final String asset;final long bucket;final double open;double high,low,close;
-        Candle(String a,long b,double p){asset=a;bucket=b;open=p;high=p;low=p;close=p;}
+        Candle(String a,long b,double p){this(a,b,p,p,p,p);}
+        Candle(String a,long b,double o,double h,double l,double c){asset=a;bucket=b;open=o;high=h;low=l;close=c;}
         void update(double p){high=Math.max(high,p);low=Math.min(low,p);close=p;}
     }
     private static final class Tick {final String asset;final double price;Tick(String a,double p){asset=a;price=p;}}
