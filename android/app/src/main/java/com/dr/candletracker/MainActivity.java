@@ -149,7 +149,7 @@ public final class MainActivity extends Activity {
                                 runOnUiThread(() -> {
                                     tickCount++; lastPrice = price; currentAsset = asset; lastTickAt = tickTime;
                                     currentFingerprint = frameHash; currentFrameBytes = observedFrameBytes;
-                                    signalEngine.acceptTick(asset, price, tickTime, period);
+                                    signalEngine.acceptTick(asset, price, tickTime, 10L);
                                     diagnostics.onTick(asset, price, tickTime, System.currentTimeMillis());
                                     diagnostics.onSignal(signalEngine.getSignal());
                                     if (web != null) web.evaluateJavascript(
