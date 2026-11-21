@@ -22,15 +22,28 @@ var binaryPackets=[],httpEvents=0;
 function safeUrl(value){try{var u=new URL(String(value),location.href);return u.origin+u.pathname;}catch(_){return '[unavailable]';}}
 function binaryBytes(value){if(value instanceof ArrayBuffer)return new Uint8Array(value);if(ArrayBuffer.isView(value))return new Uint8Array(value.buffer,value.byteOffset,value.byteLength);return null;}
 async function fingerprintBytes(parts){var total=0;parts.forEach(function(p){total+=p.byteLength;});var joined=new Uint8Array(total),offset=0;parts.forEach(function(p){joined.set(p,offset);offset+=p.byteLength;});var digest=await crypto.subtle.digest('SHA-256',joined);return{hash:Array.from(new Uint8Array(digest)).map(x=>x.toString(16).padStart(2,'0')).join(''),size:total};}
+function binaryProfile(bytes){
+ var counts=new Uint32Array(256),printable=0;
+ for(var i=0;i<bytes.length;i++){var v=bytes[i];counts[v]++;if(v===9||v===10||v===13||(v>=32&&v<=126))printable++;}
+ var entropy=0;if(bytes.length)for(var j=0;j<256;j++)if(counts[j]){var p=counts[j]/bytes.length;entropy-=p*Math.log2(p);}
+ var prefix=Array.from(bytes.slice(0,16)).map(x=>x.toString(16).padStart(2,'0')).join('');
+ var kind='OPAQUE_BINARY_UNCLASSIFIED';
+ if(bytes.length>=2&&bytes[0]===0x1f&&bytes[1]===0x8b)kind='GZIP_COMPRESSED_CANDIDATE';
+ else if(bytes.length>=2&&bytes[0]===0x78&&(bytes[1]===0x9c||bytes[1]===0xda||bytes[1]===0x01))kind='ZLIB_COMPRESSED_CANDIDATE';
+ else if(entropy>=7.2&&printable/Math.max(1,bytes.length)<0.15)kind='HIGH_ENTROPY_APP_LAYER_ENCRYPTION_CANDIDATE';
+ else if(entropy>=6.2&&printable/Math.max(1,bytes.length)<0.35)kind='HIGH_ENTROPY_OPAQUE_CANDIDATE';
+ return{entropyBitsPerByte:Number(entropy.toFixed(3)),printableRatio:Number((printable/Math.max(1,bytes.length)).toFixed(3)),prefixHex:prefix,identification:kind};
+}
 function inspectAttachment(buffer,index){
  var bytes=binaryBytes(buffer);if(!bytes)return{index:index,kind:'UNAVAILABLE'};
- var out={__qxBinaryAttachment:true,index:index,byteLength:bytes.byteLength,base64:b64(bytes.buffer),hex:Array.from(bytes.slice(0,64)).map(x=>x.toString(16).padStart(2,'0')).join('')};
+ var profile=binaryProfile(bytes),sample=bytes.slice(0,8192);
+ var out={__qxBinaryAttachment:true,index:index,byteLength:bytes.byteLength,capturedBytes:sample.byteLength,base64:b64(sample.buffer),identification:profile.identification,entropyBitsPerByte:profile.entropyBitsPerByte,printableRatio:profile.printableRatio,prefixHex:profile.prefixHex,hex:Array.from(bytes.slice(0,64)).map(x=>x.toString(16).padStart(2,'0')).join('')};
  try{
-  // Quotex/Engine.IO binary message payloads may prefix JSON with byte 0x04.
+  // Engine.IO binary payloads may prefix UTF-8 JSON with byte 0x04.
   var payloadBytes=(bytes.length&&bytes[0]===4)?bytes.subarray(1):bytes;
   var decoder=new TextDecoder('utf-8',{fatal:true}),decoded=decoder.decode(payloadBytes),trimmed=decoded.trim();
-  if(trimmed&&(/^[{[]/.test(trimmed))){try{out.decodedJson=JSON.parse(trimmed);out.decode='UTF8_JSON';}catch(_){out.decode='UTF8_TEXT_NOT_JSON';out.utf8=decoded.slice(0,4096);}}
-  else if(trimmed&&/^[\\x20-\\x7e\\r\\n\\t]+$/.test(trimmed)){out.decode='UTF8_TEXT';out.utf8=decoded.slice(0,4096);}
+  if(trimmed&&(/^[{[]/.test(trimmed))){try{out.decodedJson=JSON.parse(trimmed);out.decode='UTF8_JSON';out.identification='STRUCTURED_UTF8_JSON';}catch(_){out.decode='UTF8_TEXT_NOT_JSON';out.utf8=decoded.slice(0,4096);}}
+  else if(trimmed&&/^[\\x20-\\x7e\\r\\n\\t]+$/.test(trimmed)){out.decode='UTF8_TEXT';out.utf8=decoded.slice(0,4096);out.identification='STRUCTURED_UTF8_TEXT';}
   else out.decode='BINARY_OPAQUE';
  }catch(_){out.decode='NON_UTF8_BINARY_OPAQUE';}
  return out;
@@ -44,7 +57,7 @@ function replaceBinaryPlaceholders(value,attachments){
 async function dispatchPacket(packet,attachments){
  var rawParts=[packet.headerBytes].concat(attachments.map(binaryBytes).filter(Boolean)),meta=await fingerprintBytes(rawParts);
  var data=packet.data,eventName=packet.eventName;
- if(data&&typeof data==='object'){data=replaceBinaryPlaceholders(data,attachments);var decoded=[];(function scan(v,d){if(d>10||!v||typeof v!=='object')return;if(v.__qxBinaryAttachment){if(v.decodedJson!==undefined)decoded.push(v.decodedJson);else log('QX ATTACHMENT '+v.index+' · '+v.decode+' · '+v.byteLength+' bytes · hex '+v.hex);}else if(Array.isArray(v))v.forEach(x=>scan(x,d+1));else Object.keys(v).forEach(k=>scan(v[k],d+1));})(data,0);if(decoded.length){data={socketEventData:data,decodedAttachments:decoded};log('QX BINARY ATTACHMENT UTF-8 JSON DECODED · '+decoded.length+' item(s)');}}
+ if(data&&typeof data==='object'){data=replaceBinaryPlaceholders(data,attachments);var decoded=[];(function scan(v,d){if(d>10||!v||typeof v!=='object')return;if(v.__qxBinaryAttachment){if(v.decodedJson!==undefined)decoded.push(v.decodedJson);else log('QX APP-LAYER IDENTIFICATION '+v.index+' · '+v.identification+' · '+v.byteLength+' bytes · entropy '+v.entropyBitsPerByte+' bits/byte · printable '+v.printableRatio+' · prefix '+v.prefixHex+' · '+v.decode+' · bounded sample '+v.capturedBytes+' bytes');}else if(Array.isArray(v))v.forEach(x=>scan(x,d+1));else Object.keys(v).forEach(k=>scan(v[k],d+1));})(data,0);if(decoded.length){data={socketEventData:data,decodedAttachments:decoded};log('QX BINARY ATTACHMENT UTF-8 JSON DECODED · '+decoded.length+' item(s)');}}
  log('SOCKET.IO '+(packet.binary?'BINARY':'TEXT')+' EVENT '+eventName+' · attachments '+attachments.length+' · '+meta.size+' bytes');
  if(eventName==='quotes/stream'||eventName==='history/list/v2'||eventName==='history/load'||eventName==='chart_notification/get'||eventName==='candle-generated'||eventName==='loadHistoryPeriod')handleData(data,eventName,meta.hash,meta.size);
  backend.fingerprint=meta.hash;
@@ -59,7 +72,7 @@ async function parseFrame(raw){
    if(packet.attachments.length>=packet.expected){binaryPackets.shift();await dispatchPacket(packet,packet.attachments);}
    return;
   }
-  log('UNASSOCIATED BINARY WEBSOCKET FRAME · '+bytes.byteLength+' bytes · retained as opaque');
+  var profile=binaryProfile(bytes);log('UNASSOCIATED QX BINARY FRAME · '+profile.identification+' · '+bytes.byteLength+' bytes · entropy '+profile.entropyBitsPerByte+' bits/byte · printable '+profile.printableRatio+' · prefix '+profile.prefixHex+' · retained opaque, not decrypted');
   return;
  }
  var rawBytes=new TextEncoder().encode(raw),text=raw.trim();
