@@ -17,7 +17,63 @@ function send(price,asset,timestamp,fingerprint,frameBytes,sourceEvent){price=Nu
 function sendHistory(data,fp,size,sourceEvent){if(!data||typeof data!=='object')return;var asset=assetOf(data)||activeAsset,period=num(data,['period','timePeriod'])||activePeriod,rows=Array.isArray(data.candles)?data.candles:(Array.isArray(data.history)?data.history:(Array.isArray(data.data)?data.data:null));if(!asset||!rows)return;var candles=[];rows.slice(-900).forEach(function(c){if(!Array.isArray(c)||c.length<5)return;var t=sourceTime(c[0]),o=Number(c[1]),cl=Number(c[2]),h=Number(c[3]),l=Number(c[4]);if(t&&[o,cl,h,l].every(Number.isFinite)&&o>0&&cl>0&&h>0&&l>0&&h>=Math.max(o,cl)&&l<=Math.min(o,cl))candles.push({time:t,open:o,close:cl,high:h,low:l});});if(candles.length)postPayload({type:'history',source:String(sourceEvent||'history/list/v2'),asset:asset,period:Number(period)||60,candles:candles},fp,size);}
 function walk(v,inherited,depth,fp,size,sourceEvent){if(depth>10||v==null)return;if(Array.isArray(v)){if(v.length>=3&&typeof v[0]==='string'&&/^[A-Z0-9_./-]{3,32}$/i.test(v[0])&&sourceTime(v[1])&&Number(v[2])>0){send(v[2],v[0],v[1],fp,size,sourceEvent);return;}v.forEach(function(x){walk(x,inherited,depth+1,fp,size,sourceEvent);});return;}if(typeof v!=='object')return;var a=assetOf(v)||inherited||activeAsset,p=num(v,['price','currentPrice','lastPrice','closePrice','quotePrice','value']),t=null;for(var k of ['timestamp','time','ts','created_at','at','serverTime'])if(v[k]!=null){t=sourceTime(v[k]);if(t)break;}if(p!==null&&a&&t){send(p,a,t,fp,size,sourceEvent);return;}Object.keys(v).forEach(function(k){if(v[k]&&typeof v[k]==='object')walk(v[k],a,depth+1,fp,size,sourceEvent);});}
 function handleData(o,eventName,fp,size){if(eventName==='history/list/v2'||eventName==='history/load'||eventName==='chart_notification/get'||eventName==='loadHistoryPeriod'){sendHistory(o,fp,size,eventName);return;}if(eventName==='candle-generated'&&o&&typeof o==='object'){var ca=assetOf(o)||activeAsset,cp=num(o,['price','close']);var ct=null;for(var k of ['timestamp','time','ts'])if(o[k]!=null){ct=sourceTime(o[k]);if(ct)break;}if(cp!==null&&ca&&ct){send(cp,ca,ct,fp,size,eventName);return;}}walk(o,activeAsset,0,fp,size,eventName);}
-async function parseFrame(raw){frames++;if(typeof raw!=='string'||!window.crypto||!crypto.subtle)return;var bytes=new TextEncoder().encode(raw),digest=await crypto.subtle.digest('SHA-256',bytes),fp=Array.from(new Uint8Array(digest)).map(x=>x.toString(16).padStart(2,'0')).join(''),text=raw.trim();try{if(text.startsWith('451-')){var head=JSON.parse(text.slice(4));if(Array.isArray(head)&&typeof head[0]==='string'){pendingBinaryEvent=head[0];log('QX BINARY EVENT '+pendingBinaryEvent);}return;}var eventName='';if(text.charCodeAt(0)===4){text=text.slice(1);eventName=pendingBinaryEvent;pendingBinaryEvent='';}else if(text.startsWith('42'))text=text.slice(2);var o=JSON.parse(text);jsonFrames++;if(Array.isArray(o)&&typeof o[0]==='string'){eventName=o[0];var data=o[1],a=assetOf(data);if(a&&/(asset|instrument|symbol|subscribe|stream|quote|change|price|tick|candle|market)/i.test(eventName)){activeAsset=a;log('MARKET EVENT '+eventName+' · '+a);}if(eventName==='quotes/stream'||eventName==='history/list/v2'||eventName==='history/load'||eventName==='chart_notification/get'||eventName==='candle-generated'||eventName==='loadHistoryPeriod')handleData(data,eventName,fp,bytes.length);else log('IGNORED NON-MARKET QX EVENT '+eventName);}else handleData(o,eventName,fp,bytes.length);backend.fingerprint=fp;}catch(e){log('QX FRAME PARSE '+(e&&e.message||e));}}
+
+var pendingBinary=null;
+function sha256Hex(bytes){return crypto.subtle.digest('SHA-256',bytes).then(function(d){return Array.from(new Uint8Array(d)).map(x=>x.toString(16).padStart(2,'0')).join('');});}
+function replaceBinaryPlaceholders(value,attachments){
+ if(!value||typeof value!=='object')return value;
+ if(value._placeholder===true&&Number.isInteger(value.num)&&attachments[value.num]){
+  var raw=attachments[value.num],text=new TextDecoder('utf-8',{fatal:true}).decode(raw);
+  try{return JSON.parse(text);}catch(_){return {__opaqueBinary:true,byteLength:raw.byteLength};}
+ }
+ if(Array.isArray(value))return value.map(v=>replaceBinaryPlaceholders(v,attachments));
+ Object.keys(value).forEach(function(k){value[k]=replaceBinaryPlaceholders(value[k],attachments);});
+ return value;
+}
+async function consumeBinaryAttachment(raw){
+ if(!pendingBinary)return false;
+ var bytes=raw instanceof Blob?await raw.arrayBuffer():(raw instanceof ArrayBuffer?raw:(ArrayBuffer.isView(raw)?raw.buffer.slice(raw.byteOffset,raw.byteOffset+raw.byteLength):null));
+ if(!bytes)return false;
+ pendingBinary.attachments.push(bytes);
+ if(pendingBinary.attachments.length<pendingBinary.count)return true;
+ var packet=pendingBinary;pendingBinary=null;
+ var eventName=Array.isArray(packet.header)?packet.header[0]:'';
+ var data=Array.isArray(packet.header)?packet.header[1]:null;
+ var resolved=replaceBinaryPlaceholders(data,packet.attachments);
+ var opaque=JSON.stringify(resolved).indexOf('"__opaqueBinary":true')>=0;
+ var all=new Uint8Array(packet.attachments.reduce((n,a)=>n+a.byteLength,0)),offset=0;
+ packet.attachments.forEach(function(a){all.set(new Uint8Array(a),offset);offset+=a.byteLength;});
+ var headerBytes=new TextEncoder().encode(packet.rawHeader),joined=new Uint8Array(headerBytes.length+all.length);joined.set(headerBytes);joined.set(all,headerBytes.length);
+ var fp=await sha256Hex(joined);
+ if(opaque){log('QX BINARY EVENT '+eventName+' · '+packet.attachments.length+' attachment(s) · '+all.length+' bytes · opaque payload retained, schema required');return true;}
+ jsonFrames++;log('QX BINARY EVENT DECODED '+eventName+' · '+packet.attachments.length+' attachment(s)');
+ if(['quotes/stream','history/list/v2','history/load','chart_notification/get','candle-generated','loadHistoryPeriod'].includes(eventName))handleData(resolved,eventName,fp,joined.length);
+ return true;
+}
+async function parseFrame(raw){
+ frames++;
+ if(raw instanceof Blob||raw instanceof ArrayBuffer||ArrayBuffer.isView(raw)){
+  if(pendingBinary){try{await consumeBinaryAttachment(raw);}catch(e){log('QX BINARY ATTACHMENT ERROR '+(e&&e.message||e));pendingBinary=null;}return;}
+  if(raw instanceof Blob){var ab=await raw.arrayBuffer();try{var decoded=new TextDecoder('utf-8',{fatal:true}).decode(ab);await parseFrame(decoded);}catch(_){log('QX OPAQUE BINARY FRAME · '+raw.size+' bytes · no matching Socket.IO binary header');}return;}
+  var view=raw instanceof ArrayBuffer?new Uint8Array(raw):new Uint8Array(raw.buffer,raw.byteOffset,raw.byteLength);
+  try{await parseFrame(new TextDecoder('utf-8',{fatal:true}).decode(view));}catch(_){log('QX OPAQUE BINARY FRAME · '+view.byteLength+' bytes · no matching Socket.IO binary header');}
+  return;
+ }
+ if(typeof raw!=='string'||!window.crypto||!crypto.subtle)return;
+ var bytes=new TextEncoder().encode(raw),fp=await sha256Hex(bytes),text=raw.trim();
+ try{
+  var binaryMatch=text.match(/^45(\d+)-([\s\S]+)$/);
+  if(binaryMatch){var count=Number(binaryMatch[1]),header=JSON.parse(binaryMatch[2]);if(!Number.isInteger(count)||count<1||count>32||!Array.isArray(header)){log('QX BINARY HEADER REJECTED');return;}pendingBinary={count:count,header:header,attachments:[],rawHeader:text};log('QX BINARY HEADER '+(header[0]||'unknown')+' · expecting '+count+' attachment(s)');return;}
+  var eventName='';
+  if(text.charCodeAt(0)===4){text=text.slice(1);eventName='';}
+  else if(text.startsWith('42'))text=text.slice(2);
+  var o=JSON.parse(text);jsonFrames++;
+  if(Array.isArray(o)&&typeof o[0]==='string'){eventName=o[0];var data=o[1],a=assetOf(data);if(a&&/(asset|instrument|symbol|subscribe|stream|quote|change|price|tick|candle|market)/i.test(eventName)){activeAsset=a;log('MARKET EVENT '+eventName+' · '+a);}if(['quotes/stream','history/list/v2','history/load','chart_notification/get','candle-generated','loadHistoryPeriod'].includes(eventName))handleData(data,eventName,fp,bytes.length);else log('IGNORED NON-MARKET QX EVENT '+eventName);}
+  else handleData(o,eventName,fp,bytes.length);
+  backend.fingerprint=fp;
+ }catch(e){log('QX FRAME PARSE '+(e&&e.message||e));}
+}
+
 try{if(NativeWS)window.WebSocket=new Proxy(NativeWS,{construct:function(T,args){var ws=Reflect.construct(T,args,T);sockets++;try{var old=ws.send;ws.send=function(d){try{if(typeof d==='string'){var q=d.startsWith('42')?d.slice(2):d,o=JSON.parse(q);if(Array.isArray(o)){var a=assetOf(o[1]);if(a&&/(asset|instrument|symbol|subscribe|stream|quote|change|price|tick|history)/i.test(o[0])){activeAsset=a;if(o[0]==='instruments/update'&&o[1]&&Number(o[1].period)>0)activePeriod=Number(o[1].period);}}}}catch(_){}return old.call(this,d);};}catch(_){}ws.addEventListener('open',()=>log('QX WEBSOCKET OPEN'));ws.addEventListener('message',e=>{if(typeof e.data==='string')parseFrame(e.data);else if(e.data instanceof Blob)e.data.text().then(parseFrame).catch(()=>{});else if(e.data instanceof ArrayBuffer){try{parseFrame(new TextDecoder().decode(e.data));}catch(_){}}});ws.addEventListener('close',()=>log('QX WEBSOCKET CLOSED'));ws.addEventListener('error',()=>log('QX WEBSOCKET ERROR'));return ws;}});}catch(e){log('WEBSOCKET OBSERVER ERROR '+(e&&e.message||e));}
 
 /* Passive same-origin HTTP market observer: allow-listed market/history JSON only.
@@ -46,6 +102,13 @@ try{
   xhr.send=function(){if(marketHttpKind(url))xhr.addEventListener('load',function(){try{inspectHttpResponse(url,xhr.responseText,xhr.status);}catch(_){}});return send.apply(this,arguments);};
   return xhr;}});}
 }catch(e){log('HTTP OBSERVER ERROR '+(e&&e.message||e));}
+
+
+/* Observe EventSource market feeds when QX exposes them in the authenticated page. */
+try{if(window.EventSource){var NativeES=window.EventSource;window.EventSource=new Proxy(NativeES,{construct:function(T,args){
+ var es=Reflect.construct(T,args,T),url=String(args&&args[0]||'');
+ if(marketHttpKind(url)){es.addEventListener('message',function(ev){if(typeof ev.data==='string'){var kind=marketHttpKind(url);var b=new TextEncoder().encode(ev.data);sha256Hex(b).then(function(fp){try{handleData(JSON.parse(ev.data),kind,fp,b.length);log('QX EVENTSOURCE '+kind+' · '+b.length+' bytes');}catch(_){}});}});}
+ return es;}});}}catch(e){log('EVENTSOURCE OBSERVER ERROR '+(e&&e.message||e));}
 
 var css=[
 '*{box-sizing:border-box}',
