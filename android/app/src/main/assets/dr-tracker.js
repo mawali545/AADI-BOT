@@ -22,6 +22,68 @@ var binaryPackets=[],httpEvents=0;
 function safeUrl(value){try{var u=new URL(String(value),location.href);return u.origin+u.pathname;}catch(_){return '[unavailable]';}}
 function binaryBytes(value){if(value instanceof ArrayBuffer)return new Uint8Array(value);if(ArrayBuffer.isView(value))return new Uint8Array(value.buffer,value.byteOffset,value.byteLength);return null;}
 async function fingerprintBytes(parts){var total=0;parts.forEach(function(p){total+=p.byteLength;});var joined=new Uint8Array(total),offset=0;parts.forEach(function(p){joined.set(p,offset);offset+=p.byteLength;});var digest=await crypto.subtle.digest('SHA-256',joined);return{hash:Array.from(new Uint8Array(digest)).map(x=>x.toString(16).padStart(2,'0')).join(''),size:total};}
+async function routeDecryptedText(text,algorithm){
+ var trimmed=String(text||'').replace(/^\uFEFF/,'').trim();if(!trimmed)return;
+ var parsed;try{parsed=JSON.parse(trimmed);}catch(_){log('QX APP DECRYPTION OUTPUT · '+algorithm+' · plaintext bytes '+trimmed.length+' · non-JSON text '+trimmed.slice(0,100));return;}
+ var bytes=new TextEncoder().encode(trimmed),fp=await fingerprintBytes([bytes]);
+ log('QX APP DECRYPTION OUTPUT · '+algorithm+' · '+bytes.length+' plaintext bytes · structured JSON');
+ if(Array.isArray(parsed)&&typeof parsed[0]==='string'){
+  handleData(parsed[1],parsed[0],fp.hash,fp.size);return;
+ }
+ if(parsed&&typeof parsed==='object'){
+  if(Array.isArray(parsed.candles)||Array.isArray(parsed.history)||Array.isArray(parsed.data))
+   sendHistory(parsed,fp.hash,fp.size,'history/load');
+  else walk(parsed,activeAsset,0,fp.hash,fp.size,'webcrypto-decrypt');
+ }
+}
+async function routeDecryptedBytes(buffer,algorithm){
+ try{
+  var bytes=binaryBytes(buffer);if(!bytes||!bytes.length||bytes.length>1048576)return;
+  var text=new TextDecoder('utf-8',{fatal:true}).decode(bytes);
+  await routeDecryptedText(text,algorithm);
+ }catch(_){
+  try{
+   var bytes=binaryBytes(buffer),kind=bytes&&bytes[0]===0x1f&&bytes[1]===0x8b?'gzip':
+    bytes&&bytes[0]===0x78?'deflate':null;
+   if(kind&&typeof DecompressionStream==='function'){
+    var stream=new Blob([bytes]).stream().pipeThrough(new DecompressionStream(kind));
+    var expanded=await new Response(stream).arrayBuffer();
+    var text=new TextDecoder('utf-8',{fatal:true}).decode(expanded);
+    await routeDecryptedText(text,algorithm+' + '+kind.toUpperCase());
+   }else if(bytes)log('QX APP DECRYPTION OUTPUT · '+algorithm+' · '+bytes.length+' bytes · non-UTF8 plaintext candidate');
+  }catch(e){log('QX DECRYPTED DATA PARSE '+(e&&e.message||e));}
+ }
+}
+function wrapCryptoJS(lib){
+ try{
+  if(!lib||!lib.AES||typeof lib.AES.decrypt!=='function'||!lib.enc||!lib.enc.Utf8||lib.AES.decrypt.__drObserved)return;
+  var original=lib.AES.decrypt;
+  var wrapped=function(){var result=original.apply(this,arguments);try{var plain=result&&result.toString(lib.enc.Utf8);if(plain)routeDecryptedText(plain,'CryptoJS AES');}catch(_){}return result;};
+  wrapped.__drObserved=true;lib.AES.decrypt=wrapped;log('QX CRYPTOJS AES DECRYPT HOOK READY');
+ }catch(_){}
+}
+function installQxDecryptionObservers(){
+ try{
+  if(window.crypto&&crypto.subtle&&typeof crypto.subtle.decrypt==='function'&&!crypto.subtle.decrypt.__drObserved){
+   var subtle=crypto.subtle,original=subtle.decrypt.bind(subtle);
+   var wrapped=function(algorithm,key,data){
+    var name=typeof algorithm==='string'?algorithm:(algorithm&&algorithm.name)||'UNKNOWN';
+    return original(algorithm,key,data).then(function(result){routeDecryptedBytes(result,'WebCrypto '+name);return result;});
+   };
+   wrapped.__drObserved=true;Object.defineProperty(subtle,'decrypt',{configurable:true,writable:true,value:wrapped});
+   log('QX WEBCRYPTO DECRYPT OBSERVER READY');
+  }
+ }catch(e){log('QX WEBCRYPTO OBSERVER UNAVAILABLE '+(e&&e.message||e));}
+ try{
+  var existing=window.CryptoJS;wrapCryptoJS(existing);
+  var descriptor=Object.getOwnPropertyDescriptor(window,'CryptoJS');
+  if(!descriptor||descriptor.configurable){
+   var stored=existing;
+   Object.defineProperty(window,'CryptoJS',{configurable:true,get:function(){return stored;},set:function(v){stored=v;wrapCryptoJS(v);}});
+  }
+ }catch(_){}
+}
+installQxDecryptionObservers();
 function binaryProfile(bytes){
  var counts=new Uint32Array(256),printable=0;
  for(var i=0;i<bytes.length;i++){var v=bytes[i];counts[v]++;if(v===9||v===10||v===13||(v>=32&&v<=126))printable++;}
