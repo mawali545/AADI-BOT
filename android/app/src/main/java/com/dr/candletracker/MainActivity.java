@@ -243,7 +243,17 @@ public final class MainActivity extends Activity {
             o.put("high", Double.isFinite(signalEngine.getHigh()) ? signalEngine.getHigh() : JSONObject.NULL);
             o.put("low", Double.isFinite(signalEngine.getLow()) ? signalEngine.getLow() : JSONObject.NULL);
             o.put("close", Double.isFinite(signalEngine.getClose()) ? signalEngine.getClose() : JSONObject.NULL);
-            o.put("diagnostics", diagnostics.snapshot());
+            JSONObject diagnosticState = diagnostics.snapshot();
+            long age = lastTickAt > 0 ? System.currentTimeMillis() - lastTickAt : Long.MAX_VALUE;
+            diagnosticState.put("node", age >= 0 && age < 8000 ? "ARMED" : "RECONNECTING");
+            diagnosticState.put("scanState", signalEngine.getSignal());
+            diagnosticState.put("cipherState", secureBridgeReady && crypto != null ? "LOCAL BRIDGE READY" : "LOCKED");
+            JSONArray checks = diagnosticState.optJSONArray("scanChecklist");
+            if (checks != null && checks.length() >= 6) {
+                JSONObject bridgeCheck = checks.optJSONObject(5);
+                if (bridgeCheck != null) bridgeCheck.put("passed", secureBridgeReady && crypto != null);
+            }
+            o.put("diagnostics", diagnosticState);
         } catch (Exception ignored) {}
         return o;
     }
