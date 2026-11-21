@@ -31,3 +31,14 @@ Memory Stream OHLC from validated live ticks, rolling price tape, normalized fou
 ## Verification
 - CI: JavaScript syntax check, JVM unit tests, Android debug APK assembly.
 - Physical-device checks are still required for authenticated QX feed, asset mapping, original encrypted protocol handling, reconnect stability, native control visibility, and real next-candle settlement.
+
+
+## Build 35 protocol and signal pipeline additions
+- Observe QX WebSocket text frames and pair Socket.IO binary-event headers with their following binary attachments.
+- Resolve Socket.IO binary placeholders only when an attachment is valid UTF-8 JSON; retain unknown binary attachments as opaque evidence and report their byte counts rather than inventing a decoder.
+- Observe same-origin market/history JSON delivered through fetch, XMLHttpRequest, and EventSource. Do not read cookies, authorization headers, account endpoints, or alter broker requests.
+- Keep SHA-256 as a local digest of the observed raw frame/response only; it is not represented as an official QX fingerprint.
+- Preserve QX source timestamps, asset identity, event source, and native validation before feeding the live signal engine.
+- Expand the 10-second next-candle feature families: candle body pressure, bullish/bearish votes, momentum, directional agreement, wick rejection, support/resistance, liquidity sweep, failed breakout, pullback detection, market chop, volatility analysis, and vector/microstructure.
+- The RSA-OAEP/AES-GCM cipher remains the authenticated local WebView-to-Android bridge cipher. It is not QX server-protocol decryption. Unknown proprietary encrypted payloads remain locked until a documented/authorized key and wire format or a QX-decoded browser event is available.
+- No fake/demo ticks, fabricated fingerprints, guessed cipher keys, or unsupported accuracy claims.
