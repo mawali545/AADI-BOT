@@ -66,7 +66,7 @@ public class SignalEngineTest {
         assertEquals(0, e.getCandleCount());
     }
 
-    @Test public void settlesSignalAtFirstRealTickTenSecondsAfterSignal() {
+    @Test public void settlesSignalAtFirstRealTickTenSecondsAfterSignal() throws JSONException {
         long t = 1800000000000L;
         SignalEngine e = primedCall(t);
         assertEquals("CALL", e.getSignal());
@@ -76,7 +76,7 @@ public class SignalEngineTest {
         assertEquals(1, e.getWins());
     }
 
-    @Test public void oppositeMovementAfterTenSecondsIsLoss() {
+    @Test public void oppositeMovementAfterTenSecondsIsLoss() throws JSONException {
         long t = 1800000000000L;
         SignalEngine e = primedCall(t);
         e.acceptTick("EURUSD_otc", 1.0020, t + 84000);
@@ -84,7 +84,7 @@ public class SignalEngineTest {
         assertEquals(0, e.getWins());
     }
 
-    @Test public void unchangedPriceAfterTenSecondsIsTie() {
+    @Test public void unchangedPriceAfterTenSecondsIsTie() throws JSONException {
         long t = 1800000000000L;
         SignalEngine e = primedCall(t);
         e.acceptTick("EURUSD_otc", 1.0074, t + 84000);
@@ -93,7 +93,7 @@ public class SignalEngineTest {
         assertEquals(0, e.getLosses());
     }
 
-    private SignalEngine primedCall(long t) {
+    private SignalEngine primedCall(long t) throws JSONException {
         SignalEngine e = new SignalEngine();
         JSONArray rows = new JSONArray();
         for (int i = 0; i < 7; i++) {
