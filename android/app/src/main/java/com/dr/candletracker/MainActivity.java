@@ -143,7 +143,7 @@ public final class MainActivity extends Activity {
                                 }
                                 double price = tick.optDouble("price", Double.NaN);
                                 long stamp = tick.optLong("timestamp", 0);
-                                if (!"tick".equals(type) || !("quotes/stream".equals(source) || "candle-generated".equals(source)) ||
+                                if (!"tick".equals(type) || !("quotes/stream".equals(source) || "candle-generated".equals(source) || "webcrypto-decrypt".equals(source) || "cryptojs-decrypt".equals(source)) ||
                                     !Double.isFinite(price) || price <= 0 || price >= 1e12 || stamp <= 0) return;
                                 final long tickTime = stamp;
                                 runOnUiThread(() -> {
