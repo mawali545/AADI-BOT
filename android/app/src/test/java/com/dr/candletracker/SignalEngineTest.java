@@ -52,11 +52,23 @@ public class SignalEngineTest {
         assertEquals("CALL", e.getSignal());
 
         e.acceptTick("EURUSD_otc", 1.0040, t + 40000);
-        e.acceptTick("EURUSD_otc", 1.0050, t + 49000);
-        assertEquals("WIN count must wait for target candle close", 0, e.getWins());
+        assertEquals("WIN must be counted at 10-second expiry tick", 1, e.getWins());
+    }
 
-        e.acceptTick("EURUSD_otc", 1.0060, t + 50000);
-        assertEquals(1, e.getWins());
+    @Test public void settlesAtFirstRealTickTenSecondsAfterSignalNotAtCandleClose() {
+        SignalEngine e = new SignalEngine(); long t = 1800000000000L;
+        e.acceptTick("EURUSD_otc", 1.0000, t);
+        e.acceptTick("EURUSD_otc", 1.0010, t + 9000);
+        e.acceptTick("EURUSD_otc", 1.0010, t + 10000);
+        e.acceptTick("EURUSD_otc", 1.0020, t + 19000);
+        e.acceptTick("EURUSD_otc", 1.0020, t + 20000);
+        e.acceptTick("EURUSD_otc", 1.0030, t + 29000);
+        e.acceptTick("EURUSD_otc", 1.0030, t + 30000);
+        assertEquals("CALL", e.getSignal());
+        e.acceptTick("EURUSD_otc", 1.0040, t + 39999);
+        assertEquals("Must not settle before 10 seconds", 0, e.getWins());
+        e.acceptTick("EURUSD_otc", 1.0040, t + 40000);
+        assertEquals("Must settle on first real tick at expiry", 1, e.getWins());
     }
 
     @Test public void pendingSignalsDoNotOverwriteEachOther() {
