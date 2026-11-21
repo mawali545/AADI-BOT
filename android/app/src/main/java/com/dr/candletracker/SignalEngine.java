@@ -135,56 +135,132 @@ public final class SignalEngine {
         }
     }
 
+    /**
+     * Multi-factor next-candle scan. Each named feature contributes an explicit
+     * directional vote; the engine abstains when votes disagree or volatility/chop
+     * conditions make a directional call unreliable.
+     */
     private Scan scan(String symbol, long currentBucket) {
         List<Candle> closed = new ArrayList<>();
         for (Candle c : candles) if (c.asset.equals(symbol) && c.bucket < currentBucket) closed.add(c);
         int n = closed.size();
-        if (n < 3) return new Scan("WAIT", "Collecting real completed 10-second candles (" + n + "/3).");
-        List<Candle> recent = closed.subList(Math.max(0, n-7), n);
-        Candle last = recent.get(recent.size()-1), first = recent.get(0);
-        double range = Math.max(last.high-last.low, Math.max(Math.abs(last.close)*1e-10, 1e-12));
-        double body = (last.close-last.open)/range;
-        double upper = last.high-Math.max(last.open,last.close), lower = Math.min(last.open,last.close)-last.low;
-        double wick = (lower-upper)/range, avgRange = 0;
-        for (Candle c : recent) avgRange += Math.max(c.high-c.low, 1e-12);
+        if (n < 7) return new Scan("WAIT", "Collecting completed real 10-second candles (" + n + "/7).");
+        List<Candle> recent = closed.subList(n - 7, n);
+        Candle last = recent.get(6), previous = recent.get(5), first = recent.get(0);
+        double range = Math.max(last.high - last.low, Math.max(Math.abs(last.close) * 1e-10, 1e-12));
+        double bodyPressure = (last.close - last.open) / range;
+        double upperWick = (last.high - Math.max(last.open, last.close)) / range;
+        double lowerWick = (Math.min(last.open, last.close) - last.low) / range;
+        double avgRange = 0, priorAvgRange = 0;
+        for (int i = 0; i < recent.size(); i++) avgRange += Math.max(recent.get(i).high - recent.get(i).low, 1e-12);
         avgRange /= recent.size();
-        double momentum = (last.close-first.close)/Math.max(avgRange*recent.size(), 1e-12);
-        int score = 0; List<String> reasons = new ArrayList<>();
-        if (momentum > .28) { score++; reasons.add("upward momentum"); }
-        else if (momentum < -.28) { score--; reasons.add("downward momentum"); }
-        int trend = direction(last.close-first.open);
-        if (trend != 0) { score += trend; reasons.add(trend > 0 ? "bullish structure" : "bearish structure"); }
-        if (body > .25) { score++; reasons.add("bullish candle pressure"); }
-        else if (body < -.25) { score--; reasons.add("bearish candle pressure"); }
-        if (wick > .42) { score++; reasons.add("lower-wick rejection"); }
-        else if (wick < -.42) { score--; reasons.add("upper-wick rejection"); }
-        double priorHigh = Double.NEGATIVE_INFINITY, priorLow = Double.POSITIVE_INFINITY;
-        for (int i = Math.max(0, recent.size()-6); i < recent.size()-1; i++) {
-            priorHigh = Math.max(priorHigh, recent.get(i).high);
-            priorLow = Math.min(priorLow, recent.get(i).low);
+        int priorCount = Math.min(12, n - 7);
+        for (int i = n - 7 - priorCount; i < n - 7; i++)
+            priorAvgRange += Math.max(closed.get(i).high - closed.get(i).low, 1e-12);
+        if (priorCount > 0) priorAvgRange /= priorCount;
+        double momentum = (last.close - first.close) / Math.max(avgRange * recent.size(), 1e-12);
+
+        int bullish = 0, bearish = 0;
+        List<String> evidence = new ArrayList<>();
+        // Candle body pressure
+        if (bodyPressure > .28) { bullish++; evidence.add("bullish candle body pressure"); }
+        else if (bodyPressure < -.28) { bearish++; evidence.add("bearish candle body pressure"); }
+        // Momentum
+        if (momentum > .22) { bullish++; evidence.add("positive momentum"); }
+        else if (momentum < -.22) { bearish++; evidence.add("negative momentum"); }
+        // Multi-candle directional structure
+        int structure = direction(last.close - first.open);
+        if (structure > 0) { bullish++; evidence.add("bullish structure"); }
+        else if (structure < 0) { bearish++; evidence.add("bearish structure"); }
+        // Wick rejection
+        if (lowerWick > .42 && bodyPressure > -.1) { bullish++; evidence.add("lower-wick rejection"); }
+        if (upperWick > .42 && bodyPressure < .1) { bearish++; evidence.add("upper-wick rejection"); }
+
+        // Support/resistance and liquidity sweep
+        double support = Double.POSITIVE_INFINITY, resistance = Double.NEGATIVE_INFINITY;
+        for (int i = 0; i < recent.size() - 1; i++) {
+            support = Math.min(support, recent.get(i).low);
+            resistance = Math.max(resistance, recent.get(i).high);
         }
-        if (last.low < priorLow && last.close > priorLow) { score += 2; reasons.add("support liquidity sweep"); }
-        else if (last.high > priorHigh && last.close < priorHigh) { score -= 2; reasons.add("resistance liquidity sweep"); }
-        if (recent.size() >= 4) {
-            Candle before = recent.get(recent.size()-2), before2 = recent.get(recent.size()-3);
-            int priorTrend = direction(before.close-before2.close);
-            int pullback = direction(before.close-before.open), recovery = direction(last.close-last.open);
-            if (priorTrend > 0 && pullback < 0 && recovery > 0) { score++; reasons.add("bullish pullback recovery"); }
-            else if (priorTrend < 0 && pullback > 0 && recovery < 0) { score--; reasons.add("bearish pullback recovery"); }
+        boolean sweptSupport = last.low < support && last.close > support;
+        boolean sweptResistance = last.high > resistance && last.close < resistance;
+        if (sweptSupport) { bullish += 2; evidence.add("support liquidity sweep / failed breakdown"); }
+        else if (sweptResistance) { bearish += 2; evidence.add("resistance liquidity sweep / failed breakout"); }
+        else {
+            double proximity = Math.max(avgRange * .18, Math.abs(last.close) * 1e-8);
+            if (Math.abs(last.close - support) <= proximity && last.close > last.open) {
+                bullish++; evidence.add("support response");
+            } else if (Math.abs(resistance - last.close) <= proximity && last.close < last.open) {
+                bearish++; evidence.add("resistance rejection");
+            }
         }
-        int tickDirection = recentTickDirection(symbol);
-        if (tickDirection != 0) { score += tickDirection; reasons.add(tickDirection > 0 ? "live tick pressure up" : "live tick pressure down"); }
+
+        // Pullback and recovery
+        Candle before = recent.get(5), before2 = recent.get(4);
+        int priorTrend = direction(before.close - before2.close);
+        int pullback = direction(before.close - before.open);
+        int recovery = direction(last.close - last.open);
+        if (priorTrend > 0 && pullback < 0 && recovery > 0) { bullish++; evidence.add("bullish pullback recovery"); }
+        else if (priorTrend < 0 && pullback > 0 && recovery < 0) { bearish++; evidence.add("bearish pullback recovery"); }
+
+        // Tick microstructure vector: pressure, acceleration, and path efficiency.
+        VectorStats vector = vectorStats(symbol);
+        if (vector.count >= 5) {
+            if (vector.pressure > .25 && vector.efficiency > .18) { bullish++; evidence.add("positive tick vector / microstructure"); }
+            else if (vector.pressure < -.25 && vector.efficiency > .18) { bearish++; evidence.add("negative tick vector / microstructure"); }
+        }
+
+        // Market chop filter: alternating candle bodies and low directional efficiency.
         int alternations = 0, smallBodies = 0;
         for (int i = 0; i < recent.size(); i++) {
-            Candle c = recent.get(i); double r = Math.max(c.high-c.low, 1e-12);
-            if (Math.abs(c.close-c.open)/r < .22) smallBodies++;
-            if (i > 0 && direction(c.close-c.open) != direction(recent.get(i-1).close-recent.get(i-1).open)) alternations++;
+            Candle c = recent.get(i); double r = Math.max(c.high - c.low, 1e-12);
+            if (Math.abs(c.close - c.open) / r < .22) smallBodies++;
+            if (i > 0 && direction(c.close - c.open) != direction(recent.get(i - 1).close - recent.get(i - 1).open)) alternations++;
         }
-        if (recent.size() >= 5 && alternations >= 3 && smallBodies >= 3)
-            return new Scan("WAIT", "Sideways/choppy candles detected; no directional signal.");
-        if (score >= 3) return new Scan("CALL", "CALL · " + join(reasons));
-        if (score <= -3) return new Scan("PUT", "PUT · " + join(reasons));
-        return new Scan("WAIT", reasons.isEmpty() ? "Mixed candle evidence; waiting." : "Mixed evidence: " + join(reasons));
+        if ((alternations >= 3 && smallBodies >= 3) || (vector.count >= 5 && vector.efficiency < .10))
+            return new Scan("WAIT", "Market chop detected; directional votes suppressed.");
+
+        // Volatility regime filter avoids chasing abnormal expansion or dead markets.
+        if (priorCount >= 5 && priorAvgRange > 0) {
+            double ratio = avgRange / priorAvgRange;
+            if (ratio > 2.8) return new Scan("WAIT", "Volatility expansion is abnormal; waiting for normalization.");
+            if (ratio < .22) return new Scan("WAIT", "Volatility is too compressed; waiting for movement.");
+        }
+
+        int total = bullish + bearish;
+        if (total == 0) return new Scan("WAIT", "No confirmed directional evidence.");
+        double agreement = (double) Math.max(bullish, bearish) / total;
+        if (agreement < .72) return new Scan("WAIT", "Bullish/bearish votes disagree; waiting for directional agreement.");
+        if (bullish >= 4 && bullish - bearish >= 3 && agreement >= .72)
+            return new Scan("CALL", "CALL · " + join(evidence) + " · directional agreement " + Math.round(agreement * 100) + "%");
+        if (bearish >= 4 && bearish - bullish >= 3 && agreement >= .72)
+            return new Scan("PUT", "PUT · " + join(evidence) + " · directional agreement " + Math.round(agreement * 100) + "%");
+        return new Scan("WAIT", "Insufficient directional votes (" + bullish + " bullish / " + bearish + " bearish).");
+    }
+
+    private VectorStats vectorStats(String symbol) {
+        List<Double> prices = new ArrayList<>();
+        for (Tick t : tape) if (t.asset.equals(symbol)) prices.add(t.price);
+        int n = prices.size();
+        if (n < 5) return new VectorStats(n, 0, 0, 0);
+        int from = Math.max(1, n - 12), up = 0, down = 0;
+        double path = 0;
+        for (int i = from; i < n; i++) {
+            double d = prices.get(i) - prices.get(i - 1);
+            path += Math.abs(d);
+            if (d > 0) up++; else if (d < 0) down++;
+        }
+        double net = prices.get(n - 1) - prices.get(from - 1);
+        double efficiency = path > 0 ? Math.abs(net) / path : 0;
+        double pressure = (double) (up - down) / Math.max(1, up + down);
+        double acceleration = 0;
+        if (n >= 6) {
+            double recentMove = prices.get(n - 1) - prices.get(n - 3);
+            double priorMove = prices.get(n - 3) - prices.get(n - 5);
+            acceleration = recentMove - priorMove;
+        }
+        double scale = Math.max(Math.abs(prices.get(n - 1)) * 1e-9, 1e-12);
+        return new VectorStats(n, pressure + Math.signum(acceleration / scale) * .05, efficiency, acceleration);
     }
 
     private int recentTickDirection(String symbol) {
@@ -221,6 +297,7 @@ public final class SignalEngine {
     public synchronized double getLow() { Candle c = lastCandle(asset); return c == null ? Double.NaN : c.low; }
     public synchronized double getClose() { Candle c = lastCandle(asset); return c == null ? Double.NaN : c.close; }
 
+    private static final class VectorStats { final int count; final double pressure, efficiency, acceleration; VectorStats(int c,double p,double e,double a){count=c;pressure=p;efficiency=e;acceleration=a;} }
     private static final class Candle {
         final String asset; final long bucket; final double open; double high, low, close;
         Candle(String a, long b, double p) { this(a,b,p,p,p,p); }
