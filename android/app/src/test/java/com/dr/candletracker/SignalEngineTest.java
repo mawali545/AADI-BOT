@@ -78,7 +78,7 @@ public class SignalEngineTest {
         assertTrue("Second signal remains independently tracked", e.getWins() >= 1);
     }
 
-    @Test public void ignoresNonTenSecondHistoryForSignalCandles() {
+    @Test public void ignoresNonTenSecondHistoryForSignalCandles() throws org.json.JSONException {
         SignalEngine e = new SignalEngine();
         org.json.JSONArray rows = new org.json.JSONArray();
         rows.put(new org.json.JSONArray().put(1800000000L).put(1.0).put(1.1).put(1.1).put(1.0));
