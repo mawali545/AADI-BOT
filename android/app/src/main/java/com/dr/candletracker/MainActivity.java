@@ -38,6 +38,7 @@ public final class MainActivity extends Activity {
     private int currentFrameBytes = 0;
     private double lastPrice = Double.NaN;
     private final SignalEngine signalEngine = new SignalEngine();
+    private final MarketDiagnostics diagnostics = new MarketDiagnostics();
     private final ExecutorService cryptoExecutor = Executors.newSingleThreadExecutor();
 
     @Override public void onCreate(Bundle state) {
@@ -128,6 +129,7 @@ public final class MainActivity extends Activity {
                                         currentAsset = asset;
                                         currentFingerprint = frameHash; currentFrameBytes = observedFrameBytes;
                                         signalEngine.acceptHistory(asset, period, candles);
+                                        diagnostics.onHistory(asset, candles.length());
                                         if (web != null) web.evaluateJavascript(
                                             "window.DRUpdate && window.DRUpdate(" + snapshot().toString() + ")", null);
                                     });
@@ -142,6 +144,8 @@ public final class MainActivity extends Activity {
                                     tickCount++; lastPrice = price; currentAsset = asset; lastTickAt = tickTime;
                                     currentFingerprint = frameHash; currentFrameBytes = observedFrameBytes;
                                     signalEngine.acceptTick(asset, price, tickTime, period);
+                                    diagnostics.onTick(asset, price, tickTime, System.currentTimeMillis());
+                                    diagnostics.onSignal(signalEngine.getSignal());
                                     if (web != null) web.evaluateJavascript(
                                         "window.DRUpdate && window.DRUpdate(" + snapshot().toString() + ")", null);
                                 });
@@ -239,6 +243,7 @@ public final class MainActivity extends Activity {
             o.put("high", Double.isFinite(signalEngine.getHigh()) ? signalEngine.getHigh() : JSONObject.NULL);
             o.put("low", Double.isFinite(signalEngine.getLow()) ? signalEngine.getLow() : JSONObject.NULL);
             o.put("close", Double.isFinite(signalEngine.getClose()) ? signalEngine.getClose() : JSONObject.NULL);
+            o.put("diagnostics", diagnostics.snapshot());
         } catch (Exception ignored) {}
         return o;
     }
