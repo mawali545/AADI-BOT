@@ -17,8 +17,70 @@ function send(price,asset,timestamp,fingerprint,frameBytes,sourceEvent){price=Nu
 function sendHistory(data,fp,size,sourceEvent){if(!data||typeof data!=='object')return;var asset=assetOf(data)||activeAsset,period=num(data,['period','timePeriod'])||activePeriod,rows=Array.isArray(data.candles)?data.candles:(Array.isArray(data.history)?data.history:(Array.isArray(data.data)?data.data:null));if(!asset||!rows)return;var candles=[];rows.slice(-900).forEach(function(c){if(!Array.isArray(c)||c.length<5)return;var t=sourceTime(c[0]),o=Number(c[1]),cl=Number(c[2]),h=Number(c[3]),l=Number(c[4]);if(t&&[o,cl,h,l].every(Number.isFinite)&&o>0&&cl>0&&h>0&&l>0&&h>=Math.max(o,cl)&&l<=Math.min(o,cl))candles.push({time:t,open:o,close:cl,high:h,low:l});});if(candles.length)postPayload({type:'history',source:String(sourceEvent||'history/list/v2'),asset:asset,period:Number(period)||60,candles:candles},fp,size);}
 function walk(v,inherited,depth,fp,size,sourceEvent){if(depth>10||v==null)return;if(Array.isArray(v)){if(v.length>=3&&typeof v[0]==='string'&&/^[A-Z0-9_./-]{3,32}$/i.test(v[0])&&sourceTime(v[1])&&Number(v[2])>0){send(v[2],v[0],v[1],fp,size,sourceEvent);return;}v.forEach(function(x){walk(x,inherited,depth+1,fp,size,sourceEvent);});return;}if(typeof v!=='object')return;var a=assetOf(v)||inherited||activeAsset,p=num(v,['price','currentPrice','lastPrice','closePrice','quotePrice','value']),t=null;for(var k of ['timestamp','time','ts','created_at','at','serverTime'])if(v[k]!=null){t=sourceTime(v[k]);if(t)break;}if(p!==null&&a&&t){send(p,a,t,fp,size,sourceEvent);return;}Object.keys(v).forEach(function(k){if(v[k]&&typeof v[k]==='object')walk(v[k],a,depth+1,fp,size,sourceEvent);});}
 function handleData(o,eventName,fp,size){if(eventName==='history/list/v2'||eventName==='history/load'||eventName==='chart_notification/get'||eventName==='loadHistoryPeriod'){sendHistory(o,fp,size,eventName);return;}if(eventName==='candle-generated'&&o&&typeof o==='object'){var ca=assetOf(o)||activeAsset,cp=num(o,['price','close']);var ct=null;for(var k of ['timestamp','time','ts'])if(o[k]!=null){ct=sourceTime(o[k]);if(ct)break;}if(cp!==null&&ca&&ct){send(cp,ca,ct,fp,size,eventName);return;}}walk(o,activeAsset,0,fp,size,eventName);}
-async function parseFrame(raw){frames++;if(typeof raw!=='string'||!window.crypto||!crypto.subtle)return;var bytes=new TextEncoder().encode(raw),digest=await crypto.subtle.digest('SHA-256',bytes),fp=Array.from(new Uint8Array(digest)).map(x=>x.toString(16).padStart(2,'0')).join(''),text=raw.trim();try{if(text.startsWith('451-')){var head=JSON.parse(text.slice(4));if(Array.isArray(head)&&typeof head[0]==='string'){pendingBinaryEvent=head[0];log('QX BINARY EVENT '+pendingBinaryEvent);}return;}var eventName='';if(text.charCodeAt(0)===4){text=text.slice(1);eventName=pendingBinaryEvent;pendingBinaryEvent='';}else if(text.startsWith('42'))text=text.slice(2);var o=JSON.parse(text);jsonFrames++;if(Array.isArray(o)&&typeof o[0]==='string'){eventName=o[0];var data=o[1],a=assetOf(data);if(a&&/(asset|instrument|symbol|subscribe|stream|quote|change|price|tick|candle|market)/i.test(eventName)){activeAsset=a;log('MARKET EVENT '+eventName+' · '+a);}if(eventName==='quotes/stream'||eventName==='history/list/v2'||eventName==='history/load'||eventName==='chart_notification/get'||eventName==='candle-generated'||eventName==='loadHistoryPeriod')handleData(data,eventName,fp,bytes.length);else log('IGNORED NON-MARKET QX EVENT '+eventName);}else handleData(o,eventName,fp,bytes.length);backend.fingerprint=fp;}catch(e){log('QX FRAME PARSE '+(e&&e.message||e));}}
-try{if(NativeWS)window.WebSocket=new Proxy(NativeWS,{construct:function(T,args){var ws=Reflect.construct(T,args,T);sockets++;try{var old=ws.send;ws.send=function(d){try{if(typeof d==='string'){var q=d.startsWith('42')?d.slice(2):d,o=JSON.parse(q);if(Array.isArray(o)){var a=assetOf(o[1]);if(a&&/(asset|instrument|symbol|subscribe|stream|quote|change|price|tick|history)/i.test(o[0])){activeAsset=a;if(o[0]==='instruments/update'&&o[1]&&Number(o[1].period)>0)activePeriod=Number(o[1].period);}}}}catch(_){}return old.call(this,d);};}catch(_){}ws.addEventListener('open',()=>log('QX WEBSOCKET OPEN'));ws.addEventListener('message',e=>{if(typeof e.data==='string')parseFrame(e.data);else if(e.data instanceof Blob)e.data.text().then(parseFrame).catch(()=>{});else if(e.data instanceof ArrayBuffer){try{parseFrame(new TextDecoder().decode(e.data));}catch(_){}}});ws.addEventListener('close',()=>log('QX WEBSOCKET CLOSED'));ws.addEventListener('error',()=>log('QX WEBSOCKET ERROR'));return ws;}});}catch(e){log('WEBSOCKET OBSERVER ERROR '+(e&&e.message||e));}
+
+var binaryPackets=[],httpEvents=0;
+function safeUrl(value){try{var u=new URL(String(value),location.href);return u.origin+u.pathname;}catch(_){return '[unavailable]';}}
+function binaryBytes(value){if(value instanceof ArrayBuffer)return new Uint8Array(value);if(ArrayBuffer.isView(value))return new Uint8Array(value.buffer,value.byteOffset,value.byteLength);return null;}
+async function fingerprintBytes(parts){var total=0;parts.forEach(function(p){total+=p.byteLength;});var joined=new Uint8Array(total),offset=0;parts.forEach(function(p){joined.set(p,offset);offset+=p.byteLength;});var digest=await crypto.subtle.digest('SHA-256',joined);return{hash:Array.from(new Uint8Array(digest)).map(x=>x.toString(16).padStart(2,'0')).join(''),size:total};}
+function replaceBinaryPlaceholders(value,attachments){if(!value||typeof value!=='object')return value;if(Array.isArray(value))return value.map(x=>replaceBinaryPlaceholders(x,attachments));if(value._placeholder===true&&Number.isInteger(value.num)){var a=attachments[value.num];return a?{__qxBinaryAttachment:true,byteLength:a.byteLength}:value;}var out={};Object.keys(value).forEach(function(k){out[k]=replaceBinaryPlaceholders(value[k],attachments);});return out;}
+async function dispatchPacket(packet,attachments){
+ var rawParts=[packet.headerBytes].concat(attachments.map(binaryBytes).filter(Boolean)),meta=await fingerprintBytes(rawParts);
+ var data=packet.data,eventName=packet.eventName;
+ if(data&&typeof data==='object')data=replaceBinaryPlaceholders(data,attachments);
+ log('SOCKET.IO '+(packet.binary?'BINARY':'TEXT')+' EVENT '+eventName+' · attachments '+attachments.length+' · '+meta.size+' bytes');
+ if(eventName==='quotes/stream'||eventName==='history/list/v2'||eventName==='history/load'||eventName==='chart_notification/get'||eventName==='candle-generated'||eventName==='loadHistoryPeriod')handleData(data,eventName,meta.hash,meta.size);
+ backend.fingerprint=meta.hash;
+}
+async function parseFrame(raw){
+ frames++;
+ if(!window.crypto||!crypto.subtle)return;
+ if(typeof raw!=='string'){
+  var bytes=binaryBytes(raw);if(!bytes)return;
+  if(binaryPackets.length){
+   var packet=binaryPackets[0];packet.attachments.push(bytes.slice().buffer);
+   if(packet.attachments.length>=packet.expected){binaryPackets.shift();await dispatchPacket(packet,packet.attachments);}
+   return;
+  }
+  log('UNASSOCIATED BINARY WEBSOCKET FRAME · '+bytes.byteLength+' bytes · retained as opaque');
+  return;
+ }
+ var rawBytes=new TextEncoder().encode(raw),text=raw.trim();
+ try{
+  if(/^45[0-9]+-/.test(text)){
+   var dash=text.indexOf('-'),expected=Number(text.slice(2,dash)),packetJson=JSON.parse(text.slice(dash+1));
+   if(!Number.isInteger(expected)||expected<1||expected>64||!Array.isArray(packetJson)||typeof packetJson[0]!=='string')throw new Error('Invalid Socket.IO binary header');
+   var headerDigest=await crypto.subtle.digest('SHA-256',rawBytes);
+   binaryPackets.push({expected:expected,attachments:[],eventName:packetJson[0],data:packetJson[1],headerBytes:rawBytes,binary:true,createdAt:Date.now()});
+   while(binaryPackets.length>8)binaryPackets.shift();
+   log('SOCKET.IO BINARY HEADER '+packetJson[0]+' · expecting '+expected+' attachment(s)');
+   return;
+  }
+  var eventName='',body=text;
+  if(body.charCodeAt(0)===4)body=body.slice(1);
+  if(body.startsWith('42'))body=body.slice(2);
+  if(!body||body[0]!=='['&&body[0]!=='{')return;
+  var o=JSON.parse(body);jsonFrames++;
+  if(Array.isArray(o)&&typeof o[0]==='string'){
+   eventName=o[0];var data=o[1],a=assetOf(data);
+   if(a&&/(asset|instrument|symbol|subscribe|stream|quote|change|price|tick|candle|market)/i.test(eventName)){activeAsset=a;log('MARKET EVENT '+eventName+' · '+a);}
+   if(eventName==='quotes/stream'||eventName==='history/list/v2'||eventName==='history/load'||eventName==='chart_notification/get'||eventName==='candle-generated'||eventName==='loadHistoryPeriod')handleData(data,eventName,(await fingerprintBytes([rawBytes])).hash,rawBytes.length);
+   else log('IGNORED NON-MARKET QX EVENT '+eventName);
+  }else handleData(o,eventName,(await fingerprintBytes([rawBytes])).hash,rawBytes.length);
+ }catch(e){log('QX FRAME PARSE '+(e&&e.message||e));}
+}
+function observeHttp(kind,method,url,status,duration,headers){
+ httpEvents++;var safe=safeUrl(url);log(kind+' '+String(method||'GET').toUpperCase()+' '+safe+' · '+(status==null?'PENDING':status)+' · '+Math.max(0,Math.round(duration||0))+'ms'+(headers?' · headers '+headers:''));
+}
+try{
+ var nativeFetch=window.fetch;
+ if(nativeFetch)window.fetch=function(input,init){var url=typeof input==='string'?input:(input&&input.url)||'',method=(init&&init.method)||(input&&input.method)||'GET',began=performance.now();return nativeFetch.apply(this,arguments).then(function(response){var headers=[];try{['content-type','content-length','cache-control','server','date'].forEach(function(k){var v=response.headers.get(k);if(v)headers.push(k+':'+v);});}catch(_){}observeHttp('FETCH',method,url,response.status,performance.now()-began,headers.join('; '));return response;},function(error){observeHttp('FETCH-ERROR',method,url,0,performance.now()-began,'');throw error;});};
+ var NativeXHR=window.XMLHttpRequest;
+ if(NativeXHR){var xhrOpen=NativeXHR.prototype.open,xhrSend=NativeXHR.prototype.send;
+ NativeXHR.prototype.open=function(method,url){this.__drMeta={method:method,url:url};return xhrOpen.apply(this,arguments);};
+ NativeXHR.prototype.send=function(){var xhr=this,meta=xhr.__drMeta||{method:'GET',url:''},began=performance.now();xhr.addEventListener('loadend',function(){var headers=[];try{['content-type','content-length','cache-control','date'].forEach(function(k){var v=xhr.getResponseHeader(k);if(v)headers.push(k+':'+v);});}catch(_){}observeHttp('XHR',meta.method,meta.url,xhr.status,performance.now()-began,headers.join('; '));},{once:true});return xhrSend.apply(this,arguments);};}
+}catch(e){log('HTTP OBSERVER UNAVAILABLE '+(e&&e.message||e));}
+
+try{if(NativeWS)window.WebSocket=new Proxy(NativeWS,{construct:function(T,args){var ws=Reflect.construct(T,args,T);sockets++;try{var old=ws.send;ws.send=function(d){try{if(typeof d==='string'){var q=d.startsWith('42')?d.slice(2):d,o=JSON.parse(q);if(Array.isArray(o)){var a=assetOf(o[1]);if(a&&/(asset|instrument|symbol|subscribe|stream|quote|change|price|tick|history)/i.test(o[0])){activeAsset=a;if(o[0]==='instruments/update'&&o[1]&&Number(o[1].period)>0)activePeriod=Number(o[1].period);}}}}catch(_){}return old.call(this,d);};}catch(_){}ws.addEventListener('open',()=>log('QX WEBSOCKET OPEN'));ws.addEventListener('message',e=>{if(typeof e.data==='string')parseFrame(e.data);else if(e.data instanceof Blob)e.data.arrayBuffer().then(parseFrame).catch(()=>{});else if(e.data instanceof ArrayBuffer)parseFrame(e.data);});ws.addEventListener('close',()=>log('QX WEBSOCKET CLOSED'));ws.addEventListener('error',()=>log('QX WEBSOCKET ERROR'));return ws;}});}catch(e){log('WEBSOCKET OBSERVER ERROR '+(e&&e.message||e));}
 var css=[
 '*{box-sizing:border-box}',
 '#strip{position:fixed;z-index:2147483647;top:0;left:4px;right:4px;height:88px;background:rgba(3,13,8,.94);border:1px solid rgba(91,255,151,.62);border-radius:9px;color:#e8fff0;padding:6px 10px;font:12px/1.2 Arial,sans-serif;pointer-events:none;box-shadow:0 2px 14px rgba(0,0,0,.35);backdrop-filter:blur(5px)}',
