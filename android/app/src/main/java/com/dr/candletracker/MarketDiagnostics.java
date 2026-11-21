@@ -112,7 +112,7 @@ public final class MarketDiagnostics {
             checks.put(check("VECTOR BUFFER", tape.size() >= 4));
             checks.put(check("SOURCE TIMESTAMP", lastSourceTime > 0));
             checks.put(check("LATENCY MEASURED", latencyMs >= 0));
-            checks.put(check("BRIDGE CIPHER", !"LOCKED".equals(cipher)));
+            checks.put(check("LOCAL BRIDGE CRYPTO", !"LOCKED".equals(cipher)));
             o.put("scanChecklist",checks);
             JSONArray log = new JSONArray(); for(String e:events)log.put(e);
             o.put("eventLog",log);
