@@ -19,6 +19,34 @@ function walk(v,inherited,depth,fp,size,sourceEvent){if(depth>10||v==null)return
 function handleData(o,eventName,fp,size){if(eventName==='history/list/v2'||eventName==='history/load'||eventName==='chart_notification/get'||eventName==='loadHistoryPeriod'){sendHistory(o,fp,size,eventName);return;}if(eventName==='candle-generated'&&o&&typeof o==='object'){var ca=assetOf(o)||activeAsset,cp=num(o,['price','close']);var ct=null;for(var k of ['timestamp','time','ts'])if(o[k]!=null){ct=sourceTime(o[k]);if(ct)break;}if(cp!==null&&ca&&ct){send(cp,ca,ct,fp,size,eventName);return;}}walk(o,activeAsset,0,fp,size,eventName);}
 async function parseFrame(raw){frames++;if(typeof raw!=='string'||!window.crypto||!crypto.subtle)return;var bytes=new TextEncoder().encode(raw),digest=await crypto.subtle.digest('SHA-256',bytes),fp=Array.from(new Uint8Array(digest)).map(x=>x.toString(16).padStart(2,'0')).join(''),text=raw.trim();try{if(text.startsWith('451-')){var head=JSON.parse(text.slice(4));if(Array.isArray(head)&&typeof head[0]==='string'){pendingBinaryEvent=head[0];log('QX BINARY EVENT '+pendingBinaryEvent);}return;}var eventName='';if(text.charCodeAt(0)===4){text=text.slice(1);eventName=pendingBinaryEvent;pendingBinaryEvent='';}else if(text.startsWith('42'))text=text.slice(2);var o=JSON.parse(text);jsonFrames++;if(Array.isArray(o)&&typeof o[0]==='string'){eventName=o[0];var data=o[1],a=assetOf(data);if(a&&/(asset|instrument|symbol|subscribe|stream|quote|change|price|tick|candle|market)/i.test(eventName)){activeAsset=a;log('MARKET EVENT '+eventName+' · '+a);}if(eventName==='quotes/stream'||eventName==='history/list/v2'||eventName==='history/load'||eventName==='chart_notification/get'||eventName==='candle-generated'||eventName==='loadHistoryPeriod')handleData(data,eventName,fp,bytes.length);else log('IGNORED NON-MARKET QX EVENT '+eventName);}else handleData(o,eventName,fp,bytes.length);backend.fingerprint=fp;}catch(e){log('QX FRAME PARSE '+(e&&e.message||e));}}
 try{if(NativeWS)window.WebSocket=new Proxy(NativeWS,{construct:function(T,args){var ws=Reflect.construct(T,args,T);sockets++;try{var old=ws.send;ws.send=function(d){try{if(typeof d==='string'){var q=d.startsWith('42')?d.slice(2):d,o=JSON.parse(q);if(Array.isArray(o)){var a=assetOf(o[1]);if(a&&/(asset|instrument|symbol|subscribe|stream|quote|change|price|tick|history)/i.test(o[0])){activeAsset=a;if(o[0]==='instruments/update'&&o[1]&&Number(o[1].period)>0)activePeriod=Number(o[1].period);}}}}catch(_){}return old.call(this,d);};}catch(_){}ws.addEventListener('open',()=>log('QX WEBSOCKET OPEN'));ws.addEventListener('message',e=>{if(typeof e.data==='string')parseFrame(e.data);else if(e.data instanceof Blob)e.data.text().then(parseFrame).catch(()=>{});else if(e.data instanceof ArrayBuffer){try{parseFrame(new TextDecoder().decode(e.data));}catch(_){}}});ws.addEventListener('close',()=>log('QX WEBSOCKET CLOSED'));ws.addEventListener('error',()=>log('QX WEBSOCKET ERROR'));return ws;}});}catch(e){log('WEBSOCKET OBSERVER ERROR '+(e&&e.message||e));}
+
+/* Passive same-origin HTTP market observer: allow-listed market/history JSON only.
+   No cookies, auth headers, account data, or broker requests are read or modified. */
+function marketHttpKind(url){
+ try{var u=new URL(url,location.href);if(u.origin!==location.origin)return '';
+ var p=u.pathname.toLowerCase();if(!/(quote|price|tick|candle|chart|history|market)/.test(p))return '';
+ if(/history/.test(p))return 'history/list/v2';if(/candle/.test(p))return 'candle-generated';return 'quotes/stream';
+ }catch(_){return '';}
+}
+async function inspectHttpResponse(url,body,status){
+ var kind=marketHttpKind(url);if(!kind||status<200||status>=300||typeof body!=='string'||body.length<2||body.length>1048576)return;
+ try{var bytes=new TextEncoder().encode(body),digest=await crypto.subtle.digest('SHA-256',bytes);
+ var fp=Array.from(new Uint8Array(digest)).map(x=>x.toString(16).padStart(2,'0')).join('');
+ handleData(JSON.parse(body),kind,fp,bytes.length);log('HTTP MARKET JSON '+kind+' · '+status+' · '+bytes.length+' bytes');
+ }catch(e){log('HTTP MARKET RESPONSE IGNORED '+(e&&e.message||e));}
+}
+try{
+ if(typeof window.fetch==='function'){var nativeFetch=window.fetch;window.fetch=function(){
+  var args=arguments,url=args[0]&&args[0].url?args[0].url:String(args[0]||''),kind=marketHttpKind(url),p=nativeFetch.apply(this,args);
+  if(kind)p.then(function(r){try{r.clone().text().then(function(body){inspectHttpResponse(url,body,r.status);}).catch(function(){});}catch(_){}});
+  return p;};}
+ if(window.XMLHttpRequest){var NativeXHR=window.XMLHttpRequest;window.XMLHttpRequest=new Proxy(NativeXHR,{construct:function(T,args){
+  var xhr=Reflect.construct(T,args,T),url='',open=xhr.open,send=xhr.send;
+  xhr.open=function(method,u){url=String(u||'');return open.apply(this,arguments);};
+  xhr.send=function(){if(marketHttpKind(url))xhr.addEventListener('load',function(){try{inspectHttpResponse(url,xhr.responseText,xhr.status);}catch(_){}});return send.apply(this,arguments);};
+  return xhr;}});}
+}catch(e){log('HTTP OBSERVER ERROR '+(e&&e.message||e));}
+
 var css=[
 '*{box-sizing:border-box}',
 '#strip{position:fixed;z-index:2147483647;top:0;left:4px;right:4px;height:88px;background:rgba(3,13,8,.94);border:1px solid rgba(91,255,151,.62);border-radius:9px;color:#e8fff0;padding:6px 10px;font:12px/1.2 Arial,sans-serif;pointer-events:none;box-shadow:0 2px 14px rgba(0,0,0,.35);backdrop-filter:blur(5px)}',
