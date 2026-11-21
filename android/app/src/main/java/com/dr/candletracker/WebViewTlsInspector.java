@@ -53,18 +53,21 @@ final class WebViewTlsInspector {
                 listener.onUnavailable("WEBVIEW CDP SOCKET NOT FOUND");
                 return;
             }
-            String body = httpGet(socketName, "/json/list");
-            JSONArray targets = new JSONArray(body);
             String wsPath = null;
-            for (int i = 0; i < targets.length(); i++) {
-                JSONObject target = targets.optJSONObject(i);
-                if (target == null) continue;
-                String type = target.optString("type", "");
-                String url = target.optString("webSocketDebuggerUrl", "");
-                if ("page".equals(type) && url.startsWith("ws://")) {
-                    wsPath = new URI(url).getRawPath();
-                    if (wsPath != null) break;
+            for (int attempt = 0; attempt < 20 && wsPath == null && !stopped; attempt++) {
+                String body = httpGet(socketName, "/json/list");
+                JSONArray targets = new JSONArray(body);
+                for (int i = 0; i < targets.length(); i++) {
+                    JSONObject target = targets.optJSONObject(i);
+                    if (target == null) continue;
+                    String type = target.optString("type", "");
+                    String url = target.optString("webSocketDebuggerUrl", "");
+                    if ("page".equals(type) && url.startsWith("ws://")) {
+                        wsPath = new URI(url).getRawPath();
+                        if (wsPath != null) break;
+                    }
                 }
+                if (wsPath == null) Thread.sleep(250L);
             }
             if (wsPath == null) throw new IllegalStateException("NO WEBVIEW PAGE TARGET");
             LocalSocket socket = connect(socketName);
