@@ -55,6 +55,7 @@ public final class MainActivity extends Activity {
             loadTrackerScript();
             createWebView();
             setContentView(web, new FrameLayout.LayoutParams(-1, -1));
+            startWebViewTlsInspection();
             web.loadUrl("https://market-qx.trade/en/trade");
             initializeCryptoOffMainThread();
         } catch (Throwable error) {
@@ -207,7 +208,6 @@ public final class MainActivity extends Activity {
             @Override public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
                 pageReady = true;
-                startWebViewTlsInspection();
                 // Feature support alone does not prove document-start registration succeeded.
                 if (!documentStartScriptInstalled && !trackerScript.isEmpty())
                     view.evaluateJavascript(trackerScript, null);
