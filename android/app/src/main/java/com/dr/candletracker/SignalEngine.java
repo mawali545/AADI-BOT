@@ -38,7 +38,7 @@ public final class SignalEngine {
         Candle current = lastCandle(symbol);
         if (current != null && bucket < current.bucket) return;
         if (current == null || bucket > current.bucket) {
-            current = new Candle(symbol, bucket, price);
+            current = new Candle(symbol, bucket, price, false);
             candles.add(current);
             if (candles.size() > MAX_CANDLES) candles.remove(0);
             if (!symbol.equals(asset)) {
@@ -91,7 +91,7 @@ public final class SignalEngine {
                     !Double.isFinite(high) || !Double.isFinite(low) || open <= 0 || close <= 0 ||
                     high < Math.max(open, close) || low > Math.min(open, close) || low <= 0) continue;
                 long bucket = time / CANDLE_MS * CANDLE_MS;
-                imported.add(new Candle(symbol, bucket, open, high, low, close));
+                imported.add(new Candle(symbol, bucket, open, high, low, close, true));
             } catch (JSONException ignored) {}
         }
         if (imported.isEmpty()) return;
@@ -143,9 +143,17 @@ public final class SignalEngine {
         if (n < requiredCandles)
             return new Scan("WAIT", "Collecting genuine completed 10-second candles (" + n + "/13: 10 history + 3 recent).");
         int start = n - requiredCandles;
+        for (int i = 0; i < 10; i++) {
+            if (!closed.get(start + i).historical)
+                return new Scan("WAIT", "Waiting for 10 original broker-history candles before the 3 latest completed live candles.");
+        }
+        for (int i = 10; i < 13; i++) {
+            if (closed.get(start + i).historical)
+                return new Scan("WAIT", "Waiting for 3 newly completed genuine live candles after the 10 history candles.");
+        }
         for (int i = start + 1; i < n; i++) {
             if (closed.get(i).bucket - closed.get(i - 1).bucket != CANDLE_MS)
-                return new Scan("WAIT", "A gap exists in the genuine 10-second candle history; waiting for 13 consecutive complete candles.");
+                return new Scan("WAIT", "A gap exists in the genuine 10-second candle history; waiting for 10 history + 3 consecutive live candles.");
         }
         List<Candle> recent = closed.subList(start, n);
         Candle last = recent.get(recent.size()-1), first = recent.get(0);
@@ -229,9 +237,14 @@ public final class SignalEngine {
     public synchronized double getClose() { Candle c = lastCandle(asset); return c == null ? Double.NaN : c.close; }
 
     private static final class Candle {
-        final String asset; final long bucket; final double open; double high, low, close;
-        Candle(String a, long b, double p) { this(a,b,p,p,p,p); }
-        Candle(String a, long b, double o, double h, double l, double c) { asset=a; bucket=b; open=o; high=h; low=l; close=c; }
+        final String asset; final long bucket; final double open; final boolean historical;
+        double high, low, close;
+        Candle(String a, long b, double p, boolean fromHistory) {
+            this(a,b,p,p,p,p,fromHistory);
+        }
+        Candle(String a, long b, double o, double h, double l, double c, boolean fromHistory) {
+            asset=a; bucket=b; open=o; high=h; low=l; close=c; historical=fromHistory;
+        }
         void update(double p) { high=Math.max(high,p); low=Math.min(low,p); close=p; }
     }
     private static final class Tick { final String asset; final double price; Tick(String a,double p) { asset=a; price=p; } }
