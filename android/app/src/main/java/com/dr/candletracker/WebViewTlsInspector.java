@@ -110,11 +110,14 @@ final class WebViewTlsInspector {
 
     private String findDevToolsSocket() throws Exception {
         String wanted = "webview_devtools_remote_" + android.os.Process.myPid();
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(
-                new java.io.FileInputStream("/proc/net/unix"), StandardCharsets.UTF_8))) {
-            String line;
-            while ((line = reader.readLine()) != null)
-                if (line.contains(wanted)) return wanted;
+        for (int attempt = 0; attempt < 20 && !stopped; attempt++) {
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(
+                    new java.io.FileInputStream("/proc/net/unix"), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null)
+                    if (line.contains(wanted)) return wanted;
+            }
+            Thread.sleep(250L);
         }
         return null;
     }
