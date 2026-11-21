@@ -29,6 +29,17 @@ public class SignalEngineTest {
         assertEquals(1.1004, e.getClose(), 0.0000001);
     }
 
+    @Test public void importsQxObjectCandlePayload() throws JSONException {
+        SignalEngine e = new SignalEngine(); long t = 1800000000000L;
+        JSONArray rows = new JSONArray();
+        rows.put(new org.json.JSONObject().put("time", t).put("open", 1.2000)
+            .put("close", 1.2008).put("high", 1.2010).put("low", 1.1999));
+        e.acceptHistory("EURUSD_otc", 10, rows);
+        assertEquals(1, e.getCandleCount());
+        assertEquals(1.2000, e.getOpen(), 0.0000001);
+        assertEquals(1.2008, e.getClose(), 0.0000001);
+    }
+
     @Test public void rejectsNonTenSecondBrokerHistory() throws JSONException {
         SignalEngine e = new SignalEngine(); long t = 1800000000000L;
         JSONArray rows = new JSONArray();
