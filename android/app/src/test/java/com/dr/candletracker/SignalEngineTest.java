@@ -22,6 +22,19 @@ public class SignalEngineTest {
         assertEquals("CALL", e.getSignal());
     }
 
+    @Test public void liveOnlyCandlesCannotReplaceTheTenBrokerHistoryCandles() {
+        SignalEngine e = new SignalEngine();
+        for (int i = 0; i < 13; i++) {
+            long start = T + i * 10000L;
+            double open = 1.100 + i * .001;
+            e.acceptTick("EURUSD_otc", open, start);
+            e.acceptTick("EURUSD_otc", open + .001, start + 9000L);
+        }
+        e.acceptTick("EURUSD_otc", 1.114, T + 130000L);
+        assertEquals("WAIT", e.getSignal());
+        assertTrue(e.getReason().contains("10 original broker-history candles"));
+    }
+
     @Test public void buildsOhlcFromGenuineTicksInsideTenSecondBucket() {
         SignalEngine e = new SignalEngine();
         e.acceptTick("EURUSD_otc", 1.1000, T);
