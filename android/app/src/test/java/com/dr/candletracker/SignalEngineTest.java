@@ -91,4 +91,34 @@ public class SignalEngineTest {
     }
 
 
+    private SignalEngine primedCall(long t) {
+        SignalEngine e = new SignalEngine();
+        e.acceptTick("EURUSD_otc", 1.0000, t);
+        e.acceptTick("EURUSD_otc", 1.0010, t + 9000);
+        e.acceptTick("EURUSD_otc", 1.0010, t + 10000);
+        e.acceptTick("EURUSD_otc", 1.0020, t + 19000);
+        e.acceptTick("EURUSD_otc", 1.0020, t + 20000);
+        e.acceptTick("EURUSD_otc", 1.0030, t + 29000);
+        e.acceptTick("EURUSD_otc", 1.0030, t + 30000);
+        assertEquals("CALL", e.getSignal());
+        return e;
+    }
+
+    @Test public void oppositeMovementAfterTenSecondsIsLoss() {
+        long t = 1800000000000L;
+        SignalEngine e = primedCall(t);
+        e.acceptTick("EURUSD_otc", 1.0020, t + 40000);
+        assertEquals(1, e.getLosses());
+        assertEquals(0, e.getWins());
+    }
+
+    @Test public void unchangedPriceAfterTenSecondsIsTie() {
+        long t = 1800000000000L;
+        SignalEngine e = primedCall(t);
+        e.acceptTick("EURUSD_otc", 1.0030, t + 40000);
+        assertEquals(1, e.getTies());
+        assertEquals(0, e.getWins());
+        assertEquals(0, e.getLosses());
+    }
+
 }
