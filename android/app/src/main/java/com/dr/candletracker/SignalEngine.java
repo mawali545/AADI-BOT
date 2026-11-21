@@ -186,11 +186,11 @@ public final class SignalEngine {
         for (int i = 1; i < historyWindow.size(); i++)
             if (historyWindow.get(i).bucket - historyWindow.get(i - 1).bucket != intervalMs)
                 return new Scan("WAIT", "Broker history has a genuine candle gap; waiting for a consecutive 10-candle history window.");
-        if (liveWindow.get(0).bucket - lastHistory.bucket != intervalMs)
+        if (liveAfterHistory.get(0).bucket - lastHistory.bucket != intervalMs)
             return new Scan("WAIT", "Live QX candles do not continue directly after broker history; waiting for a continuous feed.");
-        for (int i = 1; i < liveWindow.size(); i++)
-            if (liveWindow.get(i).bucket - liveWindow.get(i - 1).bucket != intervalMs)
-                return new Scan("WAIT", "A gap exists in the latest genuine live candles; waiting for 3 consecutive candles.");
+        for (int i = 1; i < liveAfterHistory.size(); i++)
+            if (liveAfterHistory.get(i).bucket - liveAfterHistory.get(i - 1).bucket != intervalMs)
+                return new Scan("WAIT", "A gap exists in the genuine live candle stream; waiting for a continuous feed.");
         List<Candle> recent = new ArrayList<>(historyWindow);
         recent.addAll(liveWindow);
         Candle last = recent.get(recent.size()-1), first = recent.get(0);
