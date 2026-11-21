@@ -139,8 +139,15 @@ public final class SignalEngine {
         List<Candle> closed = new ArrayList<>();
         for (Candle c : candles) if (c.asset.equals(symbol) && c.bucket < currentBucket) closed.add(c);
         int n = closed.size();
-        if (n < 3) return new Scan("WAIT", "Collecting real completed 10-second candles (" + n + "/3).");
-        List<Candle> recent = closed.subList(Math.max(0, n-7), n);
+        final int requiredCandles = 13; // 10 genuine history candles + 3 latest completed candles.
+        if (n < requiredCandles)
+            return new Scan("WAIT", "Collecting genuine completed 10-second candles (" + n + "/13: 10 history + 3 recent).");
+        int start = n - requiredCandles;
+        for (int i = start + 1; i < n; i++) {
+            if (closed.get(i).bucket - closed.get(i - 1).bucket != CANDLE_MS)
+                return new Scan("WAIT", "A gap exists in the genuine 10-second candle history; waiting for 13 consecutive complete candles.");
+        }
+        List<Candle> recent = closed.subList(start, n);
         Candle last = recent.get(recent.size()-1), first = recent.get(0);
         double range = Math.max(last.high-last.low, Math.max(Math.abs(last.close)*1e-10, 1e-12));
         double body = (last.close-last.open)/range;
