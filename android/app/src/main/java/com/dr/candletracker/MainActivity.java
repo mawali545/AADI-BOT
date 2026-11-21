@@ -24,7 +24,6 @@ import java.util.Collections;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import org.json.JSONObject;
-import org.json.JSONArray;
 
 public final class MainActivity extends Activity {
     private WebView web;
@@ -39,10 +38,6 @@ public final class MainActivity extends Activity {
     private int currentFrameBytes = 0;
     private double lastPrice = Double.NaN;
     private final SignalEngine signalEngine = new SignalEngine();
-    private final MarketDiagnostics diagnostics = new MarketDiagnostics();
-    private WebViewTlsInspector tlsInspector;
-    private volatile JSONObject webViewTls = new JSONObject();
-    private boolean tlsCdpEnabled;
     private final ExecutorService cryptoExecutor = Executors.newSingleThreadExecutor();
 
     @Override public void onCreate(Bundle state) {
@@ -55,7 +50,6 @@ public final class MainActivity extends Activity {
             loadTrackerScript();
             createWebView();
             setContentView(web, new FrameLayout.LayoutParams(-1, -1));
-            startWebViewTlsInspection();
             web.loadUrl("https://market-qx.trade/en/trade");
             initializeCryptoOffMainThread();
         } catch (Throwable error) {
@@ -85,7 +79,6 @@ public final class MainActivity extends Activity {
     }
 
     private void createWebView() {
-        tlsCdpEnabled = WebViewTlsInspector.enableIfDebuggable(this);
         web = new WebView(this);
         web.setBackgroundColor(Color.rgb(3, 12, 8));
         WebSettings settings = web.getSettings();
@@ -120,7 +113,7 @@ public final class MainActivity extends Activity {
                                 String asset = tick.optString("asset", "");
                                 String fingerprint = tick.optString("frameFingerprint", "");
                                 int frameBytes = tick.optInt("frameBytes", 0);
-                                long period = tick.optLong("period", 10);
+                                long period = tick.optLong("period", 60);
                                 if (!asset.matches("[A-Za-z0-9_./-]{3,32}") ||
                                     !fingerprint.matches("(?i)[a-f0-9]{64}") ||
                                     frameBytes < 1 || frameBytes > 1048576 || period < 1 || period > 86400) return;
@@ -135,7 +128,6 @@ public final class MainActivity extends Activity {
                                         currentAsset = asset;
                                         currentFingerprint = frameHash; currentFrameBytes = observedFrameBytes;
                                         signalEngine.acceptHistory(asset, period, candles);
-                                        diagnostics.onHistory(asset, candles.length());
                                         if (web != null) web.evaluateJavascript(
                                             "window.DRUpdate && window.DRUpdate(" + snapshot().toString() + ")", null);
                                     });
@@ -143,15 +135,13 @@ public final class MainActivity extends Activity {
                                 }
                                 double price = tick.optDouble("price", Double.NaN);
                                 long stamp = tick.optLong("timestamp", 0);
-                                if (!"tick".equals(type) || !("quotes/stream".equals(source) || "candle-generated".equals(source) || "webcrypto-decrypt".equals(source) || "cryptojs-decrypt".equals(source)) ||
+                                if (!"tick".equals(type) || !("quotes/stream".equals(source) || "candle-generated".equals(source)) ||
                                     !Double.isFinite(price) || price <= 0 || price >= 1e12 || stamp <= 0) return;
                                 final long tickTime = stamp;
                                 runOnUiThread(() -> {
                                     tickCount++; lastPrice = price; currentAsset = asset; lastTickAt = tickTime;
                                     currentFingerprint = frameHash; currentFrameBytes = observedFrameBytes;
-                                    signalEngine.acceptTick(asset, price, tickTime, 60L);
-                                    diagnostics.onTick(asset, price, tickTime, System.currentTimeMillis());
-                                    diagnostics.onSignal(signalEngine.getSignal());
+                                    signalEngine.acceptTick(asset, price, tickTime, period);
                                     if (web != null) web.evaluateJavascript(
                                         "window.DRUpdate && window.DRUpdate(" + snapshot().toString() + ")", null);
                                 });
@@ -179,32 +169,6 @@ public final class MainActivity extends Activity {
 
         web.setWebChromeClient(new WebChromeClient());
         web.setWebViewClient(new WebViewClient() {
-            @Override public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
-                try {
-                    Uri u = request.getUrl();
-                    String host = u == null ? "" : String.valueOf(u.getHost());
-                    // Observe request metadata only. Never capture credentials, cookies, bodies or query values.
-                    if (u != null && ("market-qx.trade".equals(host) || host.endsWith(".market-qx.trade"))) {
-                        diagnostics.onNetworkEvent("HTTP REQUEST " + request.getMethod() + " " +
-                            u.getScheme() + "://" + host + u.getPath());
-                    }
-                } catch (Throwable ignored) {}
-                return null;
-            }
-            @Override public void onReceivedHttpError(WebView view, WebResourceRequest request, WebResourceResponse response) {
-                try {
-                    Uri u = request.getUrl();
-                    String host = u == null ? "" : String.valueOf(u.getHost());
-                    if (u != null && ("market-qx.trade".equals(host) || host.endsWith(".market-qx.trade")))
-                        diagnostics.onNetworkEvent("HTTP RESPONSE " + response.getStatusCode() + " " +
-                            request.getMethod() + " " + u.getScheme() + "://" + host + u.getPath());
-                } catch (Throwable ignored) {}
-            }
-            @Override public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
-                super.onPageStarted(view, url, favicon);
-                pageReady = false;
-                diagnostics.onConnection("PAGE START");
-            }
             @Override public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
                 pageReady = true;
@@ -215,12 +179,6 @@ public final class MainActivity extends Activity {
                 view.evaluateJavascript("window.DRUpdate && window.DRUpdate(" + snapshot().toString() + ")", null);
             }
             @Override public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
-                try {
-                    android.net.http.SslCertificate cert = error.getCertificate();
-                    diagnostics.onNetworkEvent("WEBVIEW TLS VALIDATION ERROR " + error.getPrimaryError() +
-                        " · host " + String.valueOf(error.getUrl()) +
-                        (cert == null ? "" : " · certificate " + cert.getIssuedTo().getCName()));
-                } catch (Throwable ignored) {}
                 handler.cancel();
                 Toast.makeText(MainActivity.this, "TLS validation failed. Secure connection blocked.", Toast.LENGTH_LONG).show();
             }
@@ -234,39 +192,6 @@ public final class MainActivity extends Activity {
                 if (!request.isForMainFrame()) return false;
                 String host = request.getUrl().getHost();
                 return host == null || !(host.equals("market-qx.trade") || host.endsWith(".market-qx.trade"));
-            }
-        });
-    }
-
-    private void startWebViewTlsInspection() {
-        if (!tlsCdpEnabled || tlsInspector != null) {
-            if (!tlsCdpEnabled) diagnostics.onNetworkEvent("WEBVIEW TLS CDP DISABLED: non-debuggable build");
-            return;
-        }
-        tlsInspector = new WebViewTlsInspector();
-        tlsInspector.start(new WebViewTlsInspector.Listener() {
-            @Override public void onTlsState(String cipher, String protocol, String keyExchange,
-                                             String subject, String issuer) {
-                runOnUiThread(() -> {
-                    try {
-                        JSONObject state = new JSONObject();
-                        state.put("source", "THIS_WEBVIEW_CHROMIUM_CDP");
-                        state.put("cipher", cipher);
-                        state.put("protocol", protocol);
-                        state.put("keyExchange", keyExchange);
-                        state.put("subject", subject);
-                        state.put("issuer", issuer);
-                        state.put("capturedAt", System.currentTimeMillis());
-                        webViewTls = state;
-                        diagnostics.onNetworkEvent("ACTUAL WEBVIEW TLS " + protocol + " · " +
-                            cipher + " · key exchange " + keyExchange);
-                        if (web != null) web.evaluateJavascript(
-                            "window.DRUpdate && window.DRUpdate(" + snapshot().toString() + ")", null);
-                    } catch (Exception ignored) {}
-                });
-            }
-            @Override public void onUnavailable(String reason) {
-                diagnostics.onNetworkEvent(reason);
             }
         });
     }
@@ -305,7 +230,6 @@ public final class MainActivity extends Activity {
             o.put("fingerprint", currentFingerprint);
             o.put("frameBytes", currentFrameBytes);
             o.put("signal", signalEngine.getSignal());
-            o.put("signalCount", signalEngine.getSignalCount());
             o.put("signalReason", signalEngine.getReason());
             o.put("wins", signalEngine.getWins());
             o.put("losses", signalEngine.getLosses());
@@ -315,21 +239,6 @@ public final class MainActivity extends Activity {
             o.put("high", Double.isFinite(signalEngine.getHigh()) ? signalEngine.getHigh() : JSONObject.NULL);
             o.put("low", Double.isFinite(signalEngine.getLow()) ? signalEngine.getLow() : JSONObject.NULL);
             o.put("close", Double.isFinite(signalEngine.getClose()) ? signalEngine.getClose() : JSONObject.NULL);
-            JSONObject diagnosticState = diagnostics.snapshot();
-            long age = lastTickAt > 0 ? System.currentTimeMillis() - lastTickAt : Long.MAX_VALUE;
-            diagnosticState.put("node", age >= 0 && age < 8000 ? "ARMED" : "RECONNECTING");
-            diagnosticState.put("scanState", signalEngine.getSignal());
-            diagnosticState.put("bridgeCryptoState", secureBridgeReady && crypto != null ? "LOCAL RSA-OAEP/AES-GCM READY" : "LOCKED");
-            diagnosticState.put("webViewTls", webViewTls);
-            diagnosticState.put("cipherState", webViewTls.optString("cipher", "NOT CAPTURED"));
-            diagnosticState.put("tlsProtocol", webViewTls.optString("protocol", "NOT CAPTURED"));
-            diagnosticState.put("tlsKeyExchange", webViewTls.optString("keyExchange", "NOT CAPTURED"));
-            JSONArray checks = diagnosticState.optJSONArray("scanChecklist");
-            if (checks != null && checks.length() >= 6) {
-                JSONObject bridgeCheck = checks.optJSONObject(5);
-                if (bridgeCheck != null) bridgeCheck.put("passed", secureBridgeReady && crypto != null);
-            }
-            o.put("diagnostics", diagnosticState);
         } catch (Exception ignored) {}
         return o;
     }
@@ -354,7 +263,6 @@ public final class MainActivity extends Activity {
         else super.onBackPressed();
     }
     @Override protected void onDestroy() {
-        if (tlsInspector != null) { tlsInspector.stop(); tlsInspector = null; }
         if (web != null) { web.destroy(); web = null; }
         cryptoExecutor.shutdownNow();
         super.onDestroy();

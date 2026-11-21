@@ -7,8 +7,8 @@ android {
         applicationId 'com.dr.candletracker'
         minSdk 23
         targetSdk 28
-        versionCode 13
-        versionName '1.0.12'
+        versionCode 9
+        versionName '1.0.8'
     }
 }
 
@@ -16,5 +16,4 @@ dependencies {
     implementation 'androidx.webkit:webkit:1.12.1'
     implementation 'com.google.code.gson:gson:2.11.0'
     testImplementation 'junit:junit:4.13.2'
-    testImplementation 'org.json:json:20240303'
 }
