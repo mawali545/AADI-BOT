@@ -72,7 +72,6 @@ final class WebViewTlsInspector {
             socket.setSoTimeout(15000);
             websocketHandshake(socket, wsPath);
             sendCommand(socket, 1, "Security.enable");
-            sendCommand(socket, 2, "Security.getVisibleSecurityState");
             long deadline = System.currentTimeMillis() + 20000L;
             while (!stopped && System.currentTimeMillis() < deadline) {
                 String message = readWebSocketText(socket);
@@ -83,9 +82,6 @@ final class WebViewTlsInspector {
                     JSONObject params = event.optJSONObject("params");
                     if (params != null) state = params.optJSONObject("visibleSecurityState");
                 }
-                JSONObject result = event.optJSONObject("result");
-                if (state == null && result != null)
-                    state = result.optJSONObject("visibleSecurityState");
                 if (state == null) continue;
                 JSONObject cert = state.optJSONObject("certificateSecurityState");
                 if (cert == null) continue;
