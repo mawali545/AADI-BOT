@@ -104,13 +104,28 @@ public final class SignalEngine {
         List<Candle> imported = new ArrayList<>();
         for (int i = 0; i < rows.length(); i++) {
             try {
+                double rawTime, open, close, high, low;
                 JSONArray row = rows.optJSONArray(i);
-                if (row == null || row.length() < 5) continue;
-                double rawTime = row.getDouble(0);
+                if (row != null && row.length() >= 5) {
+                    rawTime = row.getDouble(0);
+                    open = row.getDouble(1);
+                    close = row.getDouble(2);
+                    high = row.getDouble(3);
+                    low = row.getDouble(4);
+                } else {
+                    // The QX bridge currently serializes genuine history candles as objects.
+                    // Accept that wire shape as well as legacy positional arrays.
+                    org.json.JSONObject object = rows.optJSONObject(i);
+                    if (object == null) continue;
+                    rawTime = object.has("time") ? object.getDouble("time") :
+                        object.has("timestamp") ? object.getDouble("timestamp") : object.getDouble("t");
+                    open = object.getDouble("open");
+                    close = object.getDouble("close");
+                    high = object.getDouble("high");
+                    low = object.getDouble("low");
+                }
                 long time = (long) rawTime;
                 if (time > 0 && time < 100000000000L) time *= 1000L;
-                double open = row.getDouble(1), close = row.getDouble(2);
-                double high = row.getDouble(3), low = row.getDouble(4);
                 if (time <= 0 || !Double.isFinite(open) || !Double.isFinite(close) ||
                     !Double.isFinite(high) || !Double.isFinite(low) || open <= 0 || close <= 0 ||
                     high < Math.max(open, close) || low > Math.min(open, close) || low <= 0) continue;
