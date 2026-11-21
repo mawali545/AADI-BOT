@@ -24,7 +24,7 @@ public class SignalEngineTest {
   assertEquals(0,e.getCandleCount());
  }
 
- @Test public void callIsSettledFromFirstRealTickAtTenSecondExpiry(){
+ @Test public void callIsSettledFromFirstRealTickAtTenSecondExpiry() throws Exception{
   SignalEngine e=new SignalEngine();long t=1800000000000L;
   e.acceptHistory("EURUSD_otc",60,new JSONArray("[[1800000000000,1.1000,1.1008,1.1010,1.0998],[1800000060000,1.1008,1.1016,1.1018,1.1006],[1800000120000,1.1016,1.1024,1.1026,1.1014],[1800000180000,1.1024,1.1032,1.1034,1.1022]]"));
   e.acceptTick("EURUSD_otc",1.1033,t+240000,60);
@@ -36,7 +36,7 @@ public class SignalEngineTest {
   e.acceptTick("EURUSD_otc",1.1037,t+251000,60);
   assertEquals(1,e.getWins());
  }
- @Test public void putIsSettledAsLossWhenExpiryPriceRises(){
+ @Test public void putIsSettledAsLossWhenExpiryPriceRises() throws Exception{
   SignalEngine e=new SignalEngine();long t=1800000000000L;
   e.acceptHistory("EURUSD_otc",60,new JSONArray("[[1800000000000,1.1040,1.1032,1.1042,1.1030],[1800000060000,1.1032,1.1024,1.1034,1.1022],[1800000120000,1.1024,1.1016,1.1026,1.1014],[1800000180000,1.1016,1.1008,1.1018,1.1006]]"));
   e.acceptTick("EURUSD_otc",1.1007,t+240000,60);
