@@ -14,9 +14,37 @@ function b64(bytes){var s='';new Uint8Array(bytes).forEach(function(x){s+=String
 async function makeEnvelope(payload){if(!nativePublicKey||!aesKey||!wrappedAesKey)throw new Error('Android secure key not ready');var iv=crypto.getRandomValues(new Uint8Array(12));var plain=new TextEncoder().encode(JSON.stringify(payload));var encrypted=await crypto.subtle.encrypt({name:'AES-GCM',iv:iv,tagLength:128},aesKey,plain);return{wrappedKey:wrappedAesKey,iv:b64(iv),ciphertext:b64(encrypted)};}
 function postPayload(payload,fingerprint,frameBytes){if(!/^[a-f0-9]{64}$/i.test(fingerprint||'')||!Number.isInteger(frameBytes)||frameBytes<1||frameBytes>1048576){rejected++;return;}payload.frameFingerprint=fingerprint;payload.frameBytes=frameBytes;sendQueue=sendQueue.then(async function(){var envelope=await makeEnvelope(payload);if(!window.DRSecure||typeof window.DRSecure.postMessage!=='function')throw new Error('Origin-restricted Android channel unavailable');window.DRSecure.postMessage(JSON.stringify(envelope));sent++;}).catch(function(e){rejected++;log('SECURE BRIDGE SEND ERROR: '+(e&&e.message||e));});}
 function send(price,asset,timestamp,fingerprint,frameBytes,sourceEvent){price=Number(price);asset=String(asset||activeAsset||'').trim();timestamp=sourceTime(timestamp);if(!Number.isFinite(price)||price<=0||price>=1e12||!asset||!/^[A-Z0-9_./-]{3,32}$/i.test(asset)||!timestamp)return;postPayload({type:'tick',source:String(sourceEvent||'unclassified'),price:price,asset:asset,timestamp:timestamp,period:Number(activePeriod)||60},fingerprint,frameBytes);}
-function sendHistory(data,fp,size,sourceEvent){if(!data||typeof data!=='object')return;var asset=assetOf(data)||activeAsset,period=num(data,['period','timePeriod'])||activePeriod,rows=Array.isArray(data.candles)?data.candles:(Array.isArray(data.history)?data.history:(Array.isArray(data.data)?data.data:null));if(!asset||!rows)return;var candles=[];rows.slice(-900).forEach(function(c){if(!Array.isArray(c)||c.length<5)return;var t=sourceTime(c[0]),o=Number(c[1]),cl=Number(c[2]),h=Number(c[3]),l=Number(c[4]);if(t&&[o,cl,h,l].every(Number.isFinite)&&o>0&&cl>0&&h>0&&l>0&&h>=Math.max(o,cl)&&l<=Math.min(o,cl))candles.push({time:t,open:o,close:cl,high:h,low:l});});if(candles.length)postPayload({type:'history',source:String(sourceEvent||'history/list/v2'),asset:asset,period:Number(period)||60,candles:candles},fp,size);}
+function sendHistory(data,fp,size,sourceEvent){
+ if(!data||typeof data!=='object')return;
+ var asset=assetOf(data)||activeAsset,period=num(data,['period','timePeriod','interval','resolution'])||activePeriod;
+ var rows=Array.isArray(data.candles)?data.candles:(Array.isArray(data.history)?data.history:(Array.isArray(data.data)?data.data:null));
+ if(!rows&&data.candle&&typeof data.candle==='object')rows=[data.candle];
+ if(!rows&&(['candle-generated','quotes/candle'].includes(sourceEvent)))rows=[data];
+ if(!asset||!rows)return;
+ var candles=[];
+ rows.slice(-900).forEach(function(c){
+  if(!c)return;
+  var t,o,cl,h,l;
+  if(Array.isArray(c)&&c.length>=5){t=sourceTime(c[0]);o=Number(c[1]);cl=Number(c[2]);h=Number(c[3]);l=Number(c[4]);}
+  else if(typeof c==='object'){
+   t=null;for(var k of ['timestamp','time','ts','at','created_at'])if(c[k]!=null){t=sourceTime(c[k]);if(t)break;}
+   o=num(c,['open','o','openPrice']);cl=num(c,['close','c','closePrice','price']);h=num(c,['high','h','highPrice']);l=num(c,['low','l','lowPrice']);
+  }
+  if(t&&[o,cl,h,l].every(Number.isFinite)&&o>0&&cl>0&&h>0&&l>0&&h>=Math.max(o,cl)&&l<=Math.min(o,cl))
+   candles.push({time:t,open:o,close:cl,high:h,low:l});
+ });
+ if(candles.length)postPayload({type:'history',source:String(sourceEvent||'history/list/v2'),asset:asset,period:Number(period)||60,candles:candles},fp,size);
+}
 function walk(v,inherited,depth,fp,size,sourceEvent){if(depth>10||v==null)return;if(Array.isArray(v)){if(v.length>=3&&typeof v[0]==='string'&&/^[A-Z0-9_./-]{3,32}$/i.test(v[0])&&sourceTime(v[1])&&Number(v[2])>0){send(v[2],v[0],v[1],fp,size,sourceEvent);return;}v.forEach(function(x){walk(x,inherited,depth+1,fp,size,sourceEvent);});return;}if(typeof v!=='object')return;var a=assetOf(v)||inherited||activeAsset,p=num(v,['price','currentPrice','lastPrice','closePrice','quotePrice','value']),t=null;for(var k of ['timestamp','time','ts','created_at','at','serverTime'])if(v[k]!=null){t=sourceTime(v[k]);if(t)break;}if(p!==null&&a&&t){send(p,a,t,fp,size,sourceEvent);return;}Object.keys(v).forEach(function(k){if(v[k]&&typeof v[k]==='object')walk(v[k],a,depth+1,fp,size,sourceEvent);});}
-function handleData(o,eventName,fp,size){if(eventName==='history/list/v2'||eventName==='history/load'||eventName==='chart_notification/get'||eventName==='loadHistoryPeriod'){sendHistory(o,fp,size,eventName);return;}if(eventName==='candle-generated'&&o&&typeof o==='object'){var ca=assetOf(o)||activeAsset,cp=num(o,['price','close']);var ct=null;for(var k of ['timestamp','time','ts'])if(o[k]!=null){ct=sourceTime(o[k]);if(ct)break;}if(cp!==null&&ca&&ct){send(cp,ca,ct,fp,size,eventName);return;}}walk(o,activeAsset,0,fp,size,eventName);}
+function handleData(o,eventName,fp,size){
+ if(eventName==='history/list/v2'||eventName==='history/load'||eventName==='chart_notification/get'||eventName==='loadHistoryPeriod'){
+  sendHistory(o,fp,size,eventName);return;
+ }
+ if(eventName==='candle-generated'||eventName==='quotes/candle'){
+  sendHistory(o,fp,size,eventName);return;
+ }
+ walk(o,activeAsset,0,fp,size,eventName);
+}
 
 var pendingBinary=null;
 function sha256Hex(bytes){return crypto.subtle.digest('SHA-256',bytes).then(function(d){return Array.from(new Uint8Array(d)).map(x=>x.toString(16).padStart(2,'0')).join('');});}
