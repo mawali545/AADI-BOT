@@ -61,6 +61,12 @@ public final class MarketDiagnostics {
     public synchronized void onRejected(String reason) {
         log("REJECTED " + (reason == null ? "UNKNOWN" : reason));
     }
+    /** WebView-visible request/response and certificate-validation metadata only. */
+    public synchronized void onNetworkEvent(String event) {
+        if (event == null) return;
+        String safe = event.length() > 220 ? event.substring(0, 220) : event;
+        log("NETWORK " + safe);
+    }
     private void log(String event) {
         events.addLast(System.currentTimeMillis() + " " + event);
         while (events.size() > MAX_LOGS) events.removeFirst();
