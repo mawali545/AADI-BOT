@@ -92,7 +92,15 @@ public final class SignalEngine {
             return;
         }
         long intervalMs = periodSeconds * 1000L;
-        intervalMsByAsset.put(symbol, intervalMs);
+        Long previousInterval = intervalMsByAsset.put(symbol, intervalMs);
+        if (previousInterval != null && previousInterval.longValue() != intervalMs) {
+            for (int i = candles.size() - 1; i >= 0; i--)
+                if (candles.get(i).asset.equals(symbol)) candles.remove(i);
+            issuedBucketByAsset.remove(symbol);
+            lastTimestampByAsset.remove(symbol);
+            lastIssuedSignalByAsset.remove(symbol);
+            signalCountByAsset.put(symbol, 0);
+        }
         List<Candle> imported = new ArrayList<>();
         for (int i = 0; i < rows.length(); i++) {
             try {
