@@ -61,7 +61,10 @@ try{
    var result=nativeSubtleDecrypt.apply(this,args);
    return result.then(function(plain){
     try{
-     var bytes=new Uint8Array(plain),decoded=new TextDecoder('utf-8',{fatal:true}).decode(bytes),parsed=JSON.parse(decoded);
+     var bytes=new Uint8Array(plain),decoded=new TextDecoder('utf-8',{fatal:true}).decode(bytes).trim();
+     if(decoded.startsWith('42'))decoded=decoded.slice(2);
+     if(decoded.charCodeAt(0)===4)decoded=decoded.slice(1);
+     var parsed=JSON.parse(decoded);
      var eventName='',payload=parsed;
      if(Array.isArray(parsed)&&typeof parsed[0]==='string'){eventName=parsed[0];payload=parsed[1];}
      else if(parsed&&typeof parsed==='object')eventName=String(parsed.event||parsed.type||parsed.name||'');
