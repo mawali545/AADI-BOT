@@ -26,7 +26,9 @@ function inspectAttachment(buffer,index){
  var bytes=binaryBytes(buffer);if(!bytes)return{index:index,kind:'UNAVAILABLE'};
  var out={__qxBinaryAttachment:true,index:index,byteLength:bytes.byteLength,base64:b64(bytes.buffer),hex:Array.from(bytes.slice(0,64)).map(x=>x.toString(16).padStart(2,'0')).join('')};
  try{
-  var decoder=new TextDecoder('utf-8',{fatal:true}),decoded=decoder.decode(bytes),trimmed=decoded.trim();
+  // Quotex/Engine.IO binary message payloads may prefix JSON with byte 0x04.
+  var payloadBytes=(bytes.length&&bytes[0]===4)?bytes.subarray(1):bytes;
+  var decoder=new TextDecoder('utf-8',{fatal:true}),decoded=decoder.decode(payloadBytes),trimmed=decoded.trim();
   if(trimmed&&(/^[{[]/.test(trimmed))){try{out.decodedJson=JSON.parse(trimmed);out.decode='UTF8_JSON';}catch(_){out.decode='UTF8_TEXT_NOT_JSON';out.utf8=decoded.slice(0,4096);}}
   else if(trimmed&&/^[\\x20-\\x7e\\r\\n\\t]+$/.test(trimmed)){out.decode='UTF8_TEXT';out.utf8=decoded.slice(0,4096);}
   else out.decode='BINARY_OPAQUE';
