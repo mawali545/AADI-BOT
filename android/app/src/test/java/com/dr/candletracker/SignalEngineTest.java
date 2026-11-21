@@ -76,7 +76,7 @@ public class SignalEngineTest {
     @Test public void unchangedPriceAfterTenSecondsIsTie() {
         long t = 1800000000000L;
         SignalEngine e = primedCall(t);
-        e.acceptTick("EURUSD_otc", 1.0060, t + 84000);
+        e.acceptTick("EURUSD_otc", 1.0074, t + 84000);
         assertEquals(1, e.getTies());
         assertEquals(0, e.getWins());
         assertEquals(0, e.getLosses());
