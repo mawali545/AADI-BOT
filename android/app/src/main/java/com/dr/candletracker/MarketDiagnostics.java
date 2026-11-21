@@ -61,6 +61,12 @@ public final class MarketDiagnostics {
     public synchronized void onRejected(String reason) {
         log("REJECTED " + (reason == null ? "UNKNOWN" : reason));
     }
+    /** WebView-visible request/response and certificate-validation metadata only. */
+    public synchronized void onNetworkEvent(String event) {
+        if (event == null) return;
+        String safe = event.length() > 220 ? event.substring(0, 220) : event;
+        log("NETWORK " + safe);
+    }
     private void log(String event) {
         events.addLast(System.currentTimeMillis() + " " + event);
         while (events.size() > MAX_LOGS) events.removeFirst();
@@ -106,7 +112,7 @@ public final class MarketDiagnostics {
             checks.put(check("VECTOR BUFFER", tape.size() >= 4));
             checks.put(check("SOURCE TIMESTAMP", lastSourceTime > 0));
             checks.put(check("LATENCY MEASURED", latencyMs >= 0));
-            checks.put(check("BRIDGE CIPHER", !"LOCKED".equals(cipher)));
+            checks.put(check("LOCAL BRIDGE CRYPTO", !"LOCKED".equals(cipher)));
             o.put("scanChecklist",checks);
             JSONArray log = new JSONArray(); for(String e:events)log.put(e);
             o.put("eventLog",log);
