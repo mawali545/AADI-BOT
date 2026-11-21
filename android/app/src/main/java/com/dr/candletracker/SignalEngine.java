@@ -42,7 +42,6 @@ public final class SignalEngine {
         Candle current = lastCandle(symbol);
         if (current != null && bucket < current.bucket) return;
         if (current == null || bucket > current.bucket) {
-            settlePending(symbol, bucket);
             current = new Candle(symbol, bucket, price);
             candles.add(current);
             if (candles.size() > MAX_CANDLES) candles.remove(0);
