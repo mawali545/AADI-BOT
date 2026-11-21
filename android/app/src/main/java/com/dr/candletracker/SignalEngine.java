@@ -62,7 +62,7 @@ public final class SignalEngine {
             signal = scan.signal;
             reason = scan.reason;
             if (!"WAIT".equals(scan.signal)) {
-                // The result is the close of the first complete 10-second candle AFTER this signal.
+                // Save the exact signal tick price/time; evaluate its direction after 10 seconds.
                 pendingSignals.add(new Pending(symbol, scan.signal, price, timestamp + CANDLE_MS));
                 issuedBucketByAsset.put(symbol, bucket);
             }
