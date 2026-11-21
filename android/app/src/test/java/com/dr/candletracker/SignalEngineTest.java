@@ -49,7 +49,7 @@ public class SignalEngineTest {
   assertEquals(0,e.getWins());assertEquals(1,e.getLosses());
  }
 
- @Test public void importsRealHistoryObjectsAndGeneratesProbabilityCall(){
+ @Test public void importsRealHistoryObjectsAndGeneratesProbabilityCall() throws Exception{
   SignalEngine e=new SignalEngine();long t=1800000000000L;
   JSONArray rows=new JSONArray("["
    +"{\"time\":"+t+",\"open\":1.1000,\"close\":1.1006,\"high\":1.1007,\"low\":1.0999},"
@@ -65,7 +65,7 @@ public class SignalEngineTest {
   assertTrue(e.getSignalProbability()>50);
   assertTrue(e.getReason().contains("bull"));
  }
- @Test public void choppyAlternatingRealCandlesStayWait(){
+ @Test public void choppyAlternatingRealCandlesStayWait() throws Exception{
   SignalEngine e=new SignalEngine();long t=1800000000000L;
   JSONArray rows=new JSONArray("["
    +"{\"time\":"+t+",\"open\":1.1000,\"close\":1.10002,\"high\":1.1005,\"low\":1.0995},"
