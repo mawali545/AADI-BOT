@@ -46,6 +46,41 @@ function handleData(o,eventName,fp,size){
  walk(o,activeAsset,0,fp,size,eventName);
 }
 
+/* Observe QX's own successful WebCrypto decrypt result. The browser/QX app
+   retains its keys and performs decryption; this observer never extracts keys.
+   Only recognized public market/candle event names are forwarded to the engine. */
+try{
+ if(window.crypto&&crypto.subtle&&typeof crypto.subtle.decrypt==='function'){
+  var nativeSubtleDecrypt=crypto.subtle.decrypt.bind(crypto.subtle);
+  crypto.subtle.decrypt=function(){
+   var args=arguments,encrypted=args[2],cipherBytes=null;
+   try{
+    if(encrypted instanceof ArrayBuffer)cipherBytes=new Uint8Array(encrypted.slice(0));
+    else if(ArrayBuffer.isView(encrypted))cipherBytes=new Uint8Array(encrypted.buffer.slice(encrypted.byteOffset,encrypted.byteOffset+encrypted.byteLength));
+   }catch(_){}
+   var result=nativeSubtleDecrypt.apply(this,args);
+   return result.then(function(plain){
+    try{
+     var bytes=new Uint8Array(plain),decoded=new TextDecoder('utf-8',{fatal:true}).decode(bytes),parsed=JSON.parse(decoded);
+     var eventName='',payload=parsed;
+     if(Array.isArray(parsed)&&typeof parsed[0]==='string'){eventName=parsed[0];payload=parsed[1];}
+     else if(parsed&&typeof parsed==='object')eventName=String(parsed.event||parsed.type||parsed.name||'');
+     var allowed=['quotes/stream','history/list/v2','history/load','chart_notification/get','candle-generated','quotes/candle','loadHistoryPeriod'];
+     if(allowed.indexOf(eventName)>=0){
+      var fpBytes=cipherBytes||bytes;
+      sha256Hex(fpBytes).then(function(fp){
+       handleData(payload,eventName,fp,fpBytes.byteLength);
+       log('QX APP-DECRYPTED MARKET PAYLOAD · '+eventName+' · plaintext '+bytes.byteLength+' bytes');
+      }).catch(function(){});
+     }
+    }catch(_){/* Ignore non-market decryptions; never log or forward arbitrary plaintext. */}
+    return plain;
+   });
+  };
+  log('QX WEBCRYPTO DECRYPT OBSERVER ARMED · market events only');
+ }
+}catch(e){log('QX DECRYPT OBSERVER UNAVAILABLE '+(e&&e.message||e));}
+
 var pendingBinary=null;
 function sha256Hex(bytes){return crypto.subtle.digest('SHA-256',bytes).then(function(d){return Array.from(new Uint8Array(d)).map(x=>x.toString(16).padStart(2,'0')).join('');});}
 function replaceBinaryPlaceholders(value,attachments){
