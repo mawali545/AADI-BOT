@@ -22,6 +22,30 @@ public class SignalEngineTest {
         assertEquals("CALL", e.getSignal());
     }
 
+    @Test public void acceptsQxBridgeObjectHistoryAndProducesSignal() throws JSONException {
+        SignalEngine e = new SignalEngine();
+        JSONArray rows = new JSONArray();
+        for (int i = 0; i < 10; i++) {
+            double open = 1.010 + i * .001, close = open + .001;
+            org.json.JSONObject row = new org.json.JSONObject();
+            row.put("time", T + i * 10000L);
+            row.put("open", open);
+            row.put("close", close);
+            row.put("high", close);
+            row.put("low", open);
+            rows.put(row);
+        }
+        e.acceptHistory("EURUSD_otc", 10L, rows);
+        for (int i = 0; i < 3; i++) {
+            long start = T + (100000L + i * 10000L);
+            double open = 1.020 + i * .001;
+            e.acceptTick("EURUSD_otc", open, start, 10L);
+            e.acceptTick("EURUSD_otc", open + .001, start + 9000L, 10L);
+        }
+        e.acceptTick("EURUSD_otc", 1.024, T + 130000L, 10L);
+        assertEquals("QX object-format broker history must arm the existing signal engine", "CALL", e.getSignal());
+    }
+
     @Test public void liveOnlyCandlesCannotReplaceTheTenBrokerHistoryCandles() {
         SignalEngine e = new SignalEngine();
         for (int i = 0; i < 13; i++) {
