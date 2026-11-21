@@ -160,126 +160,105 @@ public final class SignalEngine {
      * pullback recovery, support/resistance reaction, live tick flow and chop/
      * volatility regime. This is an estimate, not a claimed hidden broker formula.
      */
+    /**
+     * Video-inferred NEXT QUANT SIGNAL procedure.
+     *
+     * The visible panel exposes an OHLC memory stream, a directional bar
+     * histogram, a live feed and a vector readout. The forecast therefore
+     * uses only those observable data concepts:
+     * 1) encode each genuine completed OHLC candle as a normalized direction;
+     * 2) build a recency-weighted green/red pressure histogram;
+     * 3) calculate the aggregate price-direction vector;
+     * 4) issue the next-candle direction only when histogram and vector agree.
+     *
+     * No invented liquidity, support/resistance, EMA/RSI/MACD, or synthetic
+     * broker candles are part of this procedure.
+     */
     private Scan scan(String symbol, long currentBucket, double livePrice) {
-        List<Candle> closed = new ArrayList<>();
+        List<Candle> memory = new ArrayList<>();
         for (Candle c : candles)
-            if (c.asset.equals(symbol) && c.bucket < currentBucket) closed.add(c);
-        int n = closed.size();
-        if (n < 3)
-            return new Scan("WAIT", 0, "Collecting genuine completed QX candles (" + n + "/3).");
-        int size = Math.min(12, n);
-        List<Candle> recent = closed.subList(n - size, n);
-        Candle last = recent.get(size - 1);
-        double atr = 0, bodyPressure = 0, wickPressure = 0, bodyAbs = 0;
-        double weightSum = 0;
-        for (int i = 0; i < size; i++) {
-            Candle c = recent.get(i);
+            if (c.asset.equals(symbol) && c.bucket < currentBucket) memory.add(c);
+        int count = memory.size();
+        if (count < 3)
+            return new Scan("WAIT", 0, "MEMORY STREAM · collecting completed QX OHLC candles (" + count + "/3).");
+
+        int length = Math.min(8, count);
+        List<Candle> stream = memory.subList(count - length, count);
+        double histogram = 0.0, vectorBody = 0.0, vectorClose = 0.0;
+        double totalWeight = 0.0, totalPath = 0.0;
+        int bullishBars = 0, bearishBars = 0, reversals = 0;
+        int previousDirection = 0;
+        double firstClose = stream.get(0).close;
+        double lastClose = stream.get(length - 1).close;
+
+        for (int i = 0; i < length; i++) {
+            Candle c = stream.get(i);
             double range = safeRange(c);
-            double weight = 1.0 + (double) i / Math.max(1, size - 1);
-            double body = clamp((c.close - c.open) / range, -1, 1);
-            double upper = Math.max(0, c.high - Math.max(c.open, c.close));
-            double lower = Math.max(0, Math.min(c.open, c.close) - c.low);
-            bodyPressure += body * weight;
-            wickPressure += clamp((lower - upper) / range, -1, 1) * weight;
-            bodyAbs += Math.abs(body);
-            atr += range;
-            weightSum += weight;
-        }
-        atr /= size;
-        bodyPressure = clamp(bodyPressure / weightSum, -1, 1);
-        wickPressure = clamp(wickPressure / weightSum, -1, 1);
-        double averageBody = bodyAbs / size;
+            double body = clamp((c.close - c.open) / range, -1.0, 1.0);
+            double closePosition = clamp(((c.close - c.low) - (c.high - c.close)) / range, -1.0, 1.0);
+            double weight = 1.0 + (double) i / Math.max(1, length - 1);
 
-        // Higher-high/higher-low or lower-high/lower-low structure.
-        double structure = 0; int structureVotes = 0;
-        for (int i = Math.max(1, size - 6); i < size; i++) {
-            Candle a = recent.get(i - 1), b = recent.get(i);
-            int hi = direction(b.high - a.high), lo = direction(b.low - a.low);
-            if (hi > 0 && lo > 0) structure += 1;
-            else if (hi < 0 && lo < 0) structure -= 1;
-            else structure += direction(b.close - a.close) * 0.25;
-            structureVotes++;
-        }
-        structure = structureVotes == 0 ? 0 : clamp(structure / structureVotes, -1, 1);
+            // Histogram: signed candle pressure, weighted toward the newest bars.
+            double barPressure = 0.72 * body + 0.28 * closePosition;
+            histogram += barPressure * weight;
+            vectorBody += body * weight;
+            vectorClose += closePosition * weight;
+            totalWeight += weight;
 
-        // Price momentum normalized by actual recent candle range, not an indicator.
-        Candle first = recent.get(0);
-        double momentum = clamp((last.close - first.close) /
-            Math.max(atr * Math.max(2, size - 1) * 0.72, Math.abs(last.close) * 1e-10), -1, 1);
-
-        // Nearby swing levels are calculated from preceding genuine candles.
-        double support = Double.POSITIVE_INFINITY, resistance = Double.NEGATIVE_INFINITY;
-        for (int i = Math.max(0, size - 9); i < size - 1; i++) {
-            support = Math.min(support, recent.get(i).low);
-            resistance = Math.max(resistance, recent.get(i).high);
-        }
-        double liquidity = 0, levelReaction = 0;
-        if (Double.isFinite(support) && Double.isFinite(resistance)) {
-            double tolerance = Math.max(atr * 0.08, Math.abs(last.close) * 1e-10);
-            if (last.low < support - tolerance && last.close > support) liquidity += 1;
-            if (last.high > resistance + tolerance && last.close < resistance) liquidity -= 1;
-            double supportDistance = Math.abs(livePrice - support) / Math.max(atr, 1e-12);
-            double resistanceDistance = Math.abs(livePrice - resistance) / Math.max(atr, 1e-12);
-            if (supportDistance < 0.28 && livePrice >= last.close) levelReaction += 0.65;
-            if (resistanceDistance < 0.28 && livePrice <= last.close) levelReaction -= 0.65;
+            int direction = direction(c.close - c.open);
+            if (direction > 0) bullishBars++;
+            else if (direction < 0) bearishBars++;
+            if (direction != 0 && previousDirection != 0 && direction != previousDirection) reversals++;
+            if (direction != 0) previousDirection = direction;
+            if (i > 0) totalPath += Math.abs(c.close - stream.get(i - 1).close);
         }
 
-        // A trend pullback is counted only when live price begins recovering in trend direction.
-        double priorTrend = direction(recent.get(size - 2).close - recent.get(Math.max(0, size - 4)).close);
-        double lastBody = direction(last.close - last.open);
-        double liveMove = direction(livePrice - last.close);
-        double pullback = 0;
-        if (priorTrend > 0 && lastBody < 0 && liveMove > 0) pullback = 1;
-        else if (priorTrend < 0 && lastBody > 0 && liveMove < 0) pullback = -1;
+        histogram = clamp(histogram / Math.max(totalWeight, 1e-12), -1.0, 1.0);
+        double bodyVector = clamp(vectorBody / Math.max(totalWeight, 1e-12), -1.0, 1.0);
+        double closeVector = clamp(vectorClose / Math.max(totalWeight, 1e-12), -1.0, 1.0);
+        double vector = clamp(0.65 * bodyVector + 0.35 * closeVector, -1.0, 1.0);
+        double displacementVector = totalPath <= 1e-12 ? 0.0 :
+            clamp((lastClose - firstClose) / totalPath, -1.0, 1.0);
 
-        double tickFlow = tickFlow(symbol);
-        int alternations = 0;
-        for (int i = 1; i < size; i++) {
-            int a = direction(recent.get(i - 1).close - recent.get(i - 1).open);
-            int b = direction(recent.get(i).close - recent.get(i).open);
-            if (a != 0 && b != 0 && a != b) alternations++;
+        // The live quote confirms that the current feed is still moving with the
+        // completed-candle vector; it does not create or modify a broker candle.
+        double liveDirection = direction(livePrice - lastClose);
+        int histogramDirection = direction(histogram);
+        int vectorDirection = direction(vector);
+        int displacementDirection = direction(displacementVector);
+
+        boolean aligned = histogramDirection != 0 &&
+            histogramDirection == vectorDirection &&
+            (displacementDirection == 0 || displacementDirection == histogramDirection);
+        boolean weakMemory = Math.abs(histogram) < 0.16 || Math.abs(vector) < 0.16;
+        boolean alternating = length >= 5 && reversals >= length - 3 &&
+            Math.abs(displacementVector) < 0.22 &&
+            Math.abs(histogram) < 0.30;
+
+        if (alternating || weakMemory || !aligned) {
+            double clarity = Math.min(69.0, 50.0 + Math.max(Math.abs(histogram), Math.abs(vector)) * 18.0);
+            return new Scan("WAIT", clarity,
+                "WAIT · MEMORY STREAM / HISTOGRAM / VECTOR not aligned · bull " +
+                bullishBars + " / bear " + bearishBars + ".");
         }
-        double path = 0;
-        for (int i = 1; i < size; i++)
-            path += Math.abs(recent.get(i).close - recent.get(i - 1).close);
-        double efficiency = path <= 1e-12 ? 0 :
-            Math.abs(last.close - first.close) / path;
-        boolean choppy = size >= 5 && alternations >= 3 && efficiency < 0.24 && averageBody < 0.42;
-        double volatilityRatio = safeRange(last) / Math.max(atr, 1e-12);
-        double volatilityPenalty = volatilityRatio > 2.6 ? 0.08 :
-            volatilityRatio < 0.30 ? 0.06 : 0;
 
-        double score = 0.18 * bodyPressure + 0.18 * structure + 0.16 * momentum +
-            0.08 * wickPressure + 0.13 * liquidity + 0.10 * pullback +
-            0.11 * tickFlow + 0.06 * clamp(levelReaction, -1, 1);
-        score = clamp(score, -1, 1);
-        int bullVotes = 0, bearVotes = 0;
-        double[] components = {bodyPressure, structure, momentum, wickPressure,
-            liquidity, pullback, tickFlow, levelReaction};
-        for (double v : components) {
-            if (v > 0.12) bullVotes++;
-            else if (v < -0.12) bearVotes++;
+        // If the latest live quote sharply opposes the completed memory vector,
+        // wait for confirmation instead of forcing a direction.
+        if (liveDirection != 0 && liveDirection != histogramDirection &&
+            Math.abs(livePrice - lastClose) > safeRange(stream.get(length - 1)) * 0.35) {
+            return new Scan("WAIT", 55.0,
+                "WAIT · LIVE FEED opposes the completed-candle vector; waiting for alignment.");
         }
-        double threshold = 0.27 + volatilityPenalty + (choppy ? 0.16 : 0);
-        if (choppy)
-            return new Scan("WAIT", Math.min(69, 50 + Math.abs(score) * 18),
-                "WAIT · Sideways/choppy flow; directional agreement is weak.");
-        if (Math.abs(score) < threshold || Math.max(bullVotes, bearVotes) < 2)
-            return new Scan("WAIT", Math.min(69, 50 + Math.abs(score) * 18),
-                "WAIT · Mixed evidence; bull " + bullVotes + " / bear " + bearVotes + ".");
 
-        String direction = score > 0 ? "CALL" : "PUT";
-        double probability = clamp(50 + Math.abs(score) * 47 - volatilityPenalty * 25, 50, 95);
-        String reason = direction + " · " + Math.round(probability) + "% estimated confidence" +
-            " · bull " + bullVotes + " / bear " + bearVotes +
-            " · pressure " + signed(bodyPressure) +
-            " · structure " + signed(structure) +
-            " · momentum " + signed(momentum) +
-            " · wick " + signed(wickPressure) +
-            " · sweep " + signed(liquidity) +
-            " · pullback " + signed(pullback) +
-            " · tick flow " + signed(tickFlow);
-        return new Scan(direction, probability, reason);
+        String result = histogramDirection > 0 ? "CALL" : "PUT";
+        double agreement = (Math.abs(histogram) + Math.abs(vector) +
+            Math.abs(displacementVector)) / 3.0;
+        double probability = clamp(50.0 + agreement * 44.0, 50.0, 94.0);
+        return new Scan(result, probability,
+            result + " · " + Math.round(probability) + "% estimated direction · " +
+            "histogram " + signed(histogram) + " · vector " + signed(vector) +
+            " · displacement " + signed(displacementVector) +
+            " · bull " + bullishBars + " / bear " + bearishBars);
     }
 
     private double tickFlow(String symbol) {
