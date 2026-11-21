@@ -1,6 +1,7 @@
 package com.dr.candletracker;
 import org.junit.Test;
 import static org.junit.Assert.*;
+import org.json.JSONArray;
 public class SignalEngineTest {
  @Test public void waitsUntilThreeRealCandlesAreCompleted(){
   SignalEngine e=new SignalEngine();long t=1800000000000L;
@@ -46,6 +47,36 @@ public class SignalEngineTest {
   assertEquals("PUT",e.getSignal());
   e.acceptTick("EURUSD_otc",1.1018,t+190000,60);
   assertEquals(0,e.getWins());assertEquals(1,e.getLosses());
+ }
+
+ @Test public void importsRealHistoryObjectsAndGeneratesProbabilityCall(){
+  SignalEngine e=new SignalEngine();long t=1800000000000L;
+  JSONArray rows=new JSONArray("["
+   +"{\"time\":"+t+",\"open\":1.1000,\"close\":1.1006,\"high\":1.1007,\"low\":1.0999},"
+   +"{\"time\":"+(t+60000)+",\"open\":1.1008,\"close\":1.1014,\"high\":1.1015,\"low\":1.1007},"
+   +"{\"time\":"+(t+120000)+",\"open\":1.1016,\"close\":1.1022,\"high\":1.1023,\"low\":1.1015},"
+   +"{\"time\":"+(t+180000)+",\"open\":1.1024,\"close\":1.1030,\"high\":1.1031,\"low\":1.1023},"
+   +"{\"time\":"+(t+240000)+",\"open\":1.1032,\"close\":1.1038,\"high\":1.1039,\"low\":1.1031},"
+   +"{\"time\":"+(t+300000)+",\"open\":1.1040,\"close\":1.1046,\"high\":1.1047,\"low\":1.1039}]");
+  e.acceptHistory("EURUSD_otc",60,rows);
+  assertEquals(6,e.getCandleCount());
+  e.acceptTick("EURUSD_otc",1.1046,t+360000,60);
+  assertEquals("CALL",e.getSignal());
+  assertTrue(e.getSignalProbability()>50);
+  assertTrue(e.getReason().contains("bull"));
+ }
+ @Test public void choppyAlternatingRealCandlesStayWait(){
+  SignalEngine e=new SignalEngine();long t=1800000000000L;
+  JSONArray rows=new JSONArray("["
+   +"{\"time\":"+t+",\"open\":1.1000,\"close\":1.10002,\"high\":1.1005,\"low\":1.0995},"
+   +"{\"time\":"+(t+60000)+",\"open\":1.10002,\"close\":1.1000,\"high\":1.10052,\"low\":1.0995},"
+   +"{\"time\":"+(t+120000)+",\"open\":1.1000,\"close\":1.10002,\"high\":1.1005,\"low\":1.09948},"
+   +"{\"time\":"+(t+180000)+",\"open\":1.10002,\"close\":1.1000,\"high\":1.10052,\"low\":1.0995},"
+   +"{\"time\":"+(t+240000)+",\"open\":1.1000,\"close\":1.10002,\"high\":1.1005,\"low\":1.09948},"
+   +"{\"time\":"+(t+300000)+",\"open\":1.10002,\"close\":1.1000,\"high\":1.10052,\"low\":1.0995}]");
+  e.acceptHistory("EURUSD_otc",60,rows);
+  e.acceptTick("EURUSD_otc",1.1000,t+360000,60);
+  assertEquals("WAIT",e.getSignal());
  }
 
 }

@@ -231,6 +231,7 @@ public final class MainActivity extends Activity {
             o.put("frameBytes", currentFrameBytes);
             o.put("signal", signalEngine.getSignal());
             o.put("signalCount", signalEngine.getSignalCount());
+            o.put("signalProbability", signalEngine.getSignalProbability());
             o.put("signalReason", signalEngine.getReason());
             o.put("wins", signalEngine.getWins());
             o.put("losses", signalEngine.getLosses());
