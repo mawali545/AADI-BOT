@@ -10,8 +10,9 @@ public class MarketDiagnosticsTest {
         d.onTick("EURUSD_otc", 1.1000, t, t + 30);
         d.onTick("EURUSD_otc", 1.1005, t + 1000, t + 1030);
         d.onTick("EURUSD_otc", 1.0995, t + 9000, t + 9030);
+        d.onTick("EURUSD_otc", 1.1000, t + 9500, t + 9530);
         assertEquals(1, d.getMemoryCount());
-        assertEquals(3, d.getCycles());
+        assertEquals(4, d.getCycles());
         assertEquals(30, d.getLatencyMs());
         assertTrue(d.getLatestMemoryHigh() > 1.1000);
         assertTrue(d.getVectorMagnitude() > 0);
