@@ -17,6 +17,9 @@ public final class SignalEngine {
     private final List<Pending> pendingSignals = new ArrayList<>();
     private final Map<String, Long> lastTimestampByAsset = new HashMap<>();
     private final Map<String, Long> issuedBucketByAsset = new HashMap<>();
+    private final Map<String, Long> intervalMsByAsset = new HashMap<>();
+    private final Map<String, String> lastIssuedSignalByAsset = new HashMap<>();
+    private final Map<String, Integer> signalCountByAsset = new HashMap<>();
     private String asset = "WAITING FOR QX", signal = "WAIT";
     private String reason = "Waiting for real Market-QX 10-second candles.";
     private int wins, losses, ties;
@@ -28,13 +31,15 @@ public final class SignalEngine {
     }
 
     /** Build fixed 10-second candles from genuine QX quote ticks, regardless of chart timeframe. */
-    public synchronized void acceptTick(String symbol, double price, long timestamp, long ignoredChartPeriodSeconds) {
+    public synchronized void acceptTick(String symbol, double price, long timestamp, long chartPeriodSeconds) {
         if (symbol == null || !symbol.matches("[A-Za-z0-9_./-]{3,32}") ||
             !Double.isFinite(price) || price <= 0 || timestamp <= 0) return;
+        if (chartPeriodSeconds > 0 && chartPeriodSeconds <= 3600) intervalMsByAsset.putIfAbsent(symbol, chartPeriodSeconds * 1000L);
+        long intervalMs = intervalMsByAsset.containsKey(symbol) ? intervalMsByAsset.get(symbol) : 10_000L;
         Long previous = lastTimestampByAsset.get(symbol);
         if (previous != null && timestamp < previous) return;
         lastTimestampByAsset.put(symbol, timestamp);
-        long bucket = timestamp / CANDLE_MS * CANDLE_MS;
+        long bucket = timestamp / intervalMs * intervalMs;
         Candle current = lastCandle(symbol);
         if (current != null && bucket < current.bucket) return;
         if (current == null || bucket > current.bucket) {
@@ -61,6 +66,15 @@ public final class SignalEngine {
             Scan scan = scan(symbol, bucket);
             signal = scan.signal;
             reason = scan.reason;
+            if ("WAIT".equals(scan.signal)) {
+                lastIssuedSignalByAsset.remove(symbol);
+                signalCountByAsset.put(symbol, 0);
+            } else {
+                String previousSignal = lastIssuedSignalByAsset.get(symbol);
+                int count = scan.signal.equals(previousSignal) ? signalCountByAsset.getOrDefault(symbol, 0) + 1 : 1;
+                lastIssuedSignalByAsset.put(symbol, scan.signal);
+                signalCountByAsset.put(symbol, count);
+            }
             if (!"WAIT".equals(scan.signal)) {
                 // Save the exact signal tick price/time; evaluate its direction after 10 seconds.
                 pendingSignals.add(new Pending(symbol, scan.signal, price, timestamp + CANDLE_MS));
@@ -72,11 +86,13 @@ public final class SignalEngine {
     /** Import broker OHLC history only when it is explicitly a 10-second series. */
     public synchronized void acceptHistory(String symbol, long periodSeconds, JSONArray rows) {
         if (symbol == null || !symbol.matches("[A-Za-z0-9_./-]{3,32}") || rows == null) return;
-        if (periodSeconds != 10L) {
-            reason = "QX history is " + periodSeconds + "s; building accurate 10-second candles from live ticks.";
+        if (periodSeconds < 1L || periodSeconds > 3600L) {
+            reason = "QX history period is unavailable or unsupported; waiting for genuine broker history.";
             signal = "WAIT";
             return;
         }
+        long intervalMs = periodSeconds * 1000L;
+        intervalMsByAsset.put(symbol, intervalMs);
         List<Candle> imported = new ArrayList<>();
         for (int i = 0; i < rows.length(); i++) {
             try {
@@ -90,18 +106,24 @@ public final class SignalEngine {
                 if (time <= 0 || !Double.isFinite(open) || !Double.isFinite(close) ||
                     !Double.isFinite(high) || !Double.isFinite(low) || open <= 0 || close <= 0 ||
                     high < Math.max(open, close) || low > Math.min(open, close) || low <= 0) continue;
-                long bucket = time / CANDLE_MS * CANDLE_MS;
+                long bucket = time / intervalMs * intervalMs;
                 imported.add(new Candle(symbol, bucket, open, high, low, close, true));
             } catch (JSONException ignored) {}
         }
         if (imported.isEmpty()) return;
         imported.sort((a, b) -> Long.compare(a.bucket, b.bucket));
         for (int i = candles.size() - 1; i >= 0; i--)
-            if (candles.get(i).asset.equals(symbol)) candles.remove(i);
+            if (candles.get(i).asset.equals(symbol) && candles.get(i).historical) candles.remove(i);
         for (Candle candle : imported) {
-            Candle last = lastCandle(symbol);
-            if (last == null || last.bucket != candle.bucket) candles.add(candle);
+            boolean exists = false;
+            for (Candle existing : candles)
+                if (existing.asset.equals(symbol) && existing.bucket == candle.bucket) { exists = true; break; }
+            if (!exists) candles.add(candle);
         }
+        candles.sort((a, b) -> {
+            int byAsset = a.asset.compareTo(b.asset);
+            return byAsset != 0 ? byAsset : Long.compare(a.bucket, b.bucket);
+        });
         while (candles.size() > MAX_CANDLES) candles.remove(0);
         asset = symbol;
         reason = "Loaded " + imported.size() + " original QX 10-second OHLC candles; waiting for live quote.";
@@ -139,7 +161,8 @@ public final class SignalEngine {
         List<Candle> closed = new ArrayList<>();
         for (Candle c : candles) if (c.asset.equals(symbol) && c.bucket < currentBucket) closed.add(c);
         int n = closed.size();
-        final int requiredCandles = 13; // 10 genuine history candles + 3 latest completed candles.
+        final int requiredCandles = 13; // 10 genuine broker-history candles + 3 completed live candles.
+        long intervalMs = intervalMsByAsset.containsKey(symbol) ? intervalMsByAsset.get(symbol) : 10_000L;
         if (n < requiredCandles)
             return new Scan("WAIT", "Collecting genuine completed 10-second candles (" + n + "/13: 10 history + 3 recent).");
         int start = n - requiredCandles;
@@ -152,7 +175,7 @@ public final class SignalEngine {
                 return new Scan("WAIT", "Waiting for 3 newly completed genuine live candles after the 10 history candles.");
         }
         for (int i = start + 1; i < n; i++) {
-            if (closed.get(i).bucket - closed.get(i - 1).bucket != CANDLE_MS)
+            if (closed.get(i).bucket - closed.get(i - 1).bucket != intervalMs)
                 return new Scan("WAIT", "A gap exists in the genuine 10-second candle history; waiting for 10 history + 3 consecutive live candles.");
         }
         List<Candle> recent = closed.subList(start, n);
@@ -228,6 +251,7 @@ public final class SignalEngine {
     public synchronized int getWins() { return wins; }
     public synchronized int getLosses() { return losses; }
     public synchronized int getTies() { return ties; }
+    public synchronized int getSignalCount() { return signalCountByAsset.getOrDefault(asset, 0); }
     public synchronized int getCandleCount() { return candles.size(); }
     public synchronized long getLastTimestamp() { return lastTimestamp; }
     public synchronized double getLastPrice() { return lastPrice; }
