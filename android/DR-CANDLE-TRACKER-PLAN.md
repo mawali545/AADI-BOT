@@ -7,7 +7,7 @@
 - Do not reuse old AADI signal functions, indicators, formulas, or calculations.
 
 ## Background reference-video elements
-Memory Stream OHLC from validated live ticks, rolling price tape, normalized four-component vector (momentum, acceleration, path efficiency, tick pressure), vector magnitude, source-to-arrival latency, processing cycle counter, node state, scan state, and bounded event log are processed natively and remain background diagnostics only. These are transparent measurable implementations, not claims to reproduce undisclosed proprietary video formulas.
+Memory Stream OHLC is imported only from original Market-QX candle/history events. Live quote ticks feed the rolling price tape, normalized four-component vector (momentum, acceleration, path efficiency, tick pressure), settlement, source-to-arrival latency, processing cycle counter, node state, scan state, and bounded event log. Ticks are NEVER aggregated into synthetic OHLC candles. These are transparent measurable implementations, not claims to reproduce undisclosed proprietary video formulas.
 
 ## Signal engine
 - Native Java backend processes validated received QX ticks.
@@ -34,11 +34,11 @@ Memory Stream OHLC from validated live ticks, rolling price tape, normalized fou
 
 
 ## Build 35 protocol and signal pipeline additions
-- Observe QX WebSocket text frames and pair Socket.IO binary-event headers with their following binary attachments.
-- Resolve Socket.IO binary placeholders only when an attachment is valid UTF-8 JSON; retain unknown binary attachments as opaque evidence and report their byte counts rather than inventing a decoder.
+- Observe QX WebSocket text frames and pair Socket.IO binary-event headers with their following binary attachments.\n- Passively observe the result of QX's own successful WebCrypto decrypt calls; do not extract keys or modify encryption. Only allow-listed market/candle event payloads are parsed and forwarded; unrelated plaintext is discarded.
+- Resolve Socket.IO binary placeholders only when an attachment is valid UTF-8 JSON; retain unknown binary attachments as opaque evidence and report their byte counts rather than inventing a decoder. WebSocket Blob/ArrayBuffer attachments are passed intact to this parser.\n- Observe QX's own WebCrypto decrypt result and forward only allow-listed market/candle events; no QX key extraction or authentication bypass.
 - Observe same-origin market/history JSON delivered through fetch, XMLHttpRequest, and EventSource. Do not read cookies, authorization headers, account endpoints, or alter broker requests.
 - Keep SHA-256 as a local digest of the observed raw frame/response only; it is not represented as an official QX fingerprint.
 - Preserve QX source timestamps, asset identity, event source, and native validation before feeding the live signal engine.
 - Expand the 10-second next-candle feature families: candle body pressure, bullish/bearish votes, momentum, directional agreement, wick rejection, support/resistance, liquidity sweep, failed breakout, pullback detection, market chop, volatility analysis, and vector/microstructure.
-- The RSA-OAEP/AES-GCM cipher remains the authenticated local WebView-to-Android bridge cipher. It is not QX server-protocol decryption. Unknown proprietary encrypted payloads remain locked until a documented/authorized key and wire format or a QX-decoded browser event is available.
+- The RSA-OAEP/AES-GCM cipher remains the authenticated local WebView-to-Android bridge cipher. QX application-level WebCrypto decryption is observed after the QX page itself successfully decrypts; encrypted formats handled by other undocumented mechanisms remain opaque.
 - No fake/demo ticks, fabricated fingerprints, guessed cipher keys, or unsupported accuracy claims.
