@@ -15,7 +15,6 @@ import java.io.OutputStream;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.util.Base64;
 import java.util.Random;
 
 /**
@@ -149,7 +148,7 @@ final class WebViewTlsInspector {
     private void websocketHandshake(LocalSocket socket, String path) throws Exception {
         byte[] nonce = new byte[16];
         new Random().nextBytes(nonce);
-        String key = Base64.getEncoder().encodeToString(nonce);
+        String key = android.util.Base64.encodeToString(nonce, android.util.Base64.NO_WRAP);
         OutputStream out = socket.getOutputStream();
         out.write(("GET " + path + " HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\n" +
             "Connection: Upgrade\r\nSec-WebSocket-Key: " + key +
