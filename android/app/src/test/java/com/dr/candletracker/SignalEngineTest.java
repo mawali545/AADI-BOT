@@ -40,66 +40,34 @@ public class SignalEngineTest {
         assertEquals(0, e.getCandleCount());
     }
 
-    @Test public void settlesSignalOnlyAfterTheFollowingTenSecondCandleCloses() {
-        SignalEngine e = new SignalEngine(); long t = 1800000000000L;
-        e.acceptTick("EURUSD_otc", 1.0000, t);
-        e.acceptTick("EURUSD_otc", 1.0010, t + 9000);
-        e.acceptTick("EURUSD_otc", 1.0010, t + 10000);
-        e.acceptTick("EURUSD_otc", 1.0020, t + 19000);
-        e.acceptTick("EURUSD_otc", 1.0020, t + 20000);
-        e.acceptTick("EURUSD_otc", 1.0030, t + 29000);
-        e.acceptTick("EURUSD_otc", 1.0030, t + 30000);
+    @Test public void settlesSignalAtFirstRealTickTenSecondsAfterSignal() {
+        long t = 1800000000000L;
+        SignalEngine e = primedCall(t);
         assertEquals("CALL", e.getSignal());
-
-        e.acceptTick("EURUSD_otc", 1.0040, t + 40000);
-        assertEquals("WIN must be counted at 10-second expiry tick", 1, e.getWins());
-    }
-
-    @Test public void settlesAtFirstRealTickTenSecondsAfterSignalNotAtCandleClose() {
-        SignalEngine e = new SignalEngine(); long t = 1800000000000L;
-        e.acceptTick("EURUSD_otc", 1.0000, t);
-        e.acceptTick("EURUSD_otc", 1.0010, t + 9000);
-        e.acceptTick("EURUSD_otc", 1.0010, t + 10000);
-        e.acceptTick("EURUSD_otc", 1.0020, t + 19000);
-        e.acceptTick("EURUSD_otc", 1.0020, t + 20000);
-        e.acceptTick("EURUSD_otc", 1.0030, t + 29000);
-        e.acceptTick("EURUSD_otc", 1.0030, t + 30000);
-        assertEquals("CALL", e.getSignal());
-        e.acceptTick("EURUSD_otc", 1.0040, t + 39999);
+        e.acceptTick("EURUSD_otc", 1.0079, t + 79999);
         assertEquals("Must not settle before 10 seconds", 0, e.getWins());
-        e.acceptTick("EURUSD_otc", 1.0040, t + 40000);
+        e.acceptTick("EURUSD_otc", 1.0080, t + 80000);
         assertEquals("Must settle on first real tick at expiry", 1, e.getWins());
     }
 
     @Test public void pendingSignalsDoNotOverwriteEachOther() {
-        SignalEngine e = new SignalEngine(); long t = 1800000000000L;
-        e.acceptTick("EURUSD_otc", 1.0000, t);
-        e.acceptTick("EURUSD_otc", 1.0010, t + 9000);
-        e.acceptTick("EURUSD_otc", 1.0010, t + 10000);
-        e.acceptTick("EURUSD_otc", 1.0020, t + 19000);
-        e.acceptTick("EURUSD_otc", 1.0020, t + 20000);
-        e.acceptTick("EURUSD_otc", 1.0030, t + 29000);
-        e.acceptTick("EURUSD_otc", 1.0030, t + 30000);
+        long t = 1800000000000L;
+        SignalEngine e = primedCall(t);
         assertEquals("CALL", e.getSignal());
-
-        e.acceptTick("EURUSD_otc", 1.0040, t + 40000);
-        assertEquals("First signal settles on its own 10-second expiry tick", 1, e.getWins());
-
-        e.acceptTick("EURUSD_otc", 1.0050, t + 50000);
+        e.acceptTick("EURUSD_otc", 1.0080, t + 80000);
+        assertEquals("First signal settles independently", 1, e.getWins());
+        e.acceptTick("EURUSD_otc", 1.0090, t + 90000);
         assertTrue("Subsequent signal remains independently tracked", e.getWins() >= 1);
-        e.acceptTick("EURUSD_otc", 1.0060, t + 60000);
     }
-
 
     private SignalEngine primedCall(long t) {
         SignalEngine e = new SignalEngine();
-        e.acceptTick("EURUSD_otc", 1.0000, t);
-        e.acceptTick("EURUSD_otc", 1.0010, t + 9000);
-        e.acceptTick("EURUSD_otc", 1.0010, t + 10000);
-        e.acceptTick("EURUSD_otc", 1.0020, t + 19000);
-        e.acceptTick("EURUSD_otc", 1.0020, t + 20000);
-        e.acceptTick("EURUSD_otc", 1.0030, t + 29000);
-        e.acceptTick("EURUSD_otc", 1.0030, t + 30000);
+        for (int i = 0; i < 7; i++) {
+            double open = 1.0000 + i * 0.0010;
+            e.acceptTick("EURUSD_otc", open, t + i * 10000L);
+            e.acceptTick("EURUSD_otc", open + 0.0008, t + i * 10000L + 9000L);
+        }
+        e.acceptTick("EURUSD_otc", 1.0072, t + 70000L);
         assertEquals("CALL", e.getSignal());
         return e;
     }
