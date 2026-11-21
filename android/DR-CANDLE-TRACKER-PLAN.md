@@ -22,6 +22,7 @@ Memory Stream OHLC from validated live ticks, rolling price tape, normalized fou
 
 ## QX data and cryptography — verified scope
 - Observe recognized Market-QX WebSocket text events from the signed-in WebView session.
+- Also passively observe same-origin HTTP fetch/XHR JSON responses only on market/quote/price/tick/candle/chart/history paths; clone responses without altering requests, and never read cookies, authorization headers, or account endpoints. Normalize recognized quote/history payloads through the same validators as WebSocket events.
 - Preserve the source timestamp and SHA-256 fingerprint of the observed text frame; reject missing/invalid timestamps or fingerprints.
 - Do not guess prices from unknown binary, compressed, or encrypted frames.
 - App-local RSA-OAEP/AES-GCM protects the WebView-to-Android bridge only. It does not decrypt Market-QX proprietary server-side encryption. A QX protocol decoder requires captured original frames and a verified protocol specification.
