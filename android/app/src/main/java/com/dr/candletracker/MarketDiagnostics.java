@@ -16,7 +16,7 @@ public final class MarketDiagnostics {
     private final Deque<String> events = new ArrayDeque<>();
     private long cycles, lastSourceTime, lastArrivalTime;
     private long latencyMs = -1;
-    private String node = "WAITING", scan = "WAITING", cipher = "LOCAL BRIDGE";
+    private String node = "WAITING", scan = "WAITING", cipher = "LOCKED";
     private double vectorMagnitude;
     private double[] vector = new double[4];
 
@@ -100,10 +100,23 @@ public final class MarketDiagnostics {
             o.put("vector",v); o.put("vectorMagnitude",vectorMagnitude);
             o.put("cycle",cycles); o.put("latencyMs",latencyMs);
             o.put("node",node); o.put("scanState",scan); o.put("cipherState",cipher);
+            JSONArray checks = new JSONArray();
+            checks.put(check("REAL QX TICKS", cycles > 0));
+            checks.put(check("MEMORY STREAM OHLC", !memory.isEmpty()));
+            checks.put(check("VECTOR BUFFER", tape.size() >= 4));
+            checks.put(check("SOURCE TIMESTAMP", lastSourceTime > 0));
+            checks.put(check("LATENCY MEASURED", latencyMs >= 0));
+            checks.put(check("BRIDGE CIPHER", !"LOCKED".equals(cipher)));
+            o.put("scanChecklist",checks);
             JSONArray log = new JSONArray(); for(String e:events)log.put(e);
             o.put("eventLog",log);
         } catch(Exception ignored) {}
         return o;
+    }
+    private static JSONObject check(String name, boolean passed) {
+        JSONObject item = new JSONObject();
+        try { item.put("name",name); item.put("passed",passed); } catch(Exception ignored) {}
+        return item;
     }
     public synchronized long getCycles() { return cycles; }
     public synchronized int getMemoryCount() { return memory.size(); }
