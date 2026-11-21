@@ -174,6 +174,32 @@ public final class MainActivity extends Activity {
 
         web.setWebChromeClient(new WebChromeClient());
         web.setWebViewClient(new WebViewClient() {
+            @Override public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                try {
+                    Uri u = request.getUrl();
+                    String host = u == null ? "" : String.valueOf(u.getHost());
+                    // Observe request metadata only. Never capture credentials, cookies, bodies or query values.
+                    if (u != null && ("market-qx.trade".equals(host) || host.endsWith(".market-qx.trade"))) {
+                        diagnostics.onNetworkEvent("HTTP REQUEST " + request.getMethod() + " " +
+                            u.getScheme() + "://" + host + u.getPath());
+                    }
+                } catch (Throwable ignored) {}
+                return null;
+            }
+            @Override public void onReceivedHttpError(WebView view, WebResourceRequest request, WebResourceResponse response) {
+                try {
+                    Uri u = request.getUrl();
+                    String host = u == null ? "" : String.valueOf(u.getHost());
+                    if (u != null && ("market-qx.trade".equals(host) || host.endsWith(".market-qx.trade")))
+                        diagnostics.onNetworkEvent("HTTP RESPONSE " + response.getStatusCode() + " " +
+                            request.getMethod() + " " + u.getScheme() + "://" + host + u.getPath());
+                } catch (Throwable ignored) {}
+            }
+            @Override public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+                super.onPageStarted(view, url, favicon);
+                pageReady = false;
+                diagnostics.onConnection("PAGE START");
+            }
             @Override public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
                 pageReady = true;
@@ -184,6 +210,12 @@ public final class MainActivity extends Activity {
                 view.evaluateJavascript("window.DRUpdate && window.DRUpdate(" + snapshot().toString() + ")", null);
             }
             @Override public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
+                try {
+                    android.net.http.SslCertificate cert = error.getCertificate();
+                    diagnostics.onNetworkEvent("WEBVIEW TLS VALIDATION ERROR " + error.getPrimaryError() +
+                        " · host " + String.valueOf(error.getUrl()) +
+                        (cert == null ? "" : " · certificate " + cert.getIssuedTo().getCName()));
+                } catch (Throwable ignored) {}
                 handler.cancel();
                 Toast.makeText(MainActivity.this, "TLS validation failed. Secure connection blocked.", Toast.LENGTH_LONG).show();
             }
