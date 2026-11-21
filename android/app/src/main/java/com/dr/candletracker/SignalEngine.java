@@ -17,7 +17,6 @@ public final class SignalEngine {
     private final List<Pending> pendingSignals = new ArrayList<>();
     private final Map<String, Long> lastTimestampByAsset = new HashMap<>();
     private final Map<String, Long> issuedBucketByAsset = new HashMap<>();
-    private final Map<String, Long> intervalMsByAsset = new HashMap<>();
     private final Map<String, String> lastIssuedSignalByAsset = new HashMap<>();
     private final Map<String, Integer> signalCountByAsset = new HashMap<>();
     private String asset = "WAITING FOR QX", signal = "WAIT";
@@ -34,8 +33,7 @@ public final class SignalEngine {
     public synchronized void acceptTick(String symbol, double price, long timestamp, long chartPeriodSeconds) {
         if (symbol == null || !symbol.matches("[A-Za-z0-9_./-]{3,32}") ||
             !Double.isFinite(price) || price <= 0 || timestamp <= 0) return;
-        if (chartPeriodSeconds > 0 && chartPeriodSeconds <= 3600) intervalMsByAsset.putIfAbsent(symbol, chartPeriodSeconds * 1000L);
-        long intervalMs = intervalMsByAsset.containsKey(symbol) ? intervalMsByAsset.get(symbol) : 10_000L;
+        long intervalMs = CANDLE_MS;
         Long previous = lastTimestampByAsset.get(symbol);
         if (previous != null && timestamp < previous) return;
         lastTimestampByAsset.put(symbol, timestamp);
@@ -86,21 +84,12 @@ public final class SignalEngine {
     /** Import broker OHLC history only when it is explicitly a 10-second series. */
     public synchronized void acceptHistory(String symbol, long periodSeconds, JSONArray rows) {
         if (symbol == null || !symbol.matches("[A-Za-z0-9_./-]{3,32}") || rows == null) return;
-        if (periodSeconds < 1L || periodSeconds > 3600L) {
-            reason = "QX history period is unavailable or unsupported; waiting for genuine broker history.";
+        if (periodSeconds != 10L) {
+            reason = "Only genuine QX 10-second broker history is accepted; waiting for the 10-second series.";
             signal = "WAIT";
             return;
         }
-        long intervalMs = periodSeconds * 1000L;
-        Long previousInterval = intervalMsByAsset.put(symbol, intervalMs);
-        if (previousInterval != null && previousInterval.longValue() != intervalMs) {
-            for (int i = candles.size() - 1; i >= 0; i--)
-                if (candles.get(i).asset.equals(symbol)) candles.remove(i);
-            issuedBucketByAsset.remove(symbol);
-            lastTimestampByAsset.remove(symbol);
-            lastIssuedSignalByAsset.remove(symbol);
-            signalCountByAsset.put(symbol, 0);
-        }
+        long intervalMs = CANDLE_MS;
         List<Candle> imported = new ArrayList<>();
         for (int i = 0; i < rows.length(); i++) {
             try {
@@ -183,7 +172,7 @@ public final class SignalEngine {
     private Scan scan(String symbol, long currentBucket) {
         List<Candle> closed = new ArrayList<>();
         for (Candle c : candles) if (c.asset.equals(symbol) && c.bucket < currentBucket) closed.add(c);
-        long intervalMs = intervalMsByAsset.containsKey(symbol) ? intervalMsByAsset.get(symbol) : 10_000L;
+        long intervalMs = CANDLE_MS;
         List<Candle> history = new ArrayList<>(), live = new ArrayList<>();
         for (Candle candle : closed) {
             if (candle.historical) history.add(candle);
