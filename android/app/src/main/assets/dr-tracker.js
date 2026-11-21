@@ -110,7 +110,7 @@ async function consumeBinaryAttachment(raw){
  var fp=await sha256Hex(joined);
  if(opaque){log('QX BINARY EVENT '+eventName+' · '+packet.attachments.length+' attachment(s) · '+all.length+' bytes · opaque payload retained, schema required');return true;}
  jsonFrames++;log('QX BINARY EVENT DECODED '+eventName+' · '+packet.attachments.length+' attachment(s)');
- if(['quotes/stream','history/list/v2','history/load','chart_notification/get','candle-generated','loadHistoryPeriod'].includes(eventName))handleData(resolved,eventName,fp,joined.length);
+ if(['quotes/stream','history/list/v2','history/load','chart_notification/get','candle-generated','quotes/candle','loadHistoryPeriod'].includes(eventName))handleData(resolved,eventName,fp,joined.length);
  return true;
 }
 async function parseFrame(raw){
@@ -131,7 +131,7 @@ async function parseFrame(raw){
   if(text.charCodeAt(0)===4){text=text.slice(1);eventName='';}
   else if(text.startsWith('42'))text=text.slice(2);
   var o=JSON.parse(text);jsonFrames++;
-  if(Array.isArray(o)&&typeof o[0]==='string'){eventName=o[0];var data=o[1],a=assetOf(data);if(a&&/(asset|instrument|symbol|subscribe|stream|quote|change|price|tick|candle|market)/i.test(eventName)){activeAsset=a;log('MARKET EVENT '+eventName+' · '+a);}if(['quotes/stream','history/list/v2','history/load','chart_notification/get','candle-generated','loadHistoryPeriod'].includes(eventName))handleData(data,eventName,fp,bytes.length);else log('IGNORED NON-MARKET QX EVENT '+eventName);}
+  if(Array.isArray(o)&&typeof o[0]==='string'){eventName=o[0];var data=o[1],a=assetOf(data);if(a&&/(asset|instrument|symbol|subscribe|stream|quote|change|price|tick|candle|market)/i.test(eventName)){activeAsset=a;log('MARKET EVENT '+eventName+' · '+a);}if(['quotes/stream','history/list/v2','history/load','chart_notification/get','candle-generated','quotes/candle','loadHistoryPeriod'].includes(eventName))handleData(data,eventName,fp,bytes.length);else log('IGNORED NON-MARKET QX EVENT '+eventName);}
   else handleData(o,eventName,fp,bytes.length);
   backend.fingerprint=fp;
  }catch(e){log('QX FRAME PARSE '+(e&&e.message||e));}
