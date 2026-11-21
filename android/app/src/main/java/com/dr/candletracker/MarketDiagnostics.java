@@ -108,6 +108,8 @@ public final class MarketDiagnostics {
     public synchronized long getCycles() { return cycles; }
     public synchronized int getMemoryCount() { return memory.size(); }
     public synchronized long getLatencyMs() { return latencyMs; }
+    public synchronized double getVectorMagnitude() { return vectorMagnitude; }
+    public synchronized double getLatestMemoryHigh() { return memory.isEmpty() ? Double.NaN : memory.get(memory.size()-1).high; }
 
     private static final class MemoryCandle {
         final String asset; final long bucket; final double open; double high,low,close;
