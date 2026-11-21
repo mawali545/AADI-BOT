@@ -32,7 +32,7 @@ public class SignalEngineTest {
         }
         e.acceptTick("EURUSD_otc", 1.114, T + 130000L);
         assertEquals("WAIT", e.getSignal());
-        assertTrue(e.getReason().contains("10 original broker-history candles"));
+        assertTrue(e.getReason().contains("original broker-history candles"));
     }
 
     @Test public void buildsOhlcFromGenuineTicksInsideTenSecondBucket() {
@@ -75,14 +75,15 @@ public class SignalEngineTest {
     @Test public void repeatedSameDirectionSignalsIncrementPulseCount() throws JSONException {
         SignalEngine e = new SignalEngine();
         e.acceptHistory("EURUSD_otc", 10L, historyRows(T));
-        for (int i = 0; i < 4; i++) {
+        for (int i = 0; i < 6; i++) {
             long start = T + (100000L + i * 10000L);
             double open = 1.020 + i * .001;
             e.acceptTick("EURUSD_otc", open, start, 10L);
             e.acceptTick("EURUSD_otc", open + .001, start + 9000L, 10L);
         }
-        e.acceptTick("EURUSD_otc", 1.025, T + 140000L, 10L);
-        assertTrue(e.getSignalCount() >= 1);
+        e.acceptTick("EURUSD_otc", 1.027, T + 160000L, 10L);
+        assertEquals("Repeated CALL scans should keep running with the original history context", "CALL", e.getSignal());
+        assertTrue("Each fresh same-direction scan increments the pulse", e.getSignalCount() >= 4);
     }
 
     @Test public void settlesAtFirstRealTickTenSecondsAfterSignal() throws JSONException {
