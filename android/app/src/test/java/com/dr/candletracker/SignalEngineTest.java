@@ -8,66 +8,59 @@ import static org.junit.Assert.*;
 public class SignalEngineTest {
     private static final long T = 1800000000000L;
 
-    @Test public void waitsForTenHistoryAndThreeRecentCompletedCandles() throws JSONException {
+    @Test public void fiveGenuineSixtySecondHistoryCandlesArmSignals() throws JSONException {
         SignalEngine e = new SignalEngine();
-        e.acceptHistory("EURUSD_otc", 10L, historyRows(T));
-        for (int i = 0; i < 2; i++) {
-            long start = T + (100000L + i * 10000L);
-            e.acceptTick("EURUSD_otc", 1.020 + i * .001, start);
-            e.acceptTick("EURUSD_otc", 1.021 + i * .001, start + 9000);
-        }
-        e.acceptTick("EURUSD_otc", 1.023, T + 120000L);
-        assertEquals("WAIT", e.getSignal());
-        e.acceptTick("EURUSD_otc", 1.024, T + 130000L);
-        assertEquals("CALL", e.getSignal());
+        e.acceptHistory("EURUSD_otc", 60L, historyRows(T, 5, 60000L));
+        assertTrue(e.getReason().contains("5 original QX 60-second"));
+        e.acceptTick("EURUSD_otc", 1.016, T + 300000L, 60L);
+        assertEquals("Five real broker candles are sufficient to start signal analysis", "CALL", e.getSignal());
     }
 
-    @Test public void acceptsQxBridgeObjectHistoryAndProducesSignal() throws JSONException {
+    @Test public void rejectsTenSecondHistoryAndDoesNotFabricateBrokerCandles() throws JSONException {
         SignalEngine e = new SignalEngine();
-        JSONArray rows = new JSONArray();
-        for (int i = 0; i < 10; i++) {
-            double open = 1.010 + i * .001, close = open + .001;
-            org.json.JSONObject row = new org.json.JSONObject();
-            row.put("time", T + i * 10000L);
-            row.put("open", open);
-            row.put("close", close);
-            row.put("high", close);
-            row.put("low", open);
-            rows.put(row);
+        e.acceptHistory("EURUSD_otc", 10L, historyRows(T, 5, 10000L));
+        assertTrue(e.getReason().contains("Only genuine QX 60-second broker history"));
+        for (int i = 0; i < 8; i++) {
+            long ts = T + i * 60000L;
+            e.acceptTick("EURUSD_otc", 1.1 + i * .001, ts, 60L);
         }
-        e.acceptHistory("EURUSD_otc", 10L, rows);
-        for (int i = 0; i < 3; i++) {
-            long start = T + (100000L + i * 10000L);
-            double open = 1.020 + i * .001;
-            e.acceptTick("EURUSD_otc", open, start, 10L);
-            e.acceptTick("EURUSD_otc", open + .001, start + 9000L, 10L);
-        }
-        e.acceptTick("EURUSD_otc", 1.024, T + 130000L, 10L);
-        assertEquals("QX object-format broker history must arm the existing signal engine", "CALL", e.getSignal());
-    }
-
-    @Test public void liveOnlyCandlesCannotReplaceTheTenBrokerHistoryCandles() {
-        SignalEngine e = new SignalEngine();
-        for (int i = 0; i < 13; i++) {
-            long start = T + i * 10000L;
-            double open = 1.100 + i * .001;
-            e.acceptTick("EURUSD_otc", open, start);
-            e.acceptTick("EURUSD_otc", open + .001, start + 9000L);
-        }
-        e.acceptTick("EURUSD_otc", 1.114, T + 130000L);
         assertEquals("WAIT", e.getSignal());
         assertTrue(e.getReason().contains("original broker-history candles"));
     }
 
-    @Test public void buildsOhlcFromGenuineTicksInsideTenSecondBucket() {
+    @Test public void liveTicksAreBucketedIntoRealSixtySecondWindows() {
         SignalEngine e = new SignalEngine();
-        e.acceptTick("EURUSD_otc", 1.1000, T);
-        e.acceptTick("EURUSD_otc", 1.1005, T + 1000);
-        e.acceptTick("EURUSD_otc", 1.0995, T + 9000);
-        assertEquals(1.1000, e.getOpen(), 0.0000001);
-        assertEquals(1.1005, e.getHigh(), 0.0000001);
-        assertEquals(1.0995, e.getLow(), 0.0000001);
-        assertEquals(1.0995, e.getClose(), 0.0000001);
+        e.acceptTick("EURUSD_otc", 1.1000, T, 10L);
+        e.acceptTick("EURUSD_otc", 1.1005, T + 59000L, 10L);
+        assertEquals(1, e.getCandleCount());
+        e.acceptTick("EURUSD_otc", 1.1010, T + 60000L, 10L);
+        assertEquals("Chart metadata cannot change the required 60-second signal window", 2, e.getCandleCount());
+    }
+
+    @Test public void signalsContinueAfterInitialFiveHistoryCandles() throws JSONException {
+        SignalEngine e = new SignalEngine();
+        e.acceptHistory("EURUSD_otc", 60L, historyRows(T, 5, 60000L));
+        e.acceptTick("EURUSD_otc", 1.016, T + 300000L, 60L);
+        assertEquals("CALL", e.getSignal());
+        e.acceptTick("EURUSD_otc", 1.017, T + 360000L, 60L);
+        assertTrue("Once five history candles arm the engine, it continues scanning live market data",
+            !"Collecting original broker-history candles (0/5).".equals(e.getReason()));
+    }
+
+    @Test public void acceptsQxObjectFormatSixtySecondHistory() throws JSONException {
+        SignalEngine e = new SignalEngine();
+        JSONArray rows = new JSONArray();
+        for (int i = 0; i < 5; i++) {
+            double open = 1.010 + i * .001, close = open + .001;
+            org.json.JSONObject row = new org.json.JSONObject();
+            row.put("time", T + i * 60000L);
+            row.put("open", open); row.put("close", close);
+            row.put("high", close); row.put("low", open);
+            rows.put(row);
+        }
+        e.acceptHistory("EURUSD_otc", 60L, rows);
+        e.acceptTick("EURUSD_otc", 1.016, T + 300000L, 60L);
+        assertEquals("QX object-format 60-second history must arm signals", "CALL", e.getSignal());
     }
 
     @Test public void ignoresOlderTicksAndRejectsInvalidInputs() {
@@ -82,73 +75,18 @@ public class SignalEngineTest {
         assertEquals(1, e.getCandleCount());
     }
 
-    @Test public void rejectsSixtySecondHistoryButKeepsLiveCandlesFixedAtTenSeconds() throws JSONException {
+    @Test public void settlesSignalAtExistingTenSecondEvaluationWindow() throws JSONException {
         SignalEngine e = new SignalEngine();
-        e.acceptHistory("EURUSD_otc", 60L, historyRows(T, 60000L));
-        assertTrue(e.getReason().contains("Only genuine QX 10-second broker history"));
-        e.acceptTick("EURUSD_otc", 1.1000, T + 1000L, 60L);
-        e.acceptTick("EURUSD_otc", 1.1005, T + 11000L, 60L);
-        assertEquals("60-second chart metadata must not widen live candle buckets", 2, e.getCandleCount());
-        assertEquals("WAIT", e.getSignal());
-    }
-
-    @Test public void repeatedSameDirectionSignalsIncrementPulseCount() throws JSONException {
-        SignalEngine e = new SignalEngine();
-        e.acceptHistory("EURUSD_otc", 10L, historyRows(T));
-        for (int i = 0; i < 6; i++) {
-            long start = T + (100000L + i * 10000L);
-            double open = 1.020 + i * .001;
-            e.acceptTick("EURUSD_otc", open, start, 10L);
-            e.acceptTick("EURUSD_otc", open + .001, start + 9000L, 10L);
-        }
-        e.acceptTick("EURUSD_otc", 1.027, T + 160000L, 10L);
-        assertEquals("Repeated CALL scans should keep running with the original history context", "CALL", e.getSignal());
-        assertTrue("Each fresh same-direction scan increments the pulse", e.getSignalCount() >= 4);
-    }
-
-    @Test public void settlesAtFirstRealTickTenSecondsAfterSignal() throws JSONException {
-        SignalEngine e = primedCall();
+        e.acceptHistory("EURUSD_otc", 60L, historyRows(T, 5, 60000L));
+        e.acceptTick("EURUSD_otc", 1.016, T + 300000L, 60L);
         assertEquals("CALL", e.getSignal());
-        e.acceptTick("EURUSD_otc", 1.030, T + 139999L);
-        assertEquals(0, e.getWins());
-        e.acceptTick("EURUSD_otc", 1.031, T + 140000L);
+        e.acceptTick("EURUSD_otc", 1.017, T + 310000L, 60L);
         assertEquals(1, e.getWins());
     }
 
-    @Test public void oppositeMovementAfterTenSecondsIsLoss() throws JSONException {
-        SignalEngine e = primedCall();
-        e.acceptTick("EURUSD_otc", 1.020, T + 140000L);
-        assertEquals(1, e.getLosses());
-        assertEquals(0, e.getWins());
-    }
-
-    @Test public void unchangedPriceAfterTenSecondsIsTie() throws JSONException {
-        SignalEngine e = primedCall();
-        e.acceptTick("EURUSD_otc", 1.024, T + 140000L);
-        assertEquals(1, e.getTies());
-        assertEquals(0, e.getWins());
-        assertEquals(0, e.getLosses());
-    }
-
-    private SignalEngine primedCall() throws JSONException {
-        SignalEngine e = new SignalEngine();
-        e.acceptHistory("EURUSD_otc", 10L, historyRows(T));
-        for (int i = 0; i < 3; i++) {
-            long start = T + (100000L + i * 10000L);
-            double open = 1.020 + i * .001;
-            e.acceptTick("EURUSD_otc", open, start);
-            e.acceptTick("EURUSD_otc", open + .001, start + 9000L);
-        }
-        e.acceptTick("EURUSD_otc", 1.024, T + 130000L);
-        assertEquals("13 consecutive genuine completed candles should arm CALL", "CALL", e.getSignal());
-        return e;
-    }
-
-    private JSONArray historyRows(long start) throws JSONException { return historyRows(start, 10000L); }
-
-    private JSONArray historyRows(long start, long interval) throws JSONException {
+    private JSONArray historyRows(long start, int count, long interval) throws JSONException {
         JSONArray rows = new JSONArray();
-        for (int i = 0; i < 10; i++) {
+        for (int i = 0; i < count; i++) {
             double open = 1.010 + i * .001, close = open + .001;
             JSONArray row = new JSONArray();
             row.put(start + i * interval).put(open).put(close).put(close).put(open);
