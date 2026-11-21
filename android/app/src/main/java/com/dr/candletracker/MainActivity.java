@@ -123,7 +123,8 @@ public final class MainActivity extends Activity {
                                 final int observedFrameBytes = frameBytes;
                                 if ("history".equals(type)) {
                                     if (!("history/list/v2".equals(source) || "history/load".equals(source) ||
-                                        "chart_notification/get".equals(source) || "loadHistoryPeriod".equals(source))) return;
+                                        "chart_notification/get".equals(source) || "loadHistoryPeriod".equals(source) ||
+                                        "candle-generated".equals(source) || "quotes/candle".equals(source))) return;
                                     org.json.JSONArray candles = tick.optJSONArray("candles");
                                     if (candles == null || candles.length() == 0) return;
                                     runOnUiThread(() -> {
@@ -138,7 +139,7 @@ public final class MainActivity extends Activity {
                                 }
                                 double price = tick.optDouble("price", Double.NaN);
                                 long stamp = tick.optLong("timestamp", 0);
-                                if (!"tick".equals(type) || !("quotes/stream".equals(source) || "candle-generated".equals(source)) ||
+                                if (!"tick".equals(type) || !"quotes/stream".equals(source) ||
                                     !Double.isFinite(price) || price <= 0 || price >= 1e12 || stamp <= 0) return;
                                 final long tickTime = stamp;
                                 runOnUiThread(() -> {
