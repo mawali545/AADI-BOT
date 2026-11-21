@@ -82,18 +82,14 @@ public class SignalEngineTest {
         assertEquals(1, e.getCandleCount());
     }
 
-    @Test public void acceptsSixtySecondBrokerHistoryAndBuildsSixtySecondLiveCandles() throws JSONException {
+    @Test public void rejectsSixtySecondHistoryButKeepsLiveCandlesFixedAtTenSeconds() throws JSONException {
         SignalEngine e = new SignalEngine();
         e.acceptHistory("EURUSD_otc", 60L, historyRows(T, 60000L));
-        for (int i = 0; i < 3; i++) {
-            long start = T + (600000L + i * 60000L);
-            double open = 1.020 + i * .001;
-            e.acceptTick("EURUSD_otc", open, start, 60L);
-            e.acceptTick("EURUSD_otc", open + .001, start + 59000L, 60L);
-        }
-        e.acceptTick("EURUSD_otc", 1.024, T + 780000L, 60L);
-        assertEquals("CALL", e.getSignal());
-        assertEquals(1, e.getSignalCount());
+        assertTrue(e.getReason().contains("Only genuine QX 10-second broker history"));
+        e.acceptTick("EURUSD_otc", 1.1000, T + 1000L, 60L);
+        e.acceptTick("EURUSD_otc", 1.1005, T + 11000L, 60L);
+        assertEquals("60-second chart metadata must not widen live candle buckets", 2, e.getCandleCount());
+        assertEquals("WAIT", e.getSignal());
     }
 
     @Test public void repeatedSameDirectionSignalsIncrementPulseCount() throws JSONException {
