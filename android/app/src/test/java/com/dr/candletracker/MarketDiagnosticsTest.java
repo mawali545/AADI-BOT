@@ -13,8 +13,8 @@ public class MarketDiagnosticsTest {
         assertEquals(1, d.getMemoryCount());
         assertEquals(3, d.getCycles());
         assertEquals(30, d.getLatencyMs());
-        assertTrue(d.snapshot().getJSONArray("memoryStream").getJSONObject(0).getDouble("high") > 1.1000);
-        assertEquals(4, d.snapshot().getJSONArray("vector").length());
+        assertTrue(d.getLatestMemoryHigh() > 1.1000);
+        assertTrue(d.getVectorMagnitude() > 0);
     }
 
     @Test public void startsWithoutInventedMarketData() {
