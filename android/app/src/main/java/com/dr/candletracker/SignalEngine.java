@@ -168,25 +168,31 @@ public final class SignalEngine {
     private Scan scan(String symbol, long currentBucket) {
         List<Candle> closed = new ArrayList<>();
         for (Candle c : candles) if (c.asset.equals(symbol) && c.bucket < currentBucket) closed.add(c);
-        int n = closed.size();
-        final int requiredCandles = 13; // 10 genuine broker-history candles + 3 completed live candles.
         long intervalMs = intervalMsByAsset.containsKey(symbol) ? intervalMsByAsset.get(symbol) : 10_000L;
-        if (n < requiredCandles)
-            return new Scan("WAIT", "Collecting genuine completed 10-second candles (" + n + "/13: 10 history + 3 recent).");
-        int start = n - requiredCandles;
-        for (int i = 0; i < 10; i++) {
-            if (!closed.get(start + i).historical)
-                return new Scan("WAIT", "Waiting for 10 original broker-history candles before the 3 latest completed live candles.");
+        List<Candle> history = new ArrayList<>(), live = new ArrayList<>();
+        for (Candle candle : closed) {
+            if (candle.historical) history.add(candle);
+            else live.add(candle);
         }
-        for (int i = 10; i < 13; i++) {
-            if (closed.get(start + i).historical)
-                return new Scan("WAIT", "Waiting for 3 newly completed genuine live candles after the 10 history candles.");
-        }
-        for (int i = start + 1; i < n; i++) {
-            if (closed.get(i).bucket - closed.get(i - 1).bucket != intervalMs)
-                return new Scan("WAIT", "A gap exists in the genuine 10-second candle history; waiting for 10 history + 3 consecutive live candles.");
-        }
-        List<Candle> recent = closed.subList(start, n);
+        if (history.size() < 10)
+            return new Scan("WAIT", "Collecting original broker-history candles (" + history.size() + "/10).");
+        List<Candle> historyWindow = history.subList(history.size() - 10, history.size());
+        Candle lastHistory = historyWindow.get(historyWindow.size() - 1);
+        List<Candle> liveAfterHistory = new ArrayList<>();
+        for (Candle candle : live) if (candle.bucket > lastHistory.bucket) liveAfterHistory.add(candle);
+        if (liveAfterHistory.size() < 3)
+            return new Scan("WAIT", "Collecting 3 completed genuine live candles after the 10 broker-history candles (" + liveAfterHistory.size() + "/3).");
+        List<Candle> liveWindow = liveAfterHistory.subList(liveAfterHistory.size() - 3, liveAfterHistory.size());
+        for (int i = 1; i < historyWindow.size(); i++)
+            if (historyWindow.get(i).bucket - historyWindow.get(i - 1).bucket != intervalMs)
+                return new Scan("WAIT", "Broker history has a genuine candle gap; waiting for a consecutive 10-candle history window.");
+        if (liveWindow.get(0).bucket - lastHistory.bucket != intervalMs)
+            return new Scan("WAIT", "Live QX candles do not continue directly after broker history; waiting for a continuous feed.");
+        for (int i = 1; i < liveWindow.size(); i++)
+            if (liveWindow.get(i).bucket - liveWindow.get(i - 1).bucket != intervalMs)
+                return new Scan("WAIT", "A gap exists in the latest genuine live candles; waiting for 3 consecutive candles.");
+        List<Candle> recent = new ArrayList<>(historyWindow);
+        recent.addAll(liveWindow);
         Candle last = recent.get(recent.size()-1), first = recent.get(0);
         double range = Math.max(last.high-last.low, Math.max(Math.abs(last.close)*1e-10, 1e-12));
         double body = (last.close-last.open)/range;
