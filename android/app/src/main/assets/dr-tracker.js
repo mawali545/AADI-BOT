@@ -22,11 +22,27 @@ var binaryPackets=[],httpEvents=0;
 function safeUrl(value){try{var u=new URL(String(value),location.href);return u.origin+u.pathname;}catch(_){return '[unavailable]';}}
 function binaryBytes(value){if(value instanceof ArrayBuffer)return new Uint8Array(value);if(ArrayBuffer.isView(value))return new Uint8Array(value.buffer,value.byteOffset,value.byteLength);return null;}
 async function fingerprintBytes(parts){var total=0;parts.forEach(function(p){total+=p.byteLength;});var joined=new Uint8Array(total),offset=0;parts.forEach(function(p){joined.set(p,offset);offset+=p.byteLength;});var digest=await crypto.subtle.digest('SHA-256',joined);return{hash:Array.from(new Uint8Array(digest)).map(x=>x.toString(16).padStart(2,'0')).join(''),size:total};}
-function replaceBinaryPlaceholders(value,attachments){if(!value||typeof value!=='object')return value;if(Array.isArray(value))return value.map(x=>replaceBinaryPlaceholders(x,attachments));if(value._placeholder===true&&Number.isInteger(value.num)){var a=attachments[value.num];return a?{__qxBinaryAttachment:true,byteLength:a.byteLength}:value;}var out={};Object.keys(value).forEach(function(k){out[k]=replaceBinaryPlaceholders(value[k],attachments);});return out;}
+function inspectAttachment(buffer,index){
+ var bytes=binaryBytes(buffer);if(!bytes)return{index:index,kind:'UNAVAILABLE'};
+ var out={__qxBinaryAttachment:true,index:index,byteLength:bytes.byteLength,base64:b64(bytes.buffer),hex:Array.from(bytes.slice(0,64)).map(x=>x.toString(16).padStart(2,'0')).join('')};
+ try{
+  var decoder=new TextDecoder('utf-8',{fatal:true}),decoded=decoder.decode(bytes),trimmed=decoded.trim();
+  if(trimmed&&(/^[{[]/.test(trimmed))){try{out.decodedJson=JSON.parse(trimmed);out.decode='UTF8_JSON';}catch(_){out.decode='UTF8_TEXT_NOT_JSON';out.utf8=decoded.slice(0,4096);}}
+  else if(trimmed&&/^[\\x20-\\x7e\\r\\n\\t]+$/.test(trimmed)){out.decode='UTF8_TEXT';out.utf8=decoded.slice(0,4096);}
+  else out.decode='BINARY_OPAQUE';
+ }catch(_){out.decode='NON_UTF8_BINARY_OPAQUE';}
+ return out;
+}
+function replaceBinaryPlaceholders(value,attachments){
+ if(!value||typeof value!=='object')return value;
+ if(Array.isArray(value))return value.map(x=>replaceBinaryPlaceholders(x,attachments));
+ if(value._placeholder===true&&Number.isInteger(value.num)){var a=attachments[value.num];return a?inspectAttachment(a,value.num):value;}
+ var out={};Object.keys(value).forEach(function(k){out[k]=replaceBinaryPlaceholders(value[k],attachments);});return out;
+}
 async function dispatchPacket(packet,attachments){
  var rawParts=[packet.headerBytes].concat(attachments.map(binaryBytes).filter(Boolean)),meta=await fingerprintBytes(rawParts);
  var data=packet.data,eventName=packet.eventName;
- if(data&&typeof data==='object')data=replaceBinaryPlaceholders(data,attachments);
+ if(data&&typeof data==='object'){data=replaceBinaryPlaceholders(data,attachments);var decoded=[];(function scan(v,d){if(d>10||!v||typeof v!=='object')return;if(v.__qxBinaryAttachment){if(v.decodedJson!==undefined)decoded.push(v.decodedJson);else log('QX ATTACHMENT '+v.index+' · '+v.decode+' · '+v.byteLength+' bytes · hex '+v.hex);}else if(Array.isArray(v))v.forEach(x=>scan(x,d+1));else Object.keys(v).forEach(k=>scan(v[k],d+1));})(data,0);if(decoded.length){data={socketEventData:data,decodedAttachments:decoded};log('QX BINARY ATTACHMENT UTF-8 JSON DECODED · '+decoded.length+' item(s)');}}
  log('SOCKET.IO '+(packet.binary?'BINARY':'TEXT')+' EVENT '+eventName+' · attachments '+attachments.length+' · '+meta.size+' bytes');
  if(eventName==='quotes/stream'||eventName==='history/list/v2'||eventName==='history/load'||eventName==='chart_notification/get'||eventName==='candle-generated'||eventName==='loadHistoryPeriod')handleData(data,eventName,meta.hash,meta.size);
  backend.fingerprint=meta.hash;
