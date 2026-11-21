@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Map;
 import org.json.JSONArray;
 import org.json.JSONException;
+import org.json.JSONObject;
 
 /** Background next-candle engine. It consumes validated live ticks only. */
 public final class SignalEngine {
@@ -79,12 +80,22 @@ public final class SignalEngine {
         for (int i = 0; i < rows.length(); i++) {
             try {
                 JSONArray row = rows.optJSONArray(i);
-                if (row == null || row.length() < 5) continue;
-                double rawTime = row.getDouble(0);
+                JSONObject objectRow = rows.optJSONObject(i);
+                if ((row == null || row.length() < 5) && objectRow == null) continue;
+                double rawTime, open, close, high, low;
+                if (row != null) {
+                    rawTime = row.getDouble(0);
+                    open = row.getDouble(1); close = row.getDouble(2);
+                    high = row.getDouble(3); low = row.getDouble(4);
+                } else {
+                    rawTime = objectRow.optDouble("time", objectRow.optDouble("timestamp", objectRow.optDouble("ts", 0)));
+                    open = objectRow.optDouble("open", objectRow.optDouble("o", Double.NaN));
+                    close = objectRow.optDouble("close", objectRow.optDouble("c", Double.NaN));
+                    high = objectRow.optDouble("high", objectRow.optDouble("h", Double.NaN));
+                    low = objectRow.optDouble("low", objectRow.optDouble("l", Double.NaN));
+                }
                 long time = (long) rawTime;
                 if (time > 0 && time < 100000000000L) time *= 1000L;
-                double open = row.getDouble(1), close = row.getDouble(2);
-                double high = row.getDouble(3), low = row.getDouble(4);
                 if (time <= 0 || !Double.isFinite(open) || !Double.isFinite(close) ||
                     !Double.isFinite(high) || !Double.isFinite(low) || open <= 0 || close <= 0 ||
                     high < Math.max(open, close) || low > Math.min(open, close) || low <= 0) continue;
