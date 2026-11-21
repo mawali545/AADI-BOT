@@ -58,11 +58,31 @@ public class SignalEngineTest {
         assertEquals(1, e.getCandleCount());
     }
 
-    @Test public void refusesHistoryThatIsNotTenSecondQxSeries() throws JSONException {
+    @Test public void acceptsSixtySecondBrokerHistoryAndBuildsSixtySecondLiveCandles() throws JSONException {
         SignalEngine e = new SignalEngine();
-        e.acceptHistory("EURUSD_otc", 60L, historyRows(T));
-        assertEquals("WAIT", e.getSignal());
-        assertTrue(e.getReason().contains("60s"));
+        e.acceptHistory("EURUSD_otc", 60L, historyRows(T, 60000L));
+        for (int i = 0; i < 3; i++) {
+            long start = T + (600000L + i * 60000L);
+            double open = 1.020 + i * .001;
+            e.acceptTick("EURUSD_otc", open, start, 60L);
+            e.acceptTick("EURUSD_otc", open + .001, start + 59000L, 60L);
+        }
+        e.acceptTick("EURUSD_otc", 1.024, T + 780000L, 60L);
+        assertEquals("CALL", e.getSignal());
+        assertEquals(1, e.getSignalCount());
+    }
+
+    @Test public void repeatedSameDirectionSignalsIncrementPulseCount() throws JSONException {
+        SignalEngine e = new SignalEngine();
+        e.acceptHistory("EURUSD_otc", 10L, historyRows(T));
+        for (int i = 0; i < 4; i++) {
+            long start = T + (100000L + i * 10000L);
+            double open = 1.020 + i * .001;
+            e.acceptTick("EURUSD_otc", open, start, 10L);
+            e.acceptTick("EURUSD_otc", open + .001, start + 9000L, 10L);
+        }
+        e.acceptTick("EURUSD_otc", 1.025, T + 140000L, 10L);
+        assertTrue(e.getSignalCount() >= 1);
     }
 
     @Test public void settlesAtFirstRealTickTenSecondsAfterSignal() throws JSONException {
@@ -103,12 +123,14 @@ public class SignalEngineTest {
         return e;
     }
 
-    private JSONArray historyRows(long start) throws JSONException {
+    private JSONArray historyRows(long start) throws JSONException { return historyRows(start, 10000L); }
+
+    private JSONArray historyRows(long start, long interval) throws JSONException {
         JSONArray rows = new JSONArray();
         for (int i = 0; i < 10; i++) {
             double open = 1.010 + i * .001, close = open + .001;
             JSONArray row = new JSONArray();
-            row.put(start + i * 10000L).put(open).put(close).put(close).put(open);
+            row.put(start + i * interval).put(open).put(close).put(close).put(open);
             rows.put(row);
         }
         return rows;
