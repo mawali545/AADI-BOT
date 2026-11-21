@@ -23,57 +23,55 @@ public final class SignalEngine {
     private long lastTimestamp;
     private double lastPrice = Double.NaN;
 
+    /** Accept genuine QX quote ticks for live tape and settlement only. Never synthesize OHLC. */
     public synchronized void acceptTick(String symbol, double price, long timestamp) {
         acceptTick(symbol, price, timestamp, 10L);
     }
 
-    /** Build fixed 10-second candles from genuine QX quote ticks, regardless of chart timeframe. */
     public synchronized void acceptTick(String symbol, double price, long timestamp, long ignoredChartPeriodSeconds) {
         if (symbol == null || !symbol.matches("[A-Za-z0-9_./-]{3,32}") ||
             !Double.isFinite(price) || price <= 0 || timestamp <= 0) return;
         Long previous = lastTimestampByAsset.get(symbol);
         if (previous != null && timestamp < previous) return;
         lastTimestampByAsset.put(symbol, timestamp);
-        long bucket = timestamp / CANDLE_MS * CANDLE_MS;
-        Candle current = lastCandle(symbol);
-        if (current != null && bucket < current.bucket) return;
-        if (current == null || bucket > current.bucket) {
-            current = new Candle(symbol, bucket, price);
-            candles.add(current);
-            if (candles.size() > MAX_CANDLES) candles.remove(0);
-            if (!symbol.equals(asset)) {
-                asset = symbol; signal = "WAIT";
-                reason = "Scanning real 10-second QX candles for " + symbol;
-            }
-        }
-        current.update(price);
         lastTimestamp = timestamp;
         lastPrice = price;
         tape.add(new Tick(symbol, price));
         if (tape.size() > MAX_TICKS) tape.remove(0);
 
-        // Settle at the first genuine quote tick at/after 10 seconds from signal time.
-        // This is a time-based expiry, not "wait for the next candle to close".
+        // Live quotes settle signals only. OHLC is accepted exclusively from QX candle/history events.
         settleDueSignals(symbol, price, timestamp);
-
+        if (!symbol.equals(asset)) {
+            asset = symbol;
+            signal = "WAIT";
+            reason = "Waiting for original QX 10-second candle history for " + symbol + ".";
+        }
+        long liveBucket = timestamp / CANDLE_MS * CANDLE_MS;
+        Candle newest = lastCandle(symbol);
+        if (newest == null || newest.bucket >= liveBucket) {
+            signal = "WAIT";
+            reason = newest == null
+                ? "No original QX 10-second candles received; synthetic candles are disabled."
+                : "Waiting for the next QX candle interval to begin.";
+            return;
+        }
         Long issued = issuedBucketByAsset.get(symbol);
-        if (issued == null || issued.longValue() != bucket) {
-            Scan scan = scan(symbol, bucket);
+        if (issued == null || issued.longValue() != liveBucket) {
+            Scan scan = scan(symbol, liveBucket);
             signal = scan.signal;
             reason = scan.reason;
             if (!"WAIT".equals(scan.signal)) {
-                // Save the exact signal tick price/time; evaluate its direction after 10 seconds.
                 pendingSignals.add(new Pending(symbol, scan.signal, price, timestamp + CANDLE_MS));
-                issuedBucketByAsset.put(symbol, bucket);
+                issuedBucketByAsset.put(symbol, liveBucket);
             }
         }
     }
 
-    /** Import broker OHLC history only when it is explicitly a 10-second series. */
+    /** Import original broker OHLC only. Tick aggregation is deliberately disabled. */
     public synchronized void acceptHistory(String symbol, long periodSeconds, JSONArray rows) {
         if (symbol == null || !symbol.matches("[A-Za-z0-9_./-]{3,32}") || rows == null) return;
         if (periodSeconds != 10L) {
-            reason = "QX history is " + periodSeconds + "s; building accurate 10-second candles from live ticks.";
+            reason = "QX supplied " + periodSeconds + "s candles; original 10-second QX candles are required. No synthetic OHLC.";
             signal = "WAIT";
             return;
         }
@@ -96,15 +94,22 @@ public final class SignalEngine {
         }
         if (imported.isEmpty()) return;
         imported.sort((a, b) -> Long.compare(a.bucket, b.bucket));
-        for (int i = candles.size() - 1; i >= 0; i--)
-            if (candles.get(i).asset.equals(symbol)) candles.remove(i);
-        for (Candle candle : imported) {
-            Candle last = lastCandle(symbol);
-            if (last == null || last.bucket != candle.bucket) candles.add(candle);
+        for (Candle incoming : imported) {
+            boolean replaced = false;
+            for (int i = 0; i < candles.size(); i++) {
+                Candle existing = candles.get(i);
+                if (existing.asset.equals(symbol) && existing.bucket == incoming.bucket) {
+                    candles.set(i, incoming);
+                    replaced = true;
+                    break;
+                }
+            }
+            if (!replaced) candles.add(incoming);
         }
+        candles.sort((a, b) -> Long.compare(a.bucket, b.bucket));
         while (candles.size() > MAX_CANDLES) candles.remove(0);
         asset = symbol;
-        reason = "Loaded " + imported.size() + " original QX 10-second OHLC candles; waiting for live quote.";
+        reason = "Received " + imported.size() + " original QX 10-second OHLC candle(s); awaiting live quote.";
         signal = "WAIT";
     }
 
