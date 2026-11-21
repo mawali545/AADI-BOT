@@ -1,124 +1,139 @@
 package com.dr.candletracker;
 
+import org.json.JSONArray;
+import org.json.JSONException;
 import org.junit.Test;
 import static org.junit.Assert.*;
 
 public class SignalEngineTest {
-    @Test public void waitsUntilThreeRealTenSecondCandlesAreCompleted() {
-        SignalEngine e = new SignalEngine(); long t = 1800000000000L;
-        e.acceptTick("EURUSD_otc", 1.1000, t);
-        e.acceptTick("EURUSD_otc", 1.1002, t + 1000);
+    private static final long T = 1800000000000L;
+
+    @Test public void waitsForTenHistoryAndThreeRecentCompletedCandles() throws JSONException {
+        SignalEngine e = new SignalEngine();
+        e.acceptHistory("EURUSD_otc", 10L, historyRows(T));
+        for (int i = 0; i < 2; i++) {
+            long start = T + (100000L + i * 10000L);
+            e.acceptTick("EURUSD_otc", 1.020 + i * .001, start);
+            e.acceptTick("EURUSD_otc", 1.021 + i * .001, start + 9000);
+        }
+        e.acceptTick("EURUSD_otc", 1.023, T + 120000L);
         assertEquals("WAIT", e.getSignal());
-        assertEquals(1, e.getCandleCount());
+        e.acceptTick("EURUSD_otc", 1.024, T + 130000L);
+        assertEquals("CALL", e.getSignal());
     }
 
-    @Test public void buildsOhlcFromTicksInsideTenSecondBucket() {
-        SignalEngine e = new SignalEngine(); long t = 1800000000000L;
-        e.acceptTick("EURUSD_otc", 1.1000, t);
-        e.acceptTick("EURUSD_otc", 1.1005, t + 1000);
-        e.acceptTick("EURUSD_otc", 1.0995, t + 9000);
+    @Test public void liveOnlyCandlesCannotReplaceTheTenBrokerHistoryCandles() {
+        SignalEngine e = new SignalEngine();
+        for (int i = 0; i < 13; i++) {
+            long start = T + i * 10000L;
+            double open = 1.100 + i * .001;
+            e.acceptTick("EURUSD_otc", open, start);
+            e.acceptTick("EURUSD_otc", open + .001, start + 9000L);
+        }
+        e.acceptTick("EURUSD_otc", 1.114, T + 130000L);
+        assertEquals("WAIT", e.getSignal());
+        assertTrue(e.getReason().contains("original broker-history candles"));
+    }
+
+    @Test public void buildsOhlcFromGenuineTicksInsideTenSecondBucket() {
+        SignalEngine e = new SignalEngine();
+        e.acceptTick("EURUSD_otc", 1.1000, T);
+        e.acceptTick("EURUSD_otc", 1.1005, T + 1000);
+        e.acceptTick("EURUSD_otc", 1.0995, T + 9000);
         assertEquals(1.1000, e.getOpen(), 0.0000001);
         assertEquals(1.1005, e.getHigh(), 0.0000001);
         assertEquals(1.0995, e.getLow(), 0.0000001);
         assertEquals(1.0995, e.getClose(), 0.0000001);
     }
 
-    @Test public void ignoresOlderTicks() {
-        SignalEngine e = new SignalEngine(); long t = 1800000000000L;
-        e.acceptTick("EURUSD_otc", 1.1000, t);
-        e.acceptTick("EURUSD_otc", 1.1010, t + 1000);
-        e.acceptTick("EURUSD_otc", 1.0900, t - 1000);
+    @Test public void ignoresOlderTicksAndRejectsInvalidInputs() {
+        SignalEngine e = new SignalEngine();
+        e.acceptTick("EURUSD_otc", 1.1000, T);
+        e.acceptTick("EURUSD_otc", 1.1010, T + 1000);
+        e.acceptTick("EURUSD_otc", 1.0900, T - 1000);
+        e.acceptTick("EURUSD_otc", -1, T + 2000);
+        e.acceptTick("bad asset", 1.1, T + 2000);
         assertEquals(1.1010, e.getLastPrice(), 0.0000001);
         assertEquals(1.1010, e.getClose(), 0.0000001);
+        assertEquals(1, e.getCandleCount());
     }
 
-    @Test public void rejectsInvalidInputs() {
+    @Test public void acceptsSixtySecondBrokerHistoryAndBuildsSixtySecondLiveCandles() throws JSONException {
         SignalEngine e = new SignalEngine();
-        e.acceptTick("EURUSD_otc", -1, 1800000000000L);
-        e.acceptTick("EURUSD_otc", 1.1, 0);
-        e.acceptTick("bad asset", 1.1, 1800000000000L);
-        assertEquals(0, e.getCandleCount());
-    }
-
-    @Test public void settlesSignalOnlyAfterTheFollowingTenSecondCandleCloses() {
-        SignalEngine e = new SignalEngine(); long t = 1800000000000L;
-        e.acceptTick("EURUSD_otc", 1.0000, t);
-        e.acceptTick("EURUSD_otc", 1.0010, t + 9000);
-        e.acceptTick("EURUSD_otc", 1.0010, t + 10000);
-        e.acceptTick("EURUSD_otc", 1.0020, t + 19000);
-        e.acceptTick("EURUSD_otc", 1.0020, t + 20000);
-        e.acceptTick("EURUSD_otc", 1.0030, t + 29000);
-        e.acceptTick("EURUSD_otc", 1.0030, t + 30000);
+        e.acceptHistory("EURUSD_otc", 60L, historyRows(T, 60000L));
+        for (int i = 0; i < 3; i++) {
+            long start = T + (600000L + i * 60000L);
+            double open = 1.020 + i * .001;
+            e.acceptTick("EURUSD_otc", open, start, 60L);
+            e.acceptTick("EURUSD_otc", open + .001, start + 59000L, 60L);
+        }
+        e.acceptTick("EURUSD_otc", 1.024, T + 780000L, 60L);
         assertEquals("CALL", e.getSignal());
-
-        e.acceptTick("EURUSD_otc", 1.0040, t + 40000);
-        assertEquals("WIN must be counted at 10-second expiry tick", 1, e.getWins());
+        assertEquals(1, e.getSignalCount());
     }
 
-    @Test public void settlesAtFirstRealTickTenSecondsAfterSignalNotAtCandleClose() {
-        SignalEngine e = new SignalEngine(); long t = 1800000000000L;
-        e.acceptTick("EURUSD_otc", 1.0000, t);
-        e.acceptTick("EURUSD_otc", 1.0010, t + 9000);
-        e.acceptTick("EURUSD_otc", 1.0010, t + 10000);
-        e.acceptTick("EURUSD_otc", 1.0020, t + 19000);
-        e.acceptTick("EURUSD_otc", 1.0020, t + 20000);
-        e.acceptTick("EURUSD_otc", 1.0030, t + 29000);
-        e.acceptTick("EURUSD_otc", 1.0030, t + 30000);
-        assertEquals("CALL", e.getSignal());
-        e.acceptTick("EURUSD_otc", 1.0040, t + 39999);
-        assertEquals("Must not settle before 10 seconds", 0, e.getWins());
-        e.acceptTick("EURUSD_otc", 1.0040, t + 40000);
-        assertEquals("Must settle on first real tick at expiry", 1, e.getWins());
-    }
-
-    @Test public void pendingSignalsDoNotOverwriteEachOther() {
-        SignalEngine e = new SignalEngine(); long t = 1800000000000L;
-        e.acceptTick("EURUSD_otc", 1.0000, t);
-        e.acceptTick("EURUSD_otc", 1.0010, t + 9000);
-        e.acceptTick("EURUSD_otc", 1.0010, t + 10000);
-        e.acceptTick("EURUSD_otc", 1.0020, t + 19000);
-        e.acceptTick("EURUSD_otc", 1.0020, t + 20000);
-        e.acceptTick("EURUSD_otc", 1.0030, t + 29000);
-        e.acceptTick("EURUSD_otc", 1.0030, t + 30000);
-        assertEquals("CALL", e.getSignal());
-
-        e.acceptTick("EURUSD_otc", 1.0040, t + 40000);
-        assertEquals("First signal settles on its own 10-second expiry tick", 1, e.getWins());
-
-        e.acceptTick("EURUSD_otc", 1.0050, t + 50000);
-        assertTrue("Subsequent signal remains independently tracked", e.getWins() >= 1);
-        e.acceptTick("EURUSD_otc", 1.0060, t + 60000);
-    }
-
-
-    private SignalEngine primedCall(long t) {
+    @Test public void repeatedSameDirectionSignalsIncrementPulseCount() throws JSONException {
         SignalEngine e = new SignalEngine();
-        e.acceptTick("EURUSD_otc", 1.0000, t);
-        e.acceptTick("EURUSD_otc", 1.0010, t + 9000);
-        e.acceptTick("EURUSD_otc", 1.0010, t + 10000);
-        e.acceptTick("EURUSD_otc", 1.0020, t + 19000);
-        e.acceptTick("EURUSD_otc", 1.0020, t + 20000);
-        e.acceptTick("EURUSD_otc", 1.0030, t + 29000);
-        e.acceptTick("EURUSD_otc", 1.0030, t + 30000);
-        assertEquals("CALL", e.getSignal());
-        return e;
+        e.acceptHistory("EURUSD_otc", 10L, historyRows(T));
+        for (int i = 0; i < 6; i++) {
+            long start = T + (100000L + i * 10000L);
+            double open = 1.020 + i * .001;
+            e.acceptTick("EURUSD_otc", open, start, 10L);
+            e.acceptTick("EURUSD_otc", open + .001, start + 9000L, 10L);
+        }
+        e.acceptTick("EURUSD_otc", 1.027, T + 160000L, 10L);
+        assertEquals("Repeated CALL scans should keep running with the original history context", "CALL", e.getSignal());
+        assertTrue("Each fresh same-direction scan increments the pulse", e.getSignalCount() >= 4);
     }
 
-    @Test public void oppositeMovementAfterTenSecondsIsLoss() {
-        long t = 1800000000000L;
-        SignalEngine e = primedCall(t);
-        e.acceptTick("EURUSD_otc", 1.0020, t + 40000);
+    @Test public void settlesAtFirstRealTickTenSecondsAfterSignal() throws JSONException {
+        SignalEngine e = primedCall();
+        assertEquals("CALL", e.getSignal());
+        e.acceptTick("EURUSD_otc", 1.030, T + 139999L);
+        assertEquals(0, e.getWins());
+        e.acceptTick("EURUSD_otc", 1.031, T + 140000L);
+        assertEquals(1, e.getWins());
+    }
+
+    @Test public void oppositeMovementAfterTenSecondsIsLoss() throws JSONException {
+        SignalEngine e = primedCall();
+        e.acceptTick("EURUSD_otc", 1.020, T + 140000L);
         assertEquals(1, e.getLosses());
         assertEquals(0, e.getWins());
     }
 
-    @Test public void unchangedPriceAfterTenSecondsIsTie() {
-        long t = 1800000000000L;
-        SignalEngine e = primedCall(t);
-        e.acceptTick("EURUSD_otc", 1.0030, t + 40000);
+    @Test public void unchangedPriceAfterTenSecondsIsTie() throws JSONException {
+        SignalEngine e = primedCall();
+        e.acceptTick("EURUSD_otc", 1.024, T + 140000L);
         assertEquals(1, e.getTies());
         assertEquals(0, e.getWins());
         assertEquals(0, e.getLosses());
     }
 
+    private SignalEngine primedCall() throws JSONException {
+        SignalEngine e = new SignalEngine();
+        e.acceptHistory("EURUSD_otc", 10L, historyRows(T));
+        for (int i = 0; i < 3; i++) {
+            long start = T + (100000L + i * 10000L);
+            double open = 1.020 + i * .001;
+            e.acceptTick("EURUSD_otc", open, start);
+            e.acceptTick("EURUSD_otc", open + .001, start + 9000L);
+        }
+        e.acceptTick("EURUSD_otc", 1.024, T + 130000L);
+        assertEquals("13 consecutive genuine completed candles should arm CALL", "CALL", e.getSignal());
+        return e;
+    }
+
+    private JSONArray historyRows(long start) throws JSONException { return historyRows(start, 10000L); }
+
+    private JSONArray historyRows(long start, long interval) throws JSONException {
+        JSONArray rows = new JSONArray();
+        for (int i = 0; i < 10; i++) {
+            double open = 1.010 + i * .001, close = open + .001;
+            JSONArray row = new JSONArray();
+            row.put(start + i * interval).put(open).put(close).put(close).put(open);
+            rows.put(row);
+        }
+        return rows;
+    }
 }
