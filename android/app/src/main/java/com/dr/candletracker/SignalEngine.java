@@ -16,7 +16,8 @@ public final class SignalEngine {
     private final Map<String, Long> lastTimestampByAsset = new HashMap<>();
     private final Map<String, Long> issuedBucketByAsset = new HashMap<>();
     private final Map<String, Long> periodMsByAsset = new HashMap<>();
-    private Pending pending;
+    private final List<Pending> pendingResults = new ArrayList<>();
+    private int signalCount;
     private String asset = "WAITING FOR QX", signal = "WAIT";
     private String reason = "Waiting for real Market-QX candles.";
     private int wins, losses, ties;
@@ -35,6 +36,7 @@ public final class SignalEngine {
         periodMsByAsset.put(symbol, duration);
         Long previous = lastTimestampByAsset.get(symbol);
         if (previous != null && timestamp < previous) return;
+        settlePending(symbol, timestamp, price);
         lastTimestampByAsset.put(symbol, timestamp);
         long bucket = timestamp / duration * duration;
         Candle current = lastCandle(symbol);
@@ -44,7 +46,7 @@ public final class SignalEngine {
             current = new Candle(symbol, bucket, price);
             candles.add(current);
             if (candles.size() > MAX_CANDLES) candles.remove(0);
-            if (!symbol.equals(asset)) { asset = symbol; signal = "WAIT"; reason = "Scanning original QX candle interval for " + symbol; }
+            if (!symbol.equals(asset)) { asset = symbol; signal = "WAIT"; signalCount = 0; reason = "Scanning original QX candle interval for " + symbol; }
         }
         current.update(price);
         lastTimestamp = timestamp;
@@ -57,8 +59,11 @@ public final class SignalEngine {
             signal = scan.signal;
             reason = scan.reason;
             if (!"WAIT".equals(scan.signal)) {
-                pending = new Pending(symbol, scan.signal, price, bucket + duration);
+                signalCount++;
+                pendingResults.add(new Pending(symbol, scan.signal, price, timestamp + 10_000L));
                 issuedBucketByAsset.put(symbol, bucket);
+            } else {
+                signalCount = 0;
             }
         }
     }
@@ -112,16 +117,17 @@ public final class SignalEngine {
         for (int i=candles.size()-1;i>=0;i--) { Candle c=candles.get(i); if(c.asset.equals(symbol)&&c.bucket==bucket)return c; }
         return null;
     }
-    private void settlePending(String symbol,long newBucket) {
-        if(pending==null||!pending.asset.equals(symbol)||newBucket<=pending.target)return;
-        Candle result=candleAt(pending.asset,pending.target);
-        if(result!=null) {
-            double delta=result.close-pending.entry;
-            if(Math.abs(delta)<Math.max(1e-12,Math.abs(pending.entry)*1e-12))ties++;
-            else if(("CALL".equals(pending.signal)&&delta>0)||("PUT".equals(pending.signal)&&delta<0))wins++;
+    /** Settle from the first genuine quote at or after the 10-second expiry. */
+    private void settlePending(String symbol,long timestamp,double expiryPrice) {
+        for (int i = pendingResults.size() - 1; i >= 0; i--) {
+            Pending p = pendingResults.get(i);
+            if (!p.asset.equals(symbol) || timestamp < p.expiresAt) continue;
+            double delta = expiryPrice - p.entry;
+            if (Math.abs(delta) < Math.max(1e-12, Math.abs(p.entry) * 1e-12)) ties++;
+            else if (("CALL".equals(p.signal) && delta > 0) || ("PUT".equals(p.signal) && delta < 0)) wins++;
             else losses++;
+            pendingResults.remove(i);
         }
-        pending=null;
     }
 
     private Scan scan(String symbol,long currentBucket) {
@@ -178,6 +184,7 @@ public final class SignalEngine {
     public synchronized int getWins(){return wins;}
     public synchronized int getLosses(){return losses;}
     public synchronized int getTies(){return ties;}
+    public synchronized int getSignalCount(){return signalCount;}
     public synchronized int getCandleCount(){return candles.size();}
     public synchronized long getLastTimestamp(){return lastTimestamp;}
     public synchronized double getLastPrice(){return lastPrice;}
@@ -193,6 +200,6 @@ public final class SignalEngine {
         void update(double p){high=Math.max(high,p);low=Math.min(low,p);close=p;}
     }
     private static final class Tick {final String asset;final double price;Tick(String a,double p){asset=a;price=p;}}
-    private static final class Pending {final String asset,signal;final double entry;final long target;Pending(String a,String s,double e,long t){asset=a;signal=s;entry=e;target=t;}}
+    private static final class Pending {final String asset,signal;final double entry;final long expiresAt;Pending(String a,String s,double e,long t){asset=a;signal=s;entry=e;expiresAt=t;}}
     private static final class Scan {final String signal,reason;Scan(String s,String r){signal=s;reason=r;}}
 }
