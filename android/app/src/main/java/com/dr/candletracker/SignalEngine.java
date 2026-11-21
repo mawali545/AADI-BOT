@@ -98,8 +98,8 @@ public final class SignalEngine {
         }
         while (candles.size() > MAX_CANDLES) candles.remove(0);
         asset = symbol;
-        pending = null;
         issuedBucketByAsset.remove(symbol);
+        signalCount = 0;
         reason = "Loaded " + imported.size() + " original QX OHLC candles; waiting for live quote.";
         signal = "WAIT";
     }
