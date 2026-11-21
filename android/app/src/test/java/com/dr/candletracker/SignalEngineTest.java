@@ -83,11 +83,11 @@ public class SignalEngineTest {
         assertEquals("CALL", e.getSignal());
 
         e.acceptTick("EURUSD_otc", 1.0040, t + 40000);
-        e.acceptTick("EURUSD_otc", 1.0050, t + 50000);
-        assertEquals("First signal should settle at the first target candle close", 1, e.getWins());
+        assertEquals("First signal settles on its own 10-second expiry tick", 1, e.getWins());
 
+        e.acceptTick("EURUSD_otc", 1.0050, t + 50000);
+        assertTrue("Subsequent signal remains independently tracked", e.getWins() >= 1);
         e.acceptTick("EURUSD_otc", 1.0060, t + 60000);
-        assertTrue("Second signal remains independently tracked", e.getWins() >= 1);
     }
 
 
