@@ -53,6 +53,10 @@ public final class SignalEngine {
         tape.add(new Tick(symbol, price));
         if (tape.size() > MAX_TICKS) tape.remove(0);
 
+        // Settle at the first genuine quote tick at/after 10 seconds from signal time.
+        // This is a time-based expiry, not "wait for the next candle to close".
+        settleDueSignals(symbol, price, timestamp);
+
         Long issued = issuedBucketByAsset.get(symbol);
         if (issued == null || issued.longValue() != bucket) {
             Scan scan = scan(symbol, bucket);
@@ -60,7 +64,7 @@ public final class SignalEngine {
             reason = scan.reason;
             if (!"WAIT".equals(scan.signal)) {
                 // The result is the close of the first complete 10-second candle AFTER this signal.
-                pendingSignals.add(new Pending(symbol, scan.signal, price, bucket + CANDLE_MS));
+                pendingSignals.add(new Pending(symbol, scan.signal, price, timestamp + CANDLE_MS));
                 issuedBucketByAsset.put(symbol, bucket);
             }
         }
@@ -118,20 +122,16 @@ public final class SignalEngine {
         return null;
     }
 
-    /** Settle every signal independently, only after its target 10-second candle has closed. */
-    private void settleClosedSignals(String symbol, long newBucket) {
+    /** Settle each signal independently on the first real tick at/after its 10s expiry. */
+    private void settleDueSignals(String symbol, double livePrice, long timestamp) {
         Iterator<Pending> it = pendingSignals.iterator();
         while (it.hasNext()) {
             Pending p = it.next();
-            if (!p.asset.equals(symbol) || newBucket <= p.target) continue;
-            Candle result = candleAt(p.asset, p.target);
-            if (result != null) {
-                double delta = result.close - p.entry;
-                if (Math.abs(delta) < Math.max(1e-12, Math.abs(p.entry) * 1e-12)) ties++;
-                else if (("CALL".equals(p.signal) && delta > 0) || ("PUT".equals(p.signal) && delta < 0)) wins++;
-                else losses++;
-            }
-            // Missing target candle means no valid result; never fabricate a WIN or LOSS.
+            if (!p.asset.equals(symbol) || timestamp < p.targetTimestamp) continue;
+            double delta = livePrice - p.entry;
+            if (Math.abs(delta) < Math.max(1e-12, Math.abs(p.entry) * 1e-12)) ties++;
+            else if (("CALL".equals(p.signal) && delta > 0) || ("PUT".equals(p.signal) && delta < 0)) wins++;
+            else losses++;
             it.remove();
         }
     }
@@ -230,8 +230,8 @@ public final class SignalEngine {
     }
     private static final class Tick { final String asset; final double price; Tick(String a,double p) { asset=a; price=p; } }
     private static final class Pending {
-        final String asset, signal; final double entry; final long target;
-        Pending(String a,String s,double e,long t) { asset=a; signal=s; entry=e; target=t; }
+        final String asset, signal; final double entry; final long targetTimestamp;
+        Pending(String a,String s,double e,long t) { asset=a; signal=s; entry=e; targetTimestamp=t; }
     }
     private static final class Scan { final String signal, reason; Scan(String s,String r) { signal=s; reason=r; } }
 }
