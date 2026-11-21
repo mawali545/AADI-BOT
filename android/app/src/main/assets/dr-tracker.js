@@ -33,7 +33,7 @@ async function routeDecryptedText(text,algorithm){
  if(parsed&&typeof parsed==='object'){
   if(Array.isArray(parsed.candles)||Array.isArray(parsed.history)||Array.isArray(parsed.data))
    sendHistory(parsed,fp.hash,fp.size,'history/load');
-  else walk(parsed,activeAsset,0,fp.hash,fp.size,'webcrypto-decrypt');
+  else walk(parsed,activeAsset,0,fp.hash,fp.size,algorithm.indexOf('CryptoJS')>=0?'cryptojs-decrypt':'webcrypto-decrypt');
  }
 }
 async function routeDecryptedBytes(buffer,algorithm){
