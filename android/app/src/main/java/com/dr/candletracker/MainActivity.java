@@ -120,7 +120,7 @@ public final class MainActivity extends Activity {
                                 String asset = tick.optString("asset", "");
                                 String fingerprint = tick.optString("frameFingerprint", "");
                                 int frameBytes = tick.optInt("frameBytes", 0);
-                                long period = tick.optLong("period", 60);
+                                long period = tick.optLong("period", 10);
                                 if (!asset.matches("[A-Za-z0-9_./-]{3,32}") ||
                                     !fingerprint.matches("(?i)[a-f0-9]{64}") ||
                                     frameBytes < 1 || frameBytes > 1048576 || period < 1 || period > 86400) return;
