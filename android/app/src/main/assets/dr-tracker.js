@@ -36,7 +36,17 @@ var css=[
 '@media(max-height:620px){#strip{height:84px;padding:5px 8px}#signals{height:31px;padding:3px 0}.sig{height:23px}#market{font-size:12px}}'
 ].join('');
 host=document.createElement('div');host.id='dr-candle-tracker-host';Object.assign(host.style,{position:'fixed',inset:'0',zIndex:'2147483646',pointerEvents:'none'});var mount=document.documentElement||document.body;if(mount)mount.appendChild(host);else document.addEventListener('DOMContentLoaded',function(){var t=document.documentElement||document.body;if(t&&!host.isConnected)t.appendChild(host);},{once:true});root=host.attachShadow({mode:'open'});
-root.innerHTML='<style>'+css+'</style><section id="strip" aria-label="AADI live market ticker"><div id="ticker"><span id="brand">AADI · LIVE TICKER</span><span id="status">WAITING FOR QX</span><span id="market">—</span></div><div id="signals"><span id="wait" class="sig active wait">WAIT</span><span id="call" class="sig">CALL</span><span id="put" class="sig">PUT</span></div><div id="stats"><span id="wins">WINS <b>0</b></span><span id="losses">LOSSES <b>0</b></span></div></section>';
+root.innerHTML='<style>'+css+
+'#quant-hud{position:fixed;right:8px;bottom:10px;width:188px;padding:8px 9px;background:rgba(2,12,8,.94);border:1px solid rgba(87,255,145,.72);border-radius:7px;color:#baffcf;font:9px/1.35 monospace;letter-spacing:.35px;box-shadow:0 0 15px rgba(40,255,115,.13);pointer-events:none}'+
+'#quant-hud .qh-title{font-weight:900;color:#83ffad;font-size:10px;letter-spacing:1px;border-bottom:1px solid rgba(100,255,160,.28);padding-bottom:4px;margin-bottom:5px}'+
+'#quant-hud .qh-row{display:flex;justify-content:space-between;gap:6px;white-space:nowrap}'+
+'#quant-hud .qh-value{color:#effff3;font-weight:800;text-align:right}'+
+'#quant-hud .qh-ok{color:#78ffa4}#quant-hud .qh-warn{color:#ffd58a}'+
+'#quant-hud .qh-bar{height:4px;background:#183323;margin:5px 0 6px;border-radius:4px;overflow:hidden}'+
+'#quant-hud .qh-fill{height:100%;width:0;background:#65ff9b;box-shadow:0 0 6px #65ff9b}'+
+'#quant-hud .qh-log{color:#82b995;font-size:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}'+
+'</style><section id="strip" aria-label="AADI live market ticker"><div id="ticker"><span id="brand">AADI · LIVE TICKER</span><span id="status">WAITING FOR QX</span><span id="market">—</span></div><div id="signals"><span id="wait" class="sig active wait">WAIT</span><span id="call" class="sig">CALL</span><span id="put" class="sig">PUT</span></div><div id="stats"><span id="wins">WINS <b>0</b></span><span id="losses">LOSSES <b>0</b></span></div></section>'+
+'<aside id="quant-hud" aria-label="Quant core connection telemetry"><div class="qh-title">QUANT CORE // LIVE FEED</div><div class="qh-row"><span>RSA CIPHER</span><b id="qh-cipher" class="qh-value qh-warn">LOCKED</b></div><div class="qh-row"><span>BREACH NODE</span><b id="qh-node" class="qh-value qh-warn">STANDBY</b></div><div class="qh-row"><span>LATENCY</span><b id="qh-latency" class="qh-value">-- ms</b></div><div class="qh-row"><span>CYCLE</span><b id="qh-cycle" class="qh-value">0%</b></div><div class="qh-bar"><div id="qh-fill" class="qh-fill"></div></div><div id="qh-log" class="qh-log">Awaiting authenticated QX feed…</div></aside>';
 function el(id){return root.getElementById(id);}
 function reserveTopSpace(){
  if(!document.body)return;
@@ -65,9 +75,22 @@ function startLayoutReservation(){
 if(document.body)startLayoutReservation();
 else document.addEventListener('DOMContentLoaded',startLayoutReservation,{once:true});
 var lastSignalCount=-1,fadeTimer=null;
-function render(s){var age=s.lastTickAt?Date.now()-Number(s.lastTickAt):Infinity,live=!!s.lastTickAt&&age>=-30000&&age<8000;el('status').textContent=live?'● QX WS LIVE':(s.ticks?'● RECONNECTING':'WAITING FOR QX');el('status').style.color=live?'#7cffaa':'#ffd58a';el('market').textContent=(live?(s.asset||'MARKET'):(s.asset||'WAITING FOR QX'))+'  '+(s.price==null?'—':String(s.price));fitMarketText();var sig=['CALL','PUT'].includes(s.signal)?s.signal:'WAIT';var count=Number(s.signalCount)||0,prob=Math.round(Number(s.signalProbability)||0);['wait','call','put'].forEach(function(id){el(id).className='sig'+(id.toUpperCase()===sig?' active '+id:'');el(id).textContent=id==='wait'?'WAIT':(id.toUpperCase()===sig&&prob>0?id.toUpperCase()+' '+prob+'%':id.toUpperCase());});if(sig==='WAIT'){lastSignalCount=count;el('call').style.opacity='1';el('put').style.opacity='1';if(fadeTimer!==null){clearTimeout(fadeTimer);fadeTimer=null;}}else if(count!==lastSignalCount){lastSignalCount=count;el('call').style.opacity='1';el('put').style.opacity='1';var target=el(sig.toLowerCase());if(fadeTimer!==null)clearTimeout(fadeTimer);target.style.opacity='1';fadeTimer=setTimeout(function(){target.style.opacity='.68';fadeTimer=null;},450);}el('wins').innerHTML='WINS <b>'+(Number(s.wins)||0)+'</b>';el('losses').innerHTML='LOSSES <b>'+(Number(s.losses)||0)+'</b>';}
+function renderTelemetry(s,age,live){
+ var cipher=!!s.secureBridge,hasMemory=Number(s.candleCount)>0;
+ el('qh-cipher').textContent=cipher?'RSA-OAEP / AES-GCM':'LOCKED';
+ el('qh-cipher').className='qh-value '+(cipher?'qh-ok':'qh-warn');
+ el('qh-node').textContent=live?'QX NODE LIVE':'NODE STANDBY';
+ el('qh-node').className='qh-value '+(live?'qh-ok':'qh-warn');
+ el('qh-latency').textContent=Number.isFinite(age)&&age>=0&&age<60000?Math.round(age)+' ms':'-- ms';
+ var cycle=hasMemory?Math.min(100,Math.round(Number(s.candleCount)/12*100)):0;
+ el('qh-cycle').textContent=cycle+'%';el('qh-fill').style.width=cycle+'%';
+ el('qh-log').textContent=!cipher?'[LOCK] secure bridge initializing':
+  (!live?'[WAIT] scanning QX websocket / reconnecting':
+   (hasMemory?'[OK] OHLC memory · histogram/vector scan':'[OK] live feed · loading OHLC memory'));
+}
+function render(s){var age=s.lastTickAt?Date.now()-Number(s.lastTickAt):Infinity,live=!!s.lastTickAt&&age>=-30000&&age<8000;el('status').textContent=live?'● QX WS LIVE':(s.ticks?'● RECONNECTING':'WAITING FOR QX');el('status').style.color=live?'#7cffaa':'#ffd58a';el('market').textContent=(live?(s.asset||'MARKET'):(s.asset||'WAITING FOR QX'))+'  '+(s.price==null?'—':String(s.price));fitMarketText();var sig=['CALL','PUT'].includes(s.signal)?s.signal:'WAIT';var count=Number(s.signalCount)||0,prob=Math.round(Number(s.signalProbability)||0);['wait','call','put'].forEach(function(id){el(id).className='sig'+(id.toUpperCase()===sig?' active '+id:'');el(id).textContent=id==='wait'?'WAIT':(id.toUpperCase()===sig&&prob>0?id.toUpperCase()+' '+prob+'%':id.toUpperCase());});if(sig==='WAIT'){lastSignalCount=count;el('call').style.opacity='1';el('put').style.opacity='1';if(fadeTimer!==null){clearTimeout(fadeTimer);fadeTimer=null;}}else if(count!==lastSignalCount){lastSignalCount=count;el('call').style.opacity='1';el('put').style.opacity='1';var target=el(sig.toLowerCase());if(fadeTimer!==null)clearTimeout(fadeTimer);target.style.opacity='1';fadeTimer=setTimeout(function(){target.style.opacity='.68';fadeTimer=null;},450);}el('wins').innerHTML='WINS <b>'+(Number(s.wins)||0)+'</b>';el('losses').innerHTML='LOSSES <b>'+(Number(s.losses)||0)+'</b>';renderTelemetry(s,age,live);}
 window.DRUpdate=function(s){if(!s||typeof s!=='object')return;lastState=Object.assign(lastState,s);backend.cycle++;backend.scanState=s.signal||'WAIT';backend.latency=s.lastTickAt?Math.max(0,Date.now()-Number(s.lastTickAt)):null;if(s.fingerprint)backend.fingerprint=s.fingerprint;render(lastState);};
 window.DRSetPublicKey=async function(encoded){try{if(!window.crypto||!crypto.subtle)throw new Error('WebCrypto unavailable');var b=atob(encoded),bytes=new Uint8Array(b.length);for(var i=0;i<b.length;i++)bytes[i]=b.charCodeAt(i);nativePublicKey=await crypto.subtle.importKey('spki',bytes,{name:'RSA-OAEP',hash:'SHA-256'},false,['encrypt']);aesKey=await crypto.subtle.generateKey({name:'AES-GCM',length:256},true,['encrypt','decrypt']);var raw=await crypto.subtle.exportKey('raw',aesKey);wrappedAesKey=b64(await crypto.subtle.encrypt({name:'RSA-OAEP'},nativePublicKey,raw));backend.cipher='LOCAL BRIDGE READY';log('LOCAL WEBVIEW-TO-ANDROID RSA-OAEP/AES-GCM CHANNEL READY');}catch(e){backend.cipher='LOCKED';log('LOCAL CRYPTO INIT FAILED '+(e&&e.message||e));}};
 window.DRBack=function(){return false;};
-log('COMPACT AADI INTERFACE READY · NATIVE SIGNAL ENGINE ACTIVE');updateSafeTop();render(lastState);setInterval(()=>{updateSafeTop();render(lastState);},1000);
+log('COMPACT AADI INTERFACE READY · NATIVE SIGNAL ENGINE ACTIVE');reserveTopSpace();render(lastState);setInterval(()=>{reserveTopSpace();render(lastState);},1000);
 })();
