@@ -45,7 +45,8 @@ public final class SignalEngine {
             !Double.isFinite(price) || price <= 0 || timestamp <= 0) return;
         long duration = Math.max(1L, Math.min(86400L, periodSeconds)) * 1000L;
         Long previous = lastTimestampByAsset.get(symbol);
-        if (previous != null && timestamp < previous) return;
+        // QX quote timestamps identify events: ignore duplicate and older frames.
+        if (previous != null && timestamp <= previous) return;
 
         // Each result is settled once, on the first actual QX quote at/after expiry.
         settlePending(symbol, timestamp, price);

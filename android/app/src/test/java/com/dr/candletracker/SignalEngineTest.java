@@ -61,6 +61,14 @@ public class SignalEngineTest {
         assertEquals(1.1010,e.getClose(),0.0000001);
     }
 
+    @Test public void ignoresDuplicateTimestampTicks() {
+        SignalEngine e = new SignalEngine();
+        e.acceptTick("EURUSD_otc",1.1000,T,10);
+        e.acceptTick("EURUSD_otc",1.1050,T,10); // duplicate QX event timestamp
+        assertEquals(1.1000,e.getLastPrice(),0.0000001);
+        assertEquals(1.1000,e.getClose(),0.0000001);
+    }
+
     @Test public void rejectsInvalidInputs() {
         SignalEngine e = new SignalEngine();
         e.acceptTick("EURUSD_otc",-1,T);
