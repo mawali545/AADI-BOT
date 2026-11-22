@@ -44,9 +44,12 @@ root.innerHTML='<style>'+css+
 '#quant-hud .qh-ok{color:#78ffa4}#quant-hud .qh-warn{color:#ffd58a}'+
 '#quant-hud .qh-bar{height:4px;background:#183323;margin:5px 0 6px;border-radius:4px;overflow:hidden}'+
 '#quant-hud .qh-fill{height:100%;width:0;background:#65ff9b;box-shadow:0 0 6px #65ff9b}'+
+'#quant-hud .qh-hist{height:24px;display:flex;align-items:flex-end;gap:4px;padding:3px 1px;border-bottom:1px solid rgba(100,255,160,.2)}'+
+'#quant-hud .qh-hist i{display:block;flex:1;min-width:0;border-radius:2px 2px 0 0;opacity:.9}'+
+'#quant-hud .qh-section{color:#78ffa4;font-weight:900;margin-top:5px;font-size:8px;letter-spacing:.8px}'+
 '#quant-hud .qh-log{color:#82b995;font-size:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}'+
 '</style><section id="strip" aria-label="AADI live market ticker"><div id="ticker"><span id="brand">AADI · LIVE TICKER</span><span id="status">WAITING FOR QX</span><span id="market">—</span></div><div id="signals"><span id="wait" class="sig active wait">WAIT</span><span id="call" class="sig">CALL</span><span id="put" class="sig">PUT</span></div><div id="stats"><span id="wins">WINS <b>0</b></span><span id="losses">LOSSES <b>0</b></span></div></section>'+
-'<aside id="quant-hud" aria-label="Quant core connection telemetry"><div class="qh-title">QUANT CORE // LIVE FEED</div><div class="qh-row"><span>RSA CIPHER</span><b id="qh-cipher" class="qh-value qh-warn">LOCKED</b></div><div class="qh-row"><span>BREACH NODE</span><b id="qh-node" class="qh-value qh-warn">STANDBY</b></div><div class="qh-row"><span>LATENCY</span><b id="qh-latency" class="qh-value">-- ms</b></div><div class="qh-row"><span>CYCLE</span><b id="qh-cycle" class="qh-value">0%</b></div><div class="qh-bar"><div id="qh-fill" class="qh-fill"></div></div><div id="qh-log" class="qh-log">Awaiting authenticated QX feed…</div></aside>';
+'<aside id="quant-hud" aria-label="Quant core connection telemetry"><div class="qh-title">QUANT CORE // LIVE FEED</div><div class="qh-row"><span>RSA CIPHER</span><b id="qh-cipher" class="qh-value qh-warn">LOCKED</b></div><div class="qh-row"><span>BREACH NODE</span><b id="qh-node" class="qh-value qh-warn">STANDBY</b></div><div class="qh-row"><span>LATENCY</span><b id="qh-latency" class="qh-value">-- ms</b></div><div class="qh-row"><span>LIVE FEED</span><b id="qh-live" class="qh-value qh-warn">WAITING</b></div><div class="qh-row"><span>0x25 VECTOR</span><b id="qh-vector" class="qh-value">0.00</b></div><div class="qh-row"><span>HISTOGRAM</span><b id="qh-hist-value" class="qh-value">0.00</b></div><div class="qh-hist" id="qh-hist"></div><div class="qh-row"><span>OHLC MEMORY</span><b id="qh-ohlc" class="qh-value">--</b></div><div class="qh-row"><span>CYCLE</span><b id="qh-cycle" class="qh-value">0%</b></div><div class="qh-bar"><div id="qh-fill" class="qh-fill"></div></div><div id="qh-log" class="qh-log">Awaiting authenticated QX feed…</div></aside>';
 function el(id){return root.getElementById(id);}
 function reserveTopSpace(){
  if(!document.body)return;
@@ -82,6 +85,15 @@ function renderTelemetry(s,age,live){
  el('qh-node').textContent=live?'QX NODE LIVE':'NODE STANDBY';
  el('qh-node').className='qh-value '+(live?'qh-ok':'qh-warn');
  el('qh-latency').textContent=Number.isFinite(age)&&age>=0&&age<60000?Math.round(age)+' ms':'-- ms';
+ el('qh-live').textContent=live?'LIVE':'WAITING';
+ el('qh-live').className='qh-value '+(live?'qh-ok':'qh-warn');
+ var vector=Number(s.vector)||0,hist=Number(s.histogram)||0;
+ el('qh-vector').textContent=(vector>=0?'+':'')+vector.toFixed(2);
+ el('qh-hist-value').textContent=(hist>=0?'+':'')+hist.toFixed(2);
+ var bars=Array.isArray(s.histogramBars)?s.histogramBars:[];
+ el('qh-hist').innerHTML=bars.map(function(v){var n=Math.max(-1,Math.min(1,Number(v)||0));var h=Math.max(2,Math.round(Math.abs(n)*20));return '<i style="height:'+h+'px;background:'+(n>=0?'#65ff9b':'#ff6d83')+'"></i>';}).join('');
+ function fmt(v){return v==null||!Number.isFinite(Number(v))?'--':Number(v).toFixed(5);}
+ el('qh-ohlc').textContent=fmt(s.open)+' / '+fmt(s.high)+' / '+fmt(s.low)+' / '+fmt(s.close);
  var cycle=hasMemory?Math.min(100,Math.round(Number(s.candleCount)/12*100)):0;
  el('qh-cycle').textContent=cycle+'%';el('qh-fill').style.width=cycle+'%';
  el('qh-log').textContent=!cipher?'[LOCK] secure bridge initializing':
