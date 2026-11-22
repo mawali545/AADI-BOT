@@ -149,7 +149,7 @@ public final class MainActivity extends Activity {
                                 String asset = tick.optString("asset", "");
                                 String fingerprint = tick.optString("frameFingerprint", "");
                                 int frameBytes = tick.optInt("frameBytes", 0);
-                                long period = tick.optLong("period", 60);
+                                long period = tick.optLong("period", 10);
                                 if (!asset.matches("[A-Za-z0-9_./-]{3,32}") ||
                                     !fingerprint.matches("(?i)[a-f0-9]{64}") ||
                                     frameBytes < 1 || frameBytes > 1048576 || period < 1 || period > 86400) return;
@@ -172,6 +172,13 @@ public final class MainActivity extends Activity {
                                 }
                                 double price = tick.optDouble("price", Double.NaN);
                                 long stamp = tick.optLong("timestamp", 0);
+                                Object rawDirection = tick.opt("tickDirection");
+                                Integer brokerDirection = null;
+                                if (rawDirection instanceof Number) {
+                                    int d = ((Number) rawDirection).intValue();
+                                    if (d >= -1 && d <= 1) brokerDirection = d;
+                                }
+                                final Integer tickDirection = brokerDirection;
                                 if (!"tick".equals(type) || !("quotes/stream".equals(source) || "candle-generated".equals(source)) ||
                                     !Double.isFinite(price) || price <= 0 || price >= 1e12 || stamp <= 0) return;
                                 final long tickTime = stamp;
@@ -183,7 +190,7 @@ public final class MainActivity extends Activity {
                                     if (Double.isFinite(heartbeatMs) && heartbeatMs >= 0 && heartbeatMs < 60000) { qxHeartbeatSendMs = heartbeatMs; qxHeartbeatWallAt = heartbeatAt; }
                                     if (Double.isFinite(httpMs) && httpMs >= 0 && httpMs < 60000) { qxHttpResponseMs = httpMs; qxHttpWallAt = httpAt; }
                                     currentFingerprint = frameHash; currentFrameBytes = observedFrameBytes;
-                                    signalEngine.acceptTick(asset, price, tickTime, period);
+                                    signalEngine.acceptTick(asset, price, tickTime, period, tickDirection);
                                     if (web != null) web.evaluateJavascript(
                                         "window.DRUpdate && window.DRUpdate(" + snapshot().toString() + ")", null);
                                 });
@@ -281,6 +288,10 @@ public final class MainActivity extends Activity {
             o.put("fingerprint", currentFingerprint);
             o.put("frameBytes", currentFrameBytes);
             o.put("signal", signalEngine.getSignal());
+            o.put("qxDirectionalUpTicks", signalEngine.getDirectionalUpTicks());
+            o.put("qxDirectionalDownTicks", signalEngine.getDirectionalDownTicks());
+            o.put("qxDirectionalNeutralTicks", signalEngine.getDirectionalNeutralTicks());
+            o.put("qxDirectionalTicks", signalEngine.getBrokerDirectionTickCount());
             o.put("signalCount", signalEngine.getSignalCount());
             o.put("signalProbability", signalEngine.getSignalProbability());
             o.put("histogram", signalEngine.getHistogram());
