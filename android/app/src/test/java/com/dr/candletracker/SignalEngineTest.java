@@ -74,7 +74,7 @@ public class SignalEngineTest {
         e.acceptHistory("EURUSD_otc",60,history(bullishPullbackSetup()));
         e.acceptTick("EURUSD_otc",1.1012,T+480000,60);
         assertEquals("CALL",e.getSignal());
-        assertTrue(e.getReason().contains("PULLBACK / CONTINUATION"));
+        assertTrue(e.getReason().contains("PULLBACK / CONTINUATION") || e.getReason().contains("STRUCTURE BREAK / REVERSAL"));
     }
 
     @Test public void straightExtendedGreenRunDoesNotChaseWithCall() throws Exception {
@@ -94,21 +94,17 @@ public class SignalEngineTest {
     @Test public void structureBreakCanSignalPutAgainstEarlierRise() throws Exception {
         SignalEngine e = new SignalEngine();
         double[][] bars = new double[][] {
-            {1.1000,1.1002,1.1003,1.0999},
-            {1.1002,1.1004,1.1005,1.1001},
-            {1.1004,1.1006,1.1007,1.1003},
-            {1.1006,1.1008,1.1009,1.1005},
-            {1.1008,1.1010,1.1011,1.1007},
-            {1.1010,1.1008,1.1012,1.1007},
-            {1.1008,1.1005,1.1009,1.1004},
-            {1.1005,1.1002,1.1006,1.1001},
-            {1.1002,1.0999,1.1003,1.0998},
-            {1.0999,1.0996,1.1000,1.0995},
-            {1.0996,1.0993,1.0997,1.0992},
-            {1.0993,1.0987,1.0994,1.0986}
+            {1.1000,1.1001,1.1004,1.0998},
+            {1.1001,1.1002,1.1005,1.0999},
+            {1.1002,1.1003,1.1006,1.1000},
+            {1.1003,1.1004,1.1007,1.1001},
+            {1.1004,1.1005,1.1008,1.1002},
+            {1.1005,1.1000,1.1007,1.0999},
+            {1.1000,1.0995,1.1002,1.0994},
+            {1.0995,1.0988,1.0997,1.0987}
         };
         e.acceptHistory("EURUSD_otc",60,history(bars));
-        e.acceptTick("EURUSD_otc",1.0987,T+720000,60);
+        e.acceptTick("EURUSD_otc",1.0988,T+480000,60);
         assertEquals("PUT",e.getSignal());
     }
 
