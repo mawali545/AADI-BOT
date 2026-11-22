@@ -51,9 +51,29 @@ root.innerHTML='<style>'+css+
 '#quant-hud .qh-check div{display:flex;justify-content:space-between;font-size:8px;line-height:1.45;color:#86b997}'+
 '#quant-hud .qh-check b{color:#72ffa7;font-weight:900}'+
 '#quant-hud .qh-log{color:#82b995;font-size:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}'+
+'#quant-hud{width:156px;max-width:calc(100vw - 20px);max-height:44vh;bottom:10px;right:8px;padding:6px 8px;overflow:hidden;z-index:2147483647}'+
+'#quant-hud.collapsed{width:156px;height:34px;max-height:34px;padding:4px 7px}'+
+'#quant-hud.expanded{width:min(272px,calc(100vw - 20px));max-height:44vh}'+
+'#quant-hud .qh-toggle{width:100%;min-height:24px;display:flex;align-items:center;justify-content:space-between;gap:6px;padding:0 1px;border:0;background:transparent;color:#83ffad;font:900 10px/1.2 monospace;letter-spacing:.65px;text-align:left;pointer-events:auto;touch-action:manipulation}'+
+'#quant-hud .qh-toggle span:last-child{font-size:12px;color:#d2ffe0}'+
+'#quant-hud .qh-body{max-height:calc(44vh - 38px);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;pointer-events:auto;padding-top:4px}'+
+'#quant-hud.collapsed .qh-body{display:none}'+
+'#quant-hud .qh-row{gap:4px;font-size:9px;min-width:0}'+
+'#quant-hud .qh-row span{min-width:0;overflow:hidden;text-overflow:ellipsis}'+
+'#quant-hud .qh-value{max-width:58%;overflow:hidden;text-overflow:ellipsis}'+
+'#quant-hud .qh-hist{height:21px}'+
+'#quant-hud .qh-check div{font-size:8px}'+
+'@media(max-width:380px){#quant-hud.expanded{width:calc(100vw - 16px);right:8px}#quant-hud .qh-title{font-size:9px}}'+
 '</style><section id="strip" aria-label="AADI live market ticker"><div id="ticker"><span id="brand">AADI · LIVE TICKER</span><span id="status">WAITING FOR QX</span><span id="market">—</span></div><div id="signals"><span id="wait" class="sig active wait">WAIT</span><span id="call" class="sig">CALL</span><span id="put" class="sig">PUT</span></div><div id="stats"><span id="wins">WINS <b>0</b></span><span id="losses">LOSSES <b>0</b></span></div></section>'+
-'<aside id="quant-hud" aria-label="Quant core connection telemetry"><div class="qh-title">QUANT CORE // LIVE FEED</div><div class="qh-row"><span>RSA CIPHER</span><b id="qh-cipher" class="qh-value qh-warn">LOCKED</b></div><div class="qh-row"><span>BREACH NODE</span><b id="qh-node" class="qh-value qh-warn">STANDBY</b></div><div class="qh-row"><span>LATENCY / FEED AGE</span><b id="qh-latency" class="qh-value">-- ms</b></div><div class="qh-row"><span>LIVE FEED</span><b id="qh-live" class="qh-value qh-warn">WAITING</b></div><div class="qh-row"><span>0x25 VECTOR</span><b id="qh-vector" class="qh-value">0.00</b></div><div class="qh-row"><span>HISTOGRAM</span><b id="qh-hist-value" class="qh-value">0.00</b></div><div class="qh-hist" id="qh-hist"></div><div class="qh-row"><span>OHLC MEMORY</span><b id="qh-ohlc" class="qh-value">--</b></div><div class="qh-row"><span>CYCLE</span><b id="qh-cycle" class="qh-value">0%</b></div><div class="qh-bar"><div id="qh-fill" class="qh-fill"></div></div><div class="qh-row"><span>NODE HASH</span><b id="qh-hash" class="qh-value">--</b></div><div class="qh-check" id="qh-check"></div><div id="qh-log" class="qh-log">Awaiting authenticated QX feed…</div></aside>';
+'<aside id="quant-hud" class="collapsed" aria-label="Quant core connection telemetry"><button type="button" id="qh-toggle" class="qh-toggle" aria-expanded="false"><span>QUANT CORE · LIVE</span><span id="qh-chevron">＋</span></button><div class="qh-body"><div class="qh-row"><span>RSA CIPHER</span><b id="qh-cipher" class="qh-value qh-warn">LOCKED</b></div><div class="qh-row"><span>BREACH NODE</span><b id="qh-node" class="qh-value qh-warn">STANDBY</b></div><div class="qh-row"><span>FEED AGE</span><b id="qh-latency" class="qh-value">-- ms</b></div><div class="qh-row"><span>LIVE FEED</span><b id="qh-live" class="qh-value qh-warn">WAITING</b></div><div class="qh-row"><span>0x25 VECTOR</span><b id="qh-vector" class="qh-value">0.00</b></div><div class="qh-row"><span>HISTOGRAM</span><b id="qh-hist-value" class="qh-value">0.00</b></div><div class="qh-hist" id="qh-hist"></div><div class="qh-row"><span>OHLC MEMORY</span><b id="qh-ohlc" class="qh-value">--</b></div><div class="qh-row"><span>CYCLE</span><b id="qh-cycle" class="qh-value">0%</b></div><div class="qh-bar"><div id="qh-fill" class="qh-fill"></div></div><div class="qh-row"><span>NODE HASH</span><b id="qh-hash" class="qh-value">--</b></div><div class="qh-check" id="qh-check"></div><div id="qh-log" class="qh-log">Awaiting authenticated QX feed…</div></div></aside>';
 function el(id){return root.getElementById(id);}
+var hud=el('quant-hud'),hudToggle=el('qh-toggle');
+hudToggle.addEventListener('click',function(){
+ var expanded=hud.classList.toggle('expanded');
+ hud.classList.toggle('collapsed',!expanded);
+ hudToggle.setAttribute('aria-expanded',expanded?'true':'false');
+ el('qh-chevron').textContent=expanded?'−':'＋';
+});
 function reserveTopSpace(){
  if(!document.body)return;
  var height=92;
@@ -97,8 +117,10 @@ function renderTelemetry(s,age,live){
  el('qh-hist').innerHTML=bars.map(function(v){var n=Math.max(-1,Math.min(1,Number(v)||0));var h=Math.max(2,Math.round(Math.abs(n)*20));return '<i style="height:'+h+'px;background:'+(n>=0?'#65ff9b':'#ff6d83')+'"></i>';}).join('');
  function fmt(v){return v==null||!Number.isFinite(Number(v))?'--':Number(v).toFixed(5);}
  el('qh-ohlc').textContent=fmt(s.open)+' / '+fmt(s.high)+' / '+fmt(s.low)+' / '+fmt(s.close);
- var cycle=hasMemory?Math.min(100,Math.round(Number(s.candleCount)/12*100)):0;
- el('qh-cycle').textContent=cycle+'%';el('qh-fill').style.width=cycle+'%';
+ var memoryCount=Math.max(0,Number(s.assetCandleCount)||0);
+ var cycle=Math.min(100,Math.round(memoryCount/12*100));
+ el('qh-cycle').textContent=Math.min(12,memoryCount)+'/12';
+ el('qh-fill').style.width=cycle+'%';
  var fingerprint=String(s.fingerprint||'');
  el('qh-hash').textContent=fingerprint?fingerprint.slice(0,12).toUpperCase()+'…':'--';
  var checks=[
