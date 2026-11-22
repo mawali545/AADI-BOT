@@ -86,7 +86,11 @@ public final class FeedIntegrityMonitor {
             out.put("tickGapCount", s == null ? 0 : s.gaps);
             out.put("outOfOrderCount", s == null ? 0 : s.outOfOrder);
             out.put("duplicateTimestampCount", s == null ? 0 : s.duplicateTimestamps);
-            out.put("nativeAcceptedTicks", s == null ? 0 : s.accepted);\n            out.put("historyRows", s == null ? 0 : s.historyRows);\n            out.put("historyInvalid", s == null ? 0 : s.historyInvalid);\n            out.put("historyDuplicateBuckets", s == null ? 0 : s.historyDuplicateBuckets);\n            out.put("historyGapCount", s == null ? 0 : s.historyGaps);
+            out.put("nativeAcceptedTicks", s == null ? 0 : s.accepted);
+            out.put("historyRows", s == null ? 0 : s.historyRows);
+            out.put("historyInvalid", s == null ? 0 : s.historyInvalid);
+            out.put("historyDuplicateBuckets", s == null ? 0 : s.historyDuplicateBuckets);
+            out.put("historyGapCount", s == null ? 0 : s.historyGaps);
         } catch (Exception ignored) {}
         return out;
     }
@@ -99,7 +103,8 @@ public final class FeedIntegrityMonitor {
     }
 
     private static final class State {
-        long lastServerTime, lastArrivalElapsed, gaps, outOfOrder, duplicateTimestamps, accepted;\n        long historyRows, historyInvalid, historyDuplicateBuckets, historyGaps;
+        long lastServerTime, lastArrivalElapsed, gaps, outOfOrder, duplicateTimestamps, accepted;
+        long historyRows, historyInvalid, historyDuplicateBuckets, historyGaps;
         final Deque<Long> jitter = new ArrayDeque<>();
     }
 }
