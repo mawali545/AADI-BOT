@@ -26,7 +26,7 @@ public final class FeedIntegrityMonitor {
             s.outOfOrder++;
             return false;
         }
-        if (s.lastServerTime == serverTimeMs) s.duplicateTimestamps++;
+        if (s.lastServerTime == serverTimeMs) { s.duplicateTimestamps++; return false; }
         if (s.lastServerTime > 0 && serverTimeMs > s.lastServerTime) {
             long sourceDelta = serverTimeMs - s.lastServerTime;
             long arrivalDelta = Math.max(0, arrivalElapsedMs - s.lastArrivalElapsed);
