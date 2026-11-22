@@ -18,7 +18,7 @@ public class FeedIntegrityMonitorTest {
     @Test public void recordsLargeSourceGapsWithoutTreatingThemAsRtt() {
         FeedIntegrityMonitor m = new FeedIntegrityMonitor();
         assertTrue(m.recordTick("EURUSD_otc", 100000, 1000, 60));
-        assertTrue(m.recordTick("EURUSD_otc", 110000, 11000, 60));
+        assertTrue(m.recordTick("EURUSD_otc", 110000, 21000, 60));
         org.json.JSONObject s = m.snapshot("EURUSD_otc", 22000);
         assertEquals(1, s.optInt("tickGapCount"));
         assertEquals(10000, s.optLong("tickJitterMs"));
