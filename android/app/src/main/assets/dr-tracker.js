@@ -5,7 +5,8 @@ window.__DR_CANDLE_TRACKER__ = true;
 var NativeWS=window.WebSocket,sockets=0,frames=0,jsonFrames=0,sent=0,rejected=0,activeAsset='',activePeriod=60,pendingBinaryEvent='',logs=[],host,root;
 var nativePublicKey=null,aesKey=null,wrappedAesKey=null,sendQueue=Promise.resolve();
 var lastState={ticks:0,asset:'WAITING FOR QX',price:null,lastTickAt:0,connected:false,signal:'WAIT',wins:0,losses:0};
-var backend={memoryStream:[],cycle:0,node:'ARMED',cipher:'LOCKED',fingerprint:'',latency:null,scanState:'WAITING'};\nvar qxHttpRttMs=null,qxHttpRttAt=0,qxHeartbeatPingAt=0,qxHeartbeatResponseMs=null,qxHeartbeatAt=0,qxRttProbeBusy=false;
+var backend={memoryStream:[],cycle:0,node:'ARMED',cipher:'LOCKED',fingerprint:'',latency:null,scanState:'WAITING'};
+var qxHttpRttMs=null,qxHttpRttAt=0,qxHeartbeatPingAt=0,qxHeartbeatResponseMs=null,qxHeartbeatAt=0,qxRttProbeBusy=false;
 function log(m){logs.push('['+new Date().toISOString()+'] '+String(m));if(logs.length>120)logs.shift();}
 function assetOf(o){if(!o||typeof o!=='object')return'';for(var k of ['asset','symbol','pair','instrument','assetName','ticker','active'])if(typeof o[k]==='string'&&/^[A-Z0-9_./-]{3,32}$/i.test(o[k].trim()))return o[k].trim();return'';}
 function num(o,keys){if(!o||typeof o!=='object')return null;for(var k of keys){var v=o[k];if((typeof v==='number'||(typeof v==='string'&&v.trim()))&&Number.isFinite(Number(v)))return Number(v);}return null;}
