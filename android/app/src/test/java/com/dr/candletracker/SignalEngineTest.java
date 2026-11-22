@@ -126,6 +126,14 @@ public class SignalEngineTest {
         assertTrue(e.getReason().contains("LEVEL REJECTION / REVERSAL"));
     }
 
+    @Test public void telemetryMemoryExcludesTheCurrentlyFormingQxCandle() throws Exception {
+        SignalEngine e = new SignalEngine();
+        e.acceptHistory("EURUSD_otc",60,history(bullishPullbackSetup()));
+        e.acceptTick("EURUSD_otc",1.1012,T+420000,60);
+        assertEquals(7,e.getAssetCandleCount());
+        assertEquals(7,e.getHistogramBars().length());
+    }
+
     @Test public void tenSecondSettlementUsesFirstRealTickAtOrAfterExpiry() throws Exception {
         SignalEngine e = new SignalEngine();
         e.acceptHistory("EURUSD_otc",60,history(bullishPullbackSetup()));
