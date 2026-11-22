@@ -31,7 +31,7 @@ public final class FeedIntegrityMonitor {
         if (s.lastServerTime > 0 && serverTimeMs > s.lastServerTime) {
             long sourceDelta = serverTimeMs - s.lastServerTime;
             long arrivalDelta = Math.max(0, arrivalElapsedMs - s.lastArrivalElapsed);
-            if (sourceDelta > Math.max(5000L, Math.max(1L, periodSeconds) * 1500L)) s.gaps++;
+            if (sourceDelta > 5000L) s.gaps++;
             long jitter = Math.abs(arrivalDelta - sourceDelta);
             s.jitter.addLast(jitter);
             while (s.jitter.size() > WINDOW) s.jitter.removeFirst();
@@ -47,6 +47,7 @@ public final class FeedIntegrityMonitor {
         State s = states.get(asset);
         if (s == null) { s = new State(); states.put(asset, s); }
         long duration = Math.max(1L, Math.min(86400L, periodSeconds)) * 1000L;
+        s.historyRows = 0; s.historyInvalid = 0; s.historyDuplicateBuckets = 0; s.historyGaps = 0;
         java.util.TreeSet<Long> buckets = new java.util.TreeSet<>();
         boolean valid = true;
         for (int i = 0; i < rows.length(); i++) {
