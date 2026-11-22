@@ -267,6 +267,20 @@ public final class SignalEngine {
             last.close > last.open && lastBody >= atr * 0.42 &&
             lastClosePosition >= 0.38;
 
+        // Video chart example: price rebounds into a prior high, rejects it,
+        // and turns red. Treat this as a reversal only when the preceding
+        // directional move is still visible in the candle-memory vector.
+        double upperWick = last.high - Math.max(last.open, last.close);
+        double lowerWick = Math.min(last.open, last.close) - last.low;
+        boolean bearishRejection = last.high >= highestBeforeLast - atr * 0.18 &&
+            upperWick >= Math.max(lastBody * 0.65, atr * 0.12) &&
+            lastClosePosition <= 0.18 && last.close < last.open &&
+            (histogram > 0.12 || vector > 0.12) && displacement > 0.12;
+        boolean bullishRejection = last.low <= lowestBeforeLast + atr * 0.18 &&
+            lowerWick >= Math.max(lastBody * 0.65, atr * 0.12) &&
+            lastClosePosition >= -0.18 && last.close > last.open &&
+            (histogram < -0.12 || vector < -0.12) && displacement < -0.12;
+
         double recentLow = Double.POSITIVE_INFINITY;
         double recentHigh = Double.NEGATIVE_INFINITY;
         for (int i = Math.max(0, length - 6); i < length; i++) {
@@ -295,8 +309,10 @@ public final class SignalEngine {
             bullishConfirmation && alignedUp && !overextendedUp;
         boolean putContinuation = bearishStructure && bearishPullback &&
             bearishConfirmation && alignedDown && !overextendedDown;
-        boolean callReversal = bullishBreak && alignedUp && !overextendedUp;
-        boolean putReversal = bearishBreak && alignedDown && !overextendedDown;
+        boolean callReversal = (bullishBreak && alignedUp && !overextendedUp) ||
+            bullishRejection;
+        boolean putReversal = (bearishBreak && alignedDown && !overextendedDown) ||
+            bearishRejection;
 
         if (!callContinuation && !putContinuation && !callReversal && !putReversal) {
             String why = "WAIT · no confirmed pullback/continuation or structure-break reversal";
@@ -321,8 +337,9 @@ public final class SignalEngine {
         double confirmationScore = Math.min(1.0, lastBody / Math.max(atr * 0.7, 1e-12));
         double probability = clamp(52.0 + agreement * 18.0 +
             structureScore * 7.0 + confirmationScore * 8.0, 52.0, 85.0);
-        String setup = (callReversal || putReversal) ? "STRUCTURE BREAK / REVERSAL" :
-            "PULLBACK / CONTINUATION";
+        String setup = (callReversal || putReversal) ?
+            ((bullishRejection || bearishRejection) ? "LEVEL REJECTION / REVERSAL" :
+                "STRUCTURE BREAK / REVERSAL") : "PULLBACK / CONTINUATION";
         return new Scan(result, probability,
             result + " · " + setup + " · " + Math.round(probability) +
             "% estimated confidence · histogram " + signed(histogram) +
