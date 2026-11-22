@@ -45,9 +45,9 @@ public final class SignalEngine {
         settlePending(symbol, timestamp, price);
         lastTimestampByAsset.put(symbol, timestamp);
         long bucket = timestamp / duration * duration;
-        liveBucketByAsset.put(symbol, bucket);
         Candle current = lastCandle(symbol);
         if (current != null && bucket < current.bucket) return;
+        liveBucketByAsset.put(symbol, bucket);
         if (current == null || bucket > current.bucket) {
             current = new Candle(symbol, bucket, price);
             candles.add(current);
