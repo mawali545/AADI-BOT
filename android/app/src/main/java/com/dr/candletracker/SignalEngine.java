@@ -394,7 +394,8 @@ public final class SignalEngine {
             double body = clamp((candle.close - candle.open) / range, -1, 1);
             double closePosition = clamp(((candle.close - candle.low) -
                 (candle.high - candle.close)) / range, -1, 1);
-            bars.put(clamp(0.68 * body + 0.32 * closePosition, -1, 1));
+            try { bars.put(clamp(0.68 * body + 0.32 * closePosition, -1, 1)); }
+            catch (JSONException ignored) { /* Skip an invalid telemetry bar. */ }
         }
         return bars;
     }
