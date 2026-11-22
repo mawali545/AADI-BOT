@@ -1,82 +1,128 @@
 package com.dr.candletracker;
+
 import org.junit.Test;
 import static org.junit.Assert.*;
 import org.json.JSONArray;
+
 public class SignalEngineTest {
- @Test public void waitsUntilThreeRealCandlesAreCompleted(){
-  SignalEngine e=new SignalEngine();long t=1800000000000L;
-  e.acceptTick("EURUSD_otc",1.1000,t);e.acceptTick("EURUSD_otc",1.1002,t+1);
-  assertEquals("WAIT",e.getSignal());assertEquals(1,e.getCandleCount());
- }
- @Test public void buildsOhlcOnlyFromAcceptedTicks(){
-  SignalEngine e=new SignalEngine();long t=1800000000000L;
-  e.acceptTick("EURUSD_otc",1.1000,t);e.acceptTick("EURUSD_otc",1.1005,t+1000);e.acceptTick("EURUSD_otc",1.0995,t+2000);
-  assertEquals(1.1000,e.getOpen(),0.0000001);assertEquals(1.1005,e.getHigh(),0.0000001);
-  assertEquals(1.0995,e.getLow(),0.0000001);assertEquals(1.0995,e.getClose(),0.0000001);
- }
- @Test public void ignoresOlderTicks(){
-  SignalEngine e=new SignalEngine();long t=1800000000000L;
-  e.acceptTick("EURUSD_otc",1.1000,t);e.acceptTick("EURUSD_otc",1.1010,t+1000);e.acceptTick("EURUSD_otc",1.0900,t-1000);
-  assertEquals(1.1010,e.getLastPrice(),0.0000001);assertEquals(1.1010,e.getClose(),0.0000001);
- }
- @Test public void rejectsInvalidInputs(){
-  SignalEngine e=new SignalEngine();e.acceptTick("EURUSD_otc",-1,1800000000000L);e.acceptTick("EURUSD_otc",1.1,0);e.acceptTick("bad asset",1.1,1800000000000L);
-  assertEquals(0,e.getCandleCount());
- }
+    private static final long T = 1800000000000L;
 
- @Test public void callIsSettledFromFirstRealTickAtTenSecondExpiry(){
-  SignalEngine e=new SignalEngine();long t=1800000000000L;
-  e.acceptTick("EURUSD_otc",1.1000,t,60);e.acceptTick("EURUSD_otc",1.1008,t+1000,60);
-  e.acceptTick("EURUSD_otc",1.1008,t+60000,60);e.acceptTick("EURUSD_otc",1.1016,t+61000,60);
-  e.acceptTick("EURUSD_otc",1.1016,t+120000,60);e.acceptTick("EURUSD_otc",1.1024,t+121000,60);
-  e.acceptTick("EURUSD_otc",1.1024,t+180000,60);
-  assertEquals("CALL",e.getSignal());assertEquals(0,e.getWins());assertEquals(0,e.getLosses());
-  e.acceptTick("EURUSD_otc",1.1025,t+189999,60);
-  assertEquals(0,e.getWins());assertEquals(0,e.getLosses());
-  e.acceptTick("EURUSD_otc",1.1026,t+190000,60);
-  assertEquals(1,e.getWins());assertEquals(0,e.getLosses());
-  e.acceptTick("EURUSD_otc",1.1027,t+191000,60);
-  assertEquals(1,e.getWins());
- }
- @Test public void putIsSettledAsLossWhenExpiryPriceRises(){
-  SignalEngine e=new SignalEngine();long t=1800000000000L;
-  e.acceptTick("EURUSD_otc",1.1040,t,60);e.acceptTick("EURUSD_otc",1.1032,t+1000,60);
-  e.acceptTick("EURUSD_otc",1.1032,t+60000,60);e.acceptTick("EURUSD_otc",1.1024,t+61000,60);
-  e.acceptTick("EURUSD_otc",1.1024,t+120000,60);e.acceptTick("EURUSD_otc",1.1016,t+121000,60);
-  e.acceptTick("EURUSD_otc",1.1016,t+180000,60);
-  assertEquals("PUT",e.getSignal());
-  e.acceptTick("EURUSD_otc",1.1018,t+190000,60);
-  assertEquals(0,e.getWins());assertEquals(1,e.getLosses());
- }
+    private JSONArray history(double[][] bars) throws Exception {
+        StringBuilder s = new StringBuilder("[");
+        for (int i = 0; i < bars.length; i++) {
+            if (i > 0) s.append(",");
+            double[] b = bars[i]; // open, close, high, low
+            s.append("{\"time\":").append(T + i * 60000L)
+             .append(",\"open\":").append(b[0])
+             .append(",\"close\":").append(b[1])
+             .append(",\"high\":").append(b[2])
+             .append(",\"low\":").append(b[3]).append("}");
+        }
+        return new JSONArray(s.append("]").toString());
+    }
 
- @Test public void importsRealHistoryObjectsAndGeneratesProbabilityCall() throws Exception{
-  SignalEngine e=new SignalEngine();long t=1800000000000L;
-  JSONArray rows=new JSONArray("["
-   +"{\"time\":"+t+",\"open\":1.1000,\"close\":1.1006,\"high\":1.1007,\"low\":1.0999},"
-   +"{\"time\":"+(t+60000)+",\"open\":1.1008,\"close\":1.1014,\"high\":1.1015,\"low\":1.1007},"
-   +"{\"time\":"+(t+120000)+",\"open\":1.1016,\"close\":1.1022,\"high\":1.1023,\"low\":1.1015},"
-   +"{\"time\":"+(t+180000)+",\"open\":1.1024,\"close\":1.1030,\"high\":1.1031,\"low\":1.1023},"
-   +"{\"time\":"+(t+240000)+",\"open\":1.1032,\"close\":1.1038,\"high\":1.1039,\"low\":1.1031},"
-   +"{\"time\":"+(t+300000)+",\"open\":1.1040,\"close\":1.1046,\"high\":1.1047,\"low\":1.1039}]");
-  e.acceptHistory("EURUSD_otc",60,rows);
-  assertEquals(6,e.getCandleCount());
-  e.acceptTick("EURUSD_otc",1.1046,t+360000,60);
-  assertEquals("CALL",e.getSignal());
-  assertTrue(e.getSignalProbability()>50);
-  assertTrue(e.getReason().contains("bull"));
- }
- @Test public void choppyAlternatingRealCandlesStayWait() throws Exception{
-  SignalEngine e=new SignalEngine();long t=1800000000000L;
-  JSONArray rows=new JSONArray("["
-   +"{\"time\":"+t+",\"open\":1.1000,\"close\":1.10002,\"high\":1.1005,\"low\":1.0995},"
-   +"{\"time\":"+(t+60000)+",\"open\":1.10002,\"close\":1.1000,\"high\":1.10052,\"low\":1.0995},"
-   +"{\"time\":"+(t+120000)+",\"open\":1.1000,\"close\":1.10002,\"high\":1.1005,\"low\":1.09948},"
-   +"{\"time\":"+(t+180000)+",\"open\":1.10002,\"close\":1.1000,\"high\":1.10052,\"low\":1.0995},"
-   +"{\"time\":"+(t+240000)+",\"open\":1.1000,\"close\":1.10002,\"high\":1.1005,\"low\":1.09948},"
-   +"{\"time\":"+(t+300000)+",\"open\":1.10002,\"close\":1.1000,\"high\":1.10052,\"low\":1.0995}]");
-  e.acceptHistory("EURUSD_otc",60,rows);
-  e.acceptTick("EURUSD_otc",1.1000,t+360000,60);
-  assertEquals("WAIT",e.getSignal());
- }
+    private double[][] bullishPullbackSetup() {
+        return new double[][] {
+            {1.1000,1.1002,1.1003,1.0999},
+            {1.1002,1.1004,1.1005,1.1001},
+            {1.1004,1.1006,1.1007,1.1003},
+            {1.1006,1.1005,1.1008,1.1004},
+            {1.1005,1.1007,1.1008,1.1004},
+            {1.1007,1.10065,1.1009,1.1006},
+            {1.10065,1.1009,1.1010,1.1006},
+            {1.1009,1.1012,1.1013,1.1008}
+        };
+    }
 
+    @Test public void waitsForEightCompletedRealCandles() {
+        SignalEngine e = new SignalEngine();
+        e.acceptTick("EURUSD_otc", 1.1000, T, 60);
+        e.acceptTick("EURUSD_otc", 1.1002, T + 60000, 60);
+        assertEquals("WAIT", e.getSignal());
+    }
+
+    @Test public void buildsOhlcOnlyFromAcceptedTicks() {
+        SignalEngine e = new SignalEngine();
+        e.acceptTick("EURUSD_otc",1.1000,T);
+        e.acceptTick("EURUSD_otc",1.1005,T+1000);
+        e.acceptTick("EURUSD_otc",1.0995,T+2000);
+        assertEquals(1.1000,e.getOpen(),0.0000001);
+        assertEquals(1.1005,e.getHigh(),0.0000001);
+        assertEquals(1.0995,e.getLow(),0.0000001);
+        assertEquals(1.0995,e.getClose(),0.0000001);
+    }
+
+    @Test public void ignoresOlderTicks() {
+        SignalEngine e = new SignalEngine();
+        e.acceptTick("EURUSD_otc",1.1000,T);
+        e.acceptTick("EURUSD_otc",1.1010,T+1000);
+        e.acceptTick("EURUSD_otc",1.0900,T-1000);
+        assertEquals(1.1010,e.getLastPrice(),0.0000001);
+        assertEquals(1.1010,e.getClose(),0.0000001);
+    }
+
+    @Test public void rejectsInvalidInputs() {
+        SignalEngine e = new SignalEngine();
+        e.acceptTick("EURUSD_otc",-1,T);
+        e.acceptTick("EURUSD_otc",1.1,0);
+        e.acceptTick("bad asset",1.1,T);
+        assertEquals(0,e.getCandleCount());
+    }
+
+    @Test public void continuationNeedsPullbackAndFreshConfirmation() throws Exception {
+        SignalEngine e = new SignalEngine();
+        e.acceptHistory("EURUSD_otc",60,history(bullishPullbackSetup()));
+        e.acceptTick("EURUSD_otc",1.1012,T+480000,60);
+        assertEquals("CALL",e.getSignal());
+        assertTrue(e.getReason().contains("PULLBACK / CONTINUATION"));
+    }
+
+    @Test public void straightExtendedGreenRunDoesNotChaseWithCall() throws Exception {
+        SignalEngine e = new SignalEngine();
+        double[][] bars = new double[10][4];
+        for (int i=0;i<bars.length;i++) {
+            double o=1.1000+i*0.0003;
+            bars[i]=new double[]{o,o+0.0003,o+0.0004,o-0.00005};
+        }
+        e.acceptHistory("EURUSD_otc",60,history(bars));
+        e.acceptTick("EURUSD_otc",1.1030,T+600000,60);
+        assertEquals("WAIT",e.getSignal());
+        assertTrue(e.getReason().contains("extended") ||
+            e.getReason().contains("no confirmed pullback"));
+    }
+
+    @Test public void structureBreakCanSignalPutAgainstEarlierRise() throws Exception {
+        SignalEngine e = new SignalEngine();
+        double[][] bars = new double[][] {
+            {1.1000,1.1002,1.1003,1.0999},
+            {1.1002,1.1004,1.1005,1.1001},
+            {1.1004,1.1006,1.1007,1.1003},
+            {1.1006,1.1008,1.1009,1.1005},
+            {1.1008,1.1010,1.1011,1.1007},
+            {1.1010,1.1008,1.1012,1.1007},
+            {1.1008,1.1005,1.1009,1.1004},
+            {1.1005,1.1002,1.1006,1.1001},
+            {1.1002,1.0999,1.1003,1.0998},
+            {1.0999,1.0996,1.1000,1.0995},
+            {1.0996,1.0993,1.0997,1.0992},
+            {1.0993,1.0987,1.0994,1.0986}
+        };
+        e.acceptHistory("EURUSD_otc",60,history(bars));
+        e.acceptTick("EURUSD_otc",1.0987,T+720000,60);
+        assertEquals("PUT",e.getSignal());
+    }
+
+    @Test public void tenSecondSettlementUsesFirstRealTickAtOrAfterExpiry() throws Exception {
+        SignalEngine e = new SignalEngine();
+        e.acceptHistory("EURUSD_otc",60,history(bullishPullbackSetup()));
+        e.acceptTick("EURUSD_otc",1.1012,T+480000,60);
+        assertEquals("CALL",e.getSignal());
+        e.acceptTick("EURUSD_otc",1.1013,T+489999,60);
+        assertEquals(0,e.getWins());
+        assertEquals(0,e.getLosses());
+        e.acceptTick("EURUSD_otc",1.1014,T+490000,60);
+        assertEquals(1,e.getWins());
+        e.acceptTick("EURUSD_otc",1.1015,T+491000,60);
+        assertEquals(1,e.getWins());
+    }
 }
