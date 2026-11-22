@@ -358,6 +358,11 @@ public final class SignalEngine {
             setupScore = 45.0 + agreement * 22.0 + structureScore * 8.0 +
                 bodyQuality * 10.0 + closeQuality * 8.0 + patternQuality * 7.0;
         }
+        // Weak directional agreement must not be inflated by structure/body bonuses.
+        // Keep the signal available, but cap its evidence score when continuation/break
+        // evidence is weak; confirmed level-rejection reversals use their own candle score.
+        if (!rejectionSetup && agreement < 0.40)
+            setupScore = Math.min(setupScore, 55.0 + agreement * 25.0);
         setupScore = clamp(setupScore, 45.0, 85.0);
         String setup = (callReversal || putReversal) ?
             (rejectionSetup ? "LEVEL REJECTION / REVERSAL" :
