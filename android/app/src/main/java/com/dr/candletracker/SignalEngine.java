@@ -26,6 +26,7 @@ public final class SignalEngine {
     private int wins, losses, ties;
     private long lastTimestamp;
     private double lastPrice = Double.NaN, signalProbability;
+    private double lastHistogram, lastVector, lastDisplacement;
 
     public synchronized void acceptTick(String symbol, double price, long timestamp) {
         acceptTick(symbol, price, timestamp, 60L);
@@ -205,6 +206,9 @@ public final class SignalEngine {
             0.38 * (vectorClose / totalWeight), -1, 1);
         double displacement = totalPath <= 1e-12 ? 0 :
             clamp((last.close - stream.get(0).close) / totalPath, -1, 1);
+        lastHistogram = histogram;
+        lastVector = vector;
+        lastDisplacement = displacement;
 
         // Compare the earlier and later halves for higher-high/higher-low
         // or lower-high/lower-low structure rather than following candle color.
@@ -376,6 +380,24 @@ public final class SignalEngine {
     public synchronized int getTies() { return ties; }
     public synchronized int getSignalCount() { return signalCount; }
     public synchronized double getSignalProbability() { return signalProbability; }
+    public synchronized double getHistogram() { return lastHistogram; }
+    public synchronized double getVector() { return lastVector; }
+    public synchronized double getDisplacement() { return lastDisplacement; }
+    /** Normalized pressure bars derived from the last eight real QX OHLC candles. */
+    public synchronized JSONArray getHistogramBars() {
+        JSONArray bars = new JSONArray();
+        List<Candle> recent = new ArrayList<>();
+        for (int i = candles.size() - 1; i >= 0 && recent.size() < 8; i--)
+            if (candles.get(i).asset.equals(asset)) recent.add(0, candles.get(i));
+        for (Candle candle : recent) {
+            double range = safeRange(candle);
+            double body = clamp((candle.close - candle.open) / range, -1, 1);
+            double closePosition = clamp(((candle.close - candle.low) -
+                (candle.high - candle.close)) / range, -1, 1);
+            bars.put(clamp(0.68 * body + 0.32 * closePosition, -1, 1));
+        }
+        return bars;
+    }
     public synchronized int getCandleCount() { return candles.size(); }
     public synchronized long getLastTimestamp() { return lastTimestamp; }
     public synchronized double getLastPrice() { return lastPrice; }
