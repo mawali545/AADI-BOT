@@ -47,9 +47,12 @@ root.innerHTML='<style>'+css+
 '#quant-hud .qh-hist{height:24px;display:flex;align-items:flex-end;gap:4px;padding:3px 1px;border-bottom:1px solid rgba(100,255,160,.2)}'+
 '#quant-hud .qh-hist i{display:block;flex:1;min-width:0;border-radius:2px 2px 0 0;opacity:.9}'+
 '#quant-hud .qh-section{color:#78ffa4;font-weight:900;margin-top:5px;font-size:8px;letter-spacing:.8px}'+
+'#quant-hud .qh-check{margin-top:5px;padding-top:4px;border-top:1px solid rgba(100,255,160,.2)}'+
+'#quant-hud .qh-check div{display:flex;justify-content:space-between;font-size:8px;line-height:1.45;color:#86b997}'+
+'#quant-hud .qh-check b{color:#72ffa7;font-weight:900}'+
 '#quant-hud .qh-log{color:#82b995;font-size:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}'+
 '</style><section id="strip" aria-label="AADI live market ticker"><div id="ticker"><span id="brand">AADI · LIVE TICKER</span><span id="status">WAITING FOR QX</span><span id="market">—</span></div><div id="signals"><span id="wait" class="sig active wait">WAIT</span><span id="call" class="sig">CALL</span><span id="put" class="sig">PUT</span></div><div id="stats"><span id="wins">WINS <b>0</b></span><span id="losses">LOSSES <b>0</b></span></div></section>'+
-'<aside id="quant-hud" aria-label="Quant core connection telemetry"><div class="qh-title">QUANT CORE // LIVE FEED</div><div class="qh-row"><span>RSA CIPHER</span><b id="qh-cipher" class="qh-value qh-warn">LOCKED</b></div><div class="qh-row"><span>BREACH NODE</span><b id="qh-node" class="qh-value qh-warn">STANDBY</b></div><div class="qh-row"><span>LATENCY</span><b id="qh-latency" class="qh-value">-- ms</b></div><div class="qh-row"><span>LIVE FEED</span><b id="qh-live" class="qh-value qh-warn">WAITING</b></div><div class="qh-row"><span>0x25 VECTOR</span><b id="qh-vector" class="qh-value">0.00</b></div><div class="qh-row"><span>HISTOGRAM</span><b id="qh-hist-value" class="qh-value">0.00</b></div><div class="qh-hist" id="qh-hist"></div><div class="qh-row"><span>OHLC MEMORY</span><b id="qh-ohlc" class="qh-value">--</b></div><div class="qh-row"><span>CYCLE</span><b id="qh-cycle" class="qh-value">0%</b></div><div class="qh-bar"><div id="qh-fill" class="qh-fill"></div></div><div id="qh-log" class="qh-log">Awaiting authenticated QX feed…</div></aside>';
+'<aside id="quant-hud" aria-label="Quant core connection telemetry"><div class="qh-title">QUANT CORE // LIVE FEED</div><div class="qh-row"><span>RSA CIPHER</span><b id="qh-cipher" class="qh-value qh-warn">LOCKED</b></div><div class="qh-row"><span>BREACH NODE</span><b id="qh-node" class="qh-value qh-warn">STANDBY</b></div><div class="qh-row"><span>LATENCY / FEED AGE</span><b id="qh-latency" class="qh-value">-- ms</b></div><div class="qh-row"><span>LIVE FEED</span><b id="qh-live" class="qh-value qh-warn">WAITING</b></div><div class="qh-row"><span>0x25 VECTOR</span><b id="qh-vector" class="qh-value">0.00</b></div><div class="qh-row"><span>HISTOGRAM</span><b id="qh-hist-value" class="qh-value">0.00</b></div><div class="qh-hist" id="qh-hist"></div><div class="qh-row"><span>OHLC MEMORY</span><b id="qh-ohlc" class="qh-value">--</b></div><div class="qh-row"><span>CYCLE</span><b id="qh-cycle" class="qh-value">0%</b></div><div class="qh-bar"><div id="qh-fill" class="qh-fill"></div></div><div class="qh-row"><span>NODE HASH</span><b id="qh-hash" class="qh-value">--</b></div><div class="qh-check" id="qh-check"></div><div id="qh-log" class="qh-log">Awaiting authenticated QX feed…</div></aside>';
 function el(id){return root.getElementById(id);}
 function reserveTopSpace(){
  if(!document.body)return;
@@ -96,6 +99,16 @@ function renderTelemetry(s,age,live){
  el('qh-ohlc').textContent=fmt(s.open)+' / '+fmt(s.high)+' / '+fmt(s.low)+' / '+fmt(s.close);
  var cycle=hasMemory?Math.min(100,Math.round(Number(s.candleCount)/12*100)):0;
  el('qh-cycle').textContent=cycle+'%';el('qh-fill').style.width=cycle+'%';
+ var fingerprint=String(s.fingerprint||'');
+ el('qh-hash').textContent=fingerprint?fingerprint.slice(0,12).toUpperCase()+'…':'--';
+ var checks=[
+  ['QX SOCKET OBSERVER',live],
+  ['RSA / AES BRIDGE',cipher],
+  ['OHLC MEMORY',hasMemory],
+  ['HISTOGRAM + VECTOR',Number(s.candleCount)>=8],
+  ['SIGNAL SCAN',live&&Number(s.candleCount)>=8]
+ ];
+ el('qh-check').innerHTML=checks.map(function(item){return '<div><span>'+item[0]+'</span><b>'+(item[1]?'✓':'…')+'</b></div>';}).join('');
  el('qh-log').textContent=!cipher?'[LOCK] secure bridge initializing':
   (!live?'[WAIT] scanning QX websocket / reconnecting':
    (hasMemory?'[OK] OHLC memory · histogram/vector scan':'[OK] live feed · loading OHLC memory'));
