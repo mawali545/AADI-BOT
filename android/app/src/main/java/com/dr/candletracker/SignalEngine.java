@@ -339,17 +339,32 @@ public final class SignalEngine {
 
         double structureScore = ("CALL".equals(result) ?
             (bullishStructure ? 1.0 : 0.75) : (bearishStructure ? 1.0 : 0.75));
-        double agreement = (Math.abs(histogram) + Math.abs(vector) +
-            Math.abs(displacement)) / 3.0;
-        double confirmationScore = Math.min(1.0, lastBody / Math.max(atr * 0.7, 1e-12));
-        double probability = clamp(52.0 + agreement * 18.0 +
-            structureScore * 7.0 + confirmationScore * 8.0, 52.0, 85.0);
+        double expected = "CALL".equals(result) ? 1.0 : -1.0;
+        double agreement = (clamp(histogram * expected, 0.0, 1.0) +
+            clamp(vector * expected, 0.0, 1.0) +
+            clamp(displacement * expected, 0.0, 1.0)) / 3.0;
+        double bodyQuality = clamp(lastBody / Math.max(atr * 0.9, 1e-12), 0.0, 1.0);
+        double closeQuality = "CALL".equals(result) ?
+            clamp((lastClosePosition + 1.0) * 0.5, 0.0, 1.0) :
+            clamp((1.0 - lastClosePosition) * 0.5, 0.0, 1.0);
+        boolean rejectionSetup = bullishRejection || bearishRejection;
+        double patternQuality = rejectionSetup ?
+            clamp(Math.max(upperWick, lowerWick) / lastRange, 0.0, 1.0) : 1.0;
+        double setupScore;
+        if (rejectionSetup) {
+            setupScore = 48.0 + patternQuality * 14.0 + bodyQuality * 10.0 +
+                closeQuality * 8.0 + Math.min(1.0, Math.abs(displacement)) * 8.0;
+        } else {
+            setupScore = 45.0 + agreement * 22.0 + structureScore * 8.0 +
+                bodyQuality * 10.0 + closeQuality * 8.0 + patternQuality * 7.0;
+        }
+        setupScore = clamp(setupScore, 45.0, 85.0);
         String setup = (callReversal || putReversal) ?
-            ((bullishRejection || bearishRejection) ? "LEVEL REJECTION / REVERSAL" :
+            (rejectionSetup ? "LEVEL REJECTION / REVERSAL" :
                 "STRUCTURE BREAK / REVERSAL") : "PULLBACK / CONTINUATION";
-        return new Scan(result, probability,
-            result + " · " + setup + " · " + Math.round(probability) +
-            "% estimated confidence · histogram " + signed(histogram) +
+        return new Scan(result, setupScore,
+            result + " · " + setup + " · setup score " + Math.round(setupScore) +
+            "/100 (evidence score, not a measured win probability) · histogram " + signed(histogram) +
             " · vector " + signed(vector) + " · displacement " +
             signed(displacement) + " · bull " + bullishBars + " / bear " + bearishBars);
     }

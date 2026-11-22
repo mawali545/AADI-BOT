@@ -30,9 +30,10 @@ public final class MainActivity extends Activity {
     private String trackerScript = "";
     private volatile SecureBridgeCrypto crypto;
     private volatile boolean secureBridgeReady = false;
+    private volatile boolean cryptoHandshakeVerified = false;
     private volatile boolean pageReady = false;
     private volatile boolean documentStartScriptInstalled = false;
-    private long tickCount = 0, lastTickAt = 0;
+    private long tickCount = 0, lastTickAt = 0, lastTickReceivedAt = 0;
     private String currentAsset = "WAITING FOR MARKET";
     private String currentFingerprint = "";
     private int currentFrameBytes = 0;
@@ -109,6 +110,14 @@ public final class MainActivity extends Activity {
                             try {
                                 JSONObject tick = new JSONObject(active.decryptEnvelope(message.getData()));
                                 String type = tick.optString("type", "tick");
+                                if ("crypto_probe".equals(type)) {
+                                    cryptoHandshakeVerified = "RSA-OAEP-256/AES-256-GCM".equals(tick.optString("suite", ""));
+                                    runOnUiThread(() -> {
+                                        if (web != null) web.evaluateJavascript(
+                                            "window.DRUpdate && window.DRUpdate(" + snapshot().toString() + ")", null);
+                                    });
+                                    return;
+                                }
                                 String source = tick.optString("source", "");
                                 String asset = tick.optString("asset", "");
                                 String fingerprint = tick.optString("frameFingerprint", "");
@@ -139,7 +148,7 @@ public final class MainActivity extends Activity {
                                     !Double.isFinite(price) || price <= 0 || price >= 1e12 || stamp <= 0) return;
                                 final long tickTime = stamp;
                                 runOnUiThread(() -> {
-                                    tickCount++; lastPrice = price; currentAsset = asset; lastTickAt = tickTime;
+                                    tickCount++; lastPrice = price; currentAsset = asset; lastTickAt = tickTime; lastTickReceivedAt = System.currentTimeMillis();
                                     currentFingerprint = frameHash; currentFrameBytes = observedFrameBytes;
                                     signalEngine.acceptTick(asset, price, tickTime, period);
                                     if (web != null) web.evaluateJavascript(
@@ -225,8 +234,10 @@ public final class MainActivity extends Activity {
             o.put("ticks", tickCount); o.put("asset", currentAsset);
             o.put("price", Double.isFinite(lastPrice) ? lastPrice : JSONObject.NULL);
             o.put("lastTickAt", lastTickAt);
+            o.put("lastTickReceivedAt", lastTickReceivedAt);
             o.put("connected", lastTickAt > 0 && System.currentTimeMillis() - lastTickAt < 8000);
-            o.put("secureBridge", secureBridgeReady && crypto != null);
+            o.put("secureBridge", cryptoHandshakeVerified);
+            o.put("secureBridgeAvailable", secureBridgeReady && crypto != null);
             o.put("fingerprint", currentFingerprint);
             o.put("frameBytes", currentFrameBytes);
             o.put("signal", signalEngine.getSignal());

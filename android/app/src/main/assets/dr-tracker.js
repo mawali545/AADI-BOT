@@ -51,10 +51,10 @@ root.innerHTML='<style>'+css+
 '#quant-hud .qh-check div{display:flex;justify-content:space-between;font-size:8px;line-height:1.45;color:#86b997}'+
 '#quant-hud .qh-check b{color:#72ffa7;font-weight:900}'+
 '#quant-hud .qh-log{color:#82b995;font-size:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}'+
-'#quant-hud{width:156px;max-width:calc(100vw - 20px);max-height:44vh;bottom:10px;right:8px;padding:6px 8px;overflow:hidden;z-index:2147483647}'+
+'#quant-hud{width:156px;max-width:calc(100vw - 20px);max-height:44vh;bottom:10px;right:8px;padding:6px 8px;overflow:hidden;z-index:2147483647;pointer-events:auto}'+
 '#quant-hud.collapsed{width:156px;height:34px;max-height:34px;padding:4px 7px}'+
 '#quant-hud.expanded{width:min(272px,calc(100vw - 20px));max-height:44vh}'+
-'#quant-hud .qh-toggle{width:100%;min-height:24px;display:flex;align-items:center;justify-content:space-between;gap:6px;padding:0 1px;border:0;background:transparent;color:#83ffad;font:900 10px/1.2 monospace;letter-spacing:.65px;text-align:left;pointer-events:auto;touch-action:manipulation}'+
+'#quant-hud .qh-toggle{width:100%;min-height:24px;display:flex;align-items:center;justify-content:space-between;gap:6px;padding:0 1px;border:0;background:transparent;color:#83ffad;font:900 10px/1.2 monospace;letter-spacing:.65px;text-align:left;pointer-events:auto;touch-action:none;cursor:move;user-select:none}'+
 '#quant-hud .qh-toggle span:last-child{font-size:12px;color:#d2ffe0}'+
 '#quant-hud .qh-body{max-height:calc(44vh - 38px);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;pointer-events:auto;padding-top:4px}'+
 '#quant-hud.collapsed .qh-body{display:none}'+
@@ -65,15 +65,18 @@ root.innerHTML='<style>'+css+
 '#quant-hud .qh-check div{font-size:8px}'+
 '@media(max-width:380px){#quant-hud.expanded{width:calc(100vw - 16px);right:8px}#quant-hud .qh-title{font-size:9px}}'+
 '</style><section id="strip" aria-label="AADI live market ticker"><div id="ticker"><span id="brand">AADI · LIVE TICKER</span><span id="status">WAITING FOR QX</span><span id="market">—</span></div><div id="signals"><span id="wait" class="sig active wait">WAIT</span><span id="call" class="sig">CALL</span><span id="put" class="sig">PUT</span></div><div id="stats"><span id="wins">WINS <b>0</b></span><span id="losses">LOSSES <b>0</b></span></div></section>'+
-'<aside id="quant-hud" class="collapsed" aria-label="Quant core connection telemetry"><button type="button" id="qh-toggle" class="qh-toggle" aria-expanded="false"><span>QUANT CORE · LIVE</span><span id="qh-chevron">＋</span></button><div class="qh-body"><div class="qh-row"><span>RSA CIPHER</span><b id="qh-cipher" class="qh-value qh-warn">LOCKED</b></div><div class="qh-row"><span>BREACH NODE</span><b id="qh-node" class="qh-value qh-warn">STANDBY</b></div><div class="qh-row"><span>FEED AGE</span><b id="qh-latency" class="qh-value">-- ms</b></div><div class="qh-row"><span>LIVE FEED</span><b id="qh-live" class="qh-value qh-warn">WAITING</b></div><div class="qh-row"><span>0x25 VECTOR</span><b id="qh-vector" class="qh-value">0.00</b></div><div class="qh-row"><span>HISTOGRAM</span><b id="qh-hist-value" class="qh-value">0.00</b></div><div class="qh-hist" id="qh-hist"></div><div class="qh-row"><span>OHLC MEMORY</span><b id="qh-ohlc" class="qh-value">--</b></div><div class="qh-row"><span>CYCLE</span><b id="qh-cycle" class="qh-value">0%</b></div><div class="qh-bar"><div id="qh-fill" class="qh-fill"></div></div><div class="qh-row"><span>NODE HASH</span><b id="qh-hash" class="qh-value">--</b></div><div class="qh-check" id="qh-check"></div><div id="qh-log" class="qh-log">Awaiting authenticated QX feed…</div></div></aside>';
+'<aside id="quant-hud" class="collapsed" aria-label="Quant core connection telemetry"><button type="button" id="qh-toggle" class="qh-toggle" aria-expanded="false"><span>QUANT CORE · LIVE</span><span id="qh-chevron">＋</span></button><div class="qh-body"><div class="qh-row"><span>CRYPTO BRIDGE</span><b id="qh-cipher" class="qh-value qh-warn">HANDSHAKE PENDING</b></div><div class="qh-row"><span>BREACH NODE</span><b id="qh-node" class="qh-value qh-warn">STANDBY</b></div><div class="qh-row"><span>FEED AGE</span><b id="qh-latency" class="qh-value">-- ms</b></div><div class="qh-row"><span>NETWORK RTT</span><b id="qh-rtt" class="qh-value qh-warn">N/A</b></div><div class="qh-row"><span>LIVE FEED</span><b id="qh-live" class="qh-value qh-warn">WAITING</b></div><div class="qh-row"><span>0x25 VECTOR</span><b id="qh-vector" class="qh-value">0.00</b></div><div class="qh-row"><span>HISTOGRAM</span><b id="qh-hist-value" class="qh-value">0.00</b></div><div class="qh-hist" id="qh-hist"></div><div class="qh-row"><span>OHLC MEMORY</span><b id="qh-ohlc" class="qh-value">--</b></div><div class="qh-row"><span>OHLC MEMORY WINDOW</span><b id="qh-cycle" class="qh-value">0/12</b></div><div class="qh-bar"><div id="qh-fill" class="qh-fill"></div></div><div class="qh-row"><span>NODE HASH</span><b id="qh-hash" class="qh-value">--</b></div><div class="qh-check" id="qh-check"></div><div id="qh-log" class="qh-log">Awaiting authenticated QX feed…</div></div></aside>';
 function el(id){return root.getElementById(id);}
 var hud=el('quant-hud'),hudToggle=el('qh-toggle');
-hudToggle.addEventListener('click',function(){
- var expanded=hud.classList.toggle('expanded');
- hud.classList.toggle('collapsed',!expanded);
- hudToggle.setAttribute('aria-expanded',expanded?'true':'false');
- el('qh-chevron').textContent=expanded?'−':'＋';
-});
+var dragState=null,dragMoved=false,suppressNextHudClick=false;
+function placeHud(left,top){var rect=hud.getBoundingClientRect(),maxLeft=Math.max(0,window.innerWidth-rect.width),maxTop=Math.max(0,window.innerHeight-rect.height);left=Math.max(0,Math.min(maxLeft,left));top=Math.max(0,Math.min(maxTop,top));hud.style.left=Math.round(left)+'px';hud.style.top=Math.round(top)+'px';hud.style.right='auto';hud.style.bottom='auto';}
+function restoreHudPosition(){try{var p=JSON.parse(window.localStorage.getItem('dr-quant-hud-position')||'null');if(p&&Number.isFinite(p.left)&&Number.isFinite(p.top))placeHud(p.left,p.top);}catch(_){}}
+hudToggle.addEventListener('pointerdown',function(ev){if(ev.pointerType==='mouse'&&ev.button!==0)return;var r=hud.getBoundingClientRect();dragState={id:ev.pointerId,x:ev.clientX,y:ev.clientY,left:r.left,top:r.top};dragMoved=false;try{hudToggle.setPointerCapture(ev.pointerId);}catch(_){}});
+hudToggle.addEventListener('pointermove',function(ev){if(!dragState||ev.pointerId!==dragState.id)return;var dx=ev.clientX-dragState.x,dy=ev.clientY-dragState.y;if(Math.abs(dx)>3||Math.abs(dy)>3)dragMoved=true;if(dragMoved){placeHud(dragState.left+dx,dragState.top+dy);ev.preventDefault();}});
+function finishHudDrag(ev){if(!dragState||ev.pointerId!==dragState.id)return;if(dragMoved){var r=hud.getBoundingClientRect();try{window.localStorage.setItem('dr-quant-hud-position',JSON.stringify({left:r.left,top:r.top}));}catch(_){}suppressNextHudClick=true;}dragState=null;}
+hudToggle.addEventListener('pointerup',finishHudDrag);hudToggle.addEventListener('pointercancel',finishHudDrag);
+hudToggle.addEventListener('click',function(){if(suppressNextHudClick){suppressNextHudClick=false;return;}var expanded=hud.classList.toggle('expanded');hud.classList.toggle('collapsed',!expanded);hudToggle.setAttribute('aria-expanded',expanded?'true':'false');el('qh-chevron').textContent=expanded?'−':'＋';});
+restoreHudPosition();window.addEventListener('resize',function(){var r=hud.getBoundingClientRect();placeHud(r.left,r.top);},{passive:true});
 function reserveTopSpace(){
  if(!document.body)return;
  var height=92;
@@ -103,11 +106,12 @@ else document.addEventListener('DOMContentLoaded',startLayoutReservation,{once:t
 var lastSignalCount=-1,fadeTimer=null;
 function renderTelemetry(s,age,live){
  var cipher=!!s.secureBridge,hasMemory=Number(s.assetCandleCount)>0;
- el('qh-cipher').textContent=cipher?'RSA-OAEP / AES-GCM':'LOCKED';
+ el('qh-cipher').textContent=cipher?'VERIFIED':'HANDSHAKE PENDING';
  el('qh-cipher').className='qh-value '+(cipher?'qh-ok':'qh-warn');
  el('qh-node').textContent=live?'QX NODE LIVE':'NODE STANDBY';
  el('qh-node').className='qh-value '+(live?'qh-ok':'qh-warn');
  el('qh-latency').textContent=Number.isFinite(age)&&age>=0&&age<60000?Math.round(age)+' ms':'-- ms';
+ el('qh-rtt').textContent='N/A'; el('qh-rtt').title='Broker ping/pong RTT is not exposed by the current QX feed';
  el('qh-live').textContent=live?'LIVE':'WAITING';
  el('qh-live').className='qh-value '+(live?'qh-ok':'qh-warn');
  var vector=Number(s.vector)||0,hist=Number(s.histogram)||0;
@@ -125,7 +129,7 @@ function renderTelemetry(s,age,live){
  el('qh-hash').textContent=fingerprint?fingerprint.slice(0,12).toUpperCase()+'…':'--';
  var checks=[
   ['QX SOCKET OBSERVER',live],
-  ['RSA / AES BRIDGE',cipher],
+  ['CRYPTO HANDSHAKE',cipher],
   ['OHLC MEMORY',hasMemory],
   ['HISTOGRAM + VECTOR',Number(s.assetCandleCount)>=8],
   ['SIGNAL SCAN',live&&Number(s.assetCandleCount)>=8]
@@ -135,9 +139,9 @@ function renderTelemetry(s,age,live){
   (!live?'[WAIT] scanning QX websocket / reconnecting':
    (hasMemory?'[OK] OHLC memory · histogram/vector scan':'[OK] live feed · loading OHLC memory'));
 }
-function render(s){var age=s.lastTickAt?Date.now()-Number(s.lastTickAt):Infinity,live=!!s.lastTickAt&&age>=-30000&&age<8000;el('status').textContent=live?'● QX WS LIVE':(s.ticks?'● RECONNECTING':'WAITING FOR QX');el('status').style.color=live?'#7cffaa':'#ffd58a';el('market').textContent=(live?(s.asset||'MARKET'):(s.asset||'WAITING FOR QX'))+'  '+(s.price==null?'—':String(s.price));fitMarketText();var sig=['CALL','PUT'].includes(s.signal)?s.signal:'WAIT';var count=Number(s.signalCount)||0,prob=Math.round(Number(s.signalProbability)||0);['wait','call','put'].forEach(function(id){el(id).className='sig'+(id.toUpperCase()===sig?' active '+id:'');el(id).textContent=id==='wait'?'WAIT':(id.toUpperCase()===sig&&prob>0?id.toUpperCase()+' '+prob+'%':id.toUpperCase());});if(sig==='WAIT'){lastSignalCount=count;el('call').style.opacity='1';el('put').style.opacity='1';if(fadeTimer!==null){clearTimeout(fadeTimer);fadeTimer=null;}}else if(count!==lastSignalCount){lastSignalCount=count;el('call').style.opacity='1';el('put').style.opacity='1';var target=el(sig.toLowerCase());if(fadeTimer!==null)clearTimeout(fadeTimer);target.style.opacity='1';fadeTimer=setTimeout(function(){target.style.opacity='.68';fadeTimer=null;},450);}el('wins').innerHTML='WINS <b>'+(Number(s.wins)||0)+'</b>';el('losses').innerHTML='LOSSES <b>'+(Number(s.losses)||0)+'</b>';renderTelemetry(s,age,live);}
+function render(s){var receivedAt=Number(s.lastTickReceivedAt)||Number(s.lastTickAt)||0;var age=receivedAt?Date.now()-receivedAt:Infinity,live=!!s.lastTickAt&&age>=-30000&&age<8000;el('status').textContent=live?'● QX WS LIVE':(s.ticks?'● RECONNECTING':'WAITING FOR QX');el('status').style.color=live?'#7cffaa':'#ffd58a';el('market').textContent=(live?(s.asset||'MARKET'):(s.asset||'WAITING FOR QX'))+'  '+(s.price==null?'—':String(s.price));fitMarketText();var sig=['CALL','PUT'].includes(s.signal)?s.signal:'WAIT';var count=Number(s.signalCount)||0,prob=Math.round(Number(s.signalProbability)||0);['wait','call','put'].forEach(function(id){el(id).className='sig'+(id.toUpperCase()===sig?' active '+id:'');el(id).textContent=id==='wait'?'WAIT':(id.toUpperCase()===sig&&prob>0?id.toUpperCase()+' '+prob+'/100':id.toUpperCase());});if(sig==='WAIT'){lastSignalCount=count;el('call').style.opacity='1';el('put').style.opacity='1';if(fadeTimer!==null){clearTimeout(fadeTimer);fadeTimer=null;}}else if(count!==lastSignalCount){lastSignalCount=count;el('call').style.opacity='1';el('put').style.opacity='1';var target=el(sig.toLowerCase());if(fadeTimer!==null)clearTimeout(fadeTimer);target.style.opacity='1';fadeTimer=setTimeout(function(){target.style.opacity='.68';fadeTimer=null;},450);}el('wins').innerHTML='WINS <b>'+(Number(s.wins)||0)+'</b>';el('losses').innerHTML='LOSSES <b>'+(Number(s.losses)||0)+'</b>';renderTelemetry(s,age,live);}
 window.DRUpdate=function(s){if(!s||typeof s!=='object')return;lastState=Object.assign(lastState,s);backend.cycle++;backend.scanState=s.signal||'WAIT';backend.latency=s.lastTickAt?Math.max(0,Date.now()-Number(s.lastTickAt)):null;if(s.fingerprint)backend.fingerprint=s.fingerprint;render(lastState);};
-window.DRSetPublicKey=async function(encoded){try{if(!window.crypto||!crypto.subtle)throw new Error('WebCrypto unavailable');var b=atob(encoded),bytes=new Uint8Array(b.length);for(var i=0;i<b.length;i++)bytes[i]=b.charCodeAt(i);nativePublicKey=await crypto.subtle.importKey('spki',bytes,{name:'RSA-OAEP',hash:'SHA-256'},false,['encrypt']);aesKey=await crypto.subtle.generateKey({name:'AES-GCM',length:256},true,['encrypt','decrypt']);var raw=await crypto.subtle.exportKey('raw',aesKey);wrappedAesKey=b64(await crypto.subtle.encrypt({name:'RSA-OAEP'},nativePublicKey,raw));backend.cipher='LOCAL BRIDGE READY';log('LOCAL WEBVIEW-TO-ANDROID RSA-OAEP/AES-GCM CHANNEL READY');}catch(e){backend.cipher='LOCKED';log('LOCAL CRYPTO INIT FAILED '+(e&&e.message||e));}};
+window.DRSetPublicKey=async function(encoded){try{if(!window.crypto||!crypto.subtle)throw new Error('WebCrypto unavailable');var b=atob(encoded),bytes=new Uint8Array(b.length);for(var i=0;i<b.length;i++)bytes[i]=b.charCodeAt(i);nativePublicKey=await crypto.subtle.importKey('spki',bytes,{name:'RSA-OAEP',hash:'SHA-256'},false,['encrypt']);aesKey=await crypto.subtle.generateKey({name:'AES-GCM',length:256},true,['encrypt','decrypt']);var raw=await crypto.subtle.exportKey('raw',aesKey);wrappedAesKey=b64(await crypto.subtle.encrypt({name:'RSA-OAEP'},nativePublicKey,raw));if(!window.DRSecure||typeof window.DRSecure.postMessage!=='function')throw new Error('Native secure channel unavailable');var probe=await makeEnvelope({type:'crypto_probe',suite:'RSA-OAEP-256/AES-256-GCM'});window.DRSecure.postMessage(JSON.stringify(probe));backend.cipher='HANDSHAKE SENT';log('RSA-OAEP/AES-GCM encrypted handshake probe sent to native verifier');}catch(e){backend.cipher='LOCKED';log('LOCAL CRYPTO INIT FAILED '+(e&&e.message||e));}};
 window.DRBack=function(){return false;};
 log('COMPACT AADI INTERFACE READY · NATIVE SIGNAL ENGINE ACTIVE');reserveTopSpace();render(lastState);setInterval(()=>{reserveTopSpace();render(lastState);},1000);
 })();

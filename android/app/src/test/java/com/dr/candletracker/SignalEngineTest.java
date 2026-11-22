@@ -77,6 +77,17 @@ public class SignalEngineTest {
         assertTrue(e.getReason().contains("PULLBACK / CONTINUATION") || e.getReason().contains("STRUCTURE BREAK / REVERSAL"));
     }
 
+    @Test public void signalScoreIsExplicitlyAnEvidenceScoreNotAWinProbability() throws Exception {
+        SignalEngine e = new SignalEngine();
+        e.acceptHistory("EURUSD_otc",60,history(bullishPullbackSetup()));
+        e.acceptTick("EURUSD_otc",1.1012,T+480000,60);
+        assertEquals("CALL",e.getSignal());
+        assertTrue(e.getSignalProbability() >= 45.0);
+        assertTrue(e.getSignalProbability() <= 85.0);
+        assertTrue(e.getReason().contains("setup score"));
+        assertTrue(e.getReason().contains("not a measured win probability"));
+    }
+
     @Test public void straightExtendedGreenRunDoesNotChaseWithCall() throws Exception {
         SignalEngine e = new SignalEngine();
         double[][] bars = new double[10][4];
