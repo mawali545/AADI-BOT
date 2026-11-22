@@ -144,6 +144,7 @@ public final class MainActivity extends Activity {
                                     runOnUiThread(() -> {
                                         currentAsset = asset;
                                         currentFingerprint = frameHash; currentFrameBytes = observedFrameBytes;
+                                        if (!feedMonitor.recordHistory(asset, period, candles)) return;
                                         signalEngine.acceptHistory(asset, period, candles);
                                         if (web != null) web.evaluateJavascript(
                                             "window.DRUpdate && window.DRUpdate(" + snapshot().toString() + ")", null);
