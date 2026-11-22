@@ -32,8 +32,8 @@ public class FeedIntegrityMonitorTest {
     @Test public void rejectsMalformedAndDuplicateBucketHistory() throws Exception {
         FeedIntegrityMonitor m = new FeedIntegrityMonitor();
         org.json.JSONArray rows = new org.json.JSONArray();
-        rows.put(new org.json.JSONObject().put("time", 60000).put("open", 1.0).put("close", 1.1).put("high", 1.2).put("low", 0.9));
-        rows.put(new org.json.JSONObject().put("time", 61000).put("open", 1.0).put("close", 1.1).put("high", 1.2).put("low", 0.9));
+        rows.put(new org.json.JSONObject().put("time", 1800000000000L).put("open", 1.0).put("close", 1.1).put("high", 1.2).put("low", 0.9));
+        rows.put(new org.json.JSONObject().put("time", 1800000001000L).put("open", 1.0).put("close", 1.1).put("high", 1.2).put("low", 0.9));
         assertFalse(m.recordHistory("EURUSD_otc", 60, rows));
         org.json.JSONObject s = m.snapshot("EURUSD_otc", 0);
         assertEquals(1, s.optInt("historyDuplicateBuckets"));
@@ -44,7 +44,7 @@ public class FeedIntegrityMonitorTest {
         FeedIntegrityMonitor m = new FeedIntegrityMonitor();
         org.json.JSONArray rows = new org.json.JSONArray();
         rows.put(new org.json.JSONObject().put("time", 60000).put("open", 1.0).put("close", 1.1).put("high", 1.2).put("low", 0.9));
-        rows.put(new org.json.JSONObject().put("time", 180000).put("open", 1.1).put("close", 1.2).put("high", 1.3).put("low", 1.0));
+        rows.put(new org.json.JSONObject().put("time", 1800000120000L).put("open", 1.1).put("close", 1.2).put("high", 1.3).put("low", 1.0));
         assertTrue(m.recordHistory("EURUSD_otc", 60, rows));
         assertEquals(1, m.snapshot("EURUSD_otc", 0).optInt("historyGapCount"));
     }
