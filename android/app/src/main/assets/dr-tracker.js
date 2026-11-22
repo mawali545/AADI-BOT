@@ -102,7 +102,7 @@ if(document.body)startLayoutReservation();
 else document.addEventListener('DOMContentLoaded',startLayoutReservation,{once:true});
 var lastSignalCount=-1,fadeTimer=null;
 function renderTelemetry(s,age,live){
- var cipher=!!s.secureBridge,hasMemory=Number(s.candleCount)>0;
+ var cipher=!!s.secureBridge,hasMemory=Number(s.assetCandleCount)>0;
  el('qh-cipher').textContent=cipher?'RSA-OAEP / AES-GCM':'LOCKED';
  el('qh-cipher').className='qh-value '+(cipher?'qh-ok':'qh-warn');
  el('qh-node').textContent=live?'QX NODE LIVE':'NODE STANDBY';
@@ -127,8 +127,8 @@ function renderTelemetry(s,age,live){
   ['QX SOCKET OBSERVER',live],
   ['RSA / AES BRIDGE',cipher],
   ['OHLC MEMORY',hasMemory],
-  ['HISTOGRAM + VECTOR',Number(s.candleCount)>=8],
-  ['SIGNAL SCAN',live&&Number(s.candleCount)>=8]
+  ['HISTOGRAM + VECTOR',Number(s.assetCandleCount)>=8],
+  ['SIGNAL SCAN',live&&Number(s.assetCandleCount)>=8]
  ];
  el('qh-check').innerHTML=checks.map(function(item){return '<div><span>'+item[0]+'</span><b>'+(item[1]?'✓':'…')+'</b></div>';}).join('');
  el('qh-log').textContent=!cipher?'[LOCK] secure bridge initializing':
