@@ -3,6 +3,7 @@ package com.dr.candletracker;
 import android.app.Activity;
 import android.os.Bundle;
 import android.os.Build;
+import android.os.SystemClock;
 import android.graphics.Color;
 import android.net.Uri;
 import android.net.http.SslError;
@@ -39,6 +40,9 @@ public final class MainActivity extends Activity {
     private int currentFrameBytes = 0;
     private double lastPrice = Double.NaN;
     private final SignalEngine signalEngine = new SignalEngine();
+    private final FeedIntegrityMonitor feedMonitor = new FeedIntegrityMonitor();
+    private volatile double qxHeartbeatSendMs = Double.NaN, qxHttpResponseMs = Double.NaN;
+    private volatile long qxHeartbeatWallAt = 0, qxHttpWallAt = 0;
     private final ExecutorService cryptoExecutor = Executors.newSingleThreadExecutor();
 
     @Override public void onCreate(Bundle state) {
@@ -119,6 +123,10 @@ public final class MainActivity extends Activity {
                                     return;
                                 }
                                 String source = tick.optString("source", "");
+                                final double heartbeatMs = tick.optDouble("heartbeatSendMs", Double.NaN);
+                                final long heartbeatAt = tick.optLong("heartbeatAt", 0);
+                                final double httpMs = tick.optDouble("httpResponseMs", Double.NaN);
+                                final long httpAt = tick.optLong("httpResponseAt", 0);
                                 String asset = tick.optString("asset", "");
                                 String fingerprint = tick.optString("frameFingerprint", "");
                                 int frameBytes = tick.optInt("frameBytes", 0);
@@ -147,8 +155,13 @@ public final class MainActivity extends Activity {
                                 if (!"tick".equals(type) || !("quotes/stream".equals(source) || "candle-generated".equals(source)) ||
                                     !Double.isFinite(price) || price <= 0 || price >= 1e12 || stamp <= 0) return;
                                 final long tickTime = stamp;
+                                final long nativeArrivalElapsed = SystemClock.elapsedRealtime();
+                                if (tickTime > System.currentTimeMillis() + 5000L) return;
                                 runOnUiThread(() -> {
+                                    if (!feedMonitor.recordTick(asset, tickTime, nativeArrivalElapsed, period)) return;
                                     tickCount++; lastPrice = price; currentAsset = asset; lastTickAt = tickTime; lastTickReceivedAt = System.currentTimeMillis();
+                                    if (Double.isFinite(heartbeatMs) && heartbeatMs >= 0 && heartbeatMs < 60000) { qxHeartbeatSendMs = heartbeatMs; qxHeartbeatWallAt = heartbeatAt; }
+                                    if (Double.isFinite(httpMs) && httpMs >= 0 && httpMs < 60000) { qxHttpResponseMs = httpMs; qxHttpWallAt = httpAt; }
                                     currentFingerprint = frameHash; currentFrameBytes = observedFrameBytes;
                                     signalEngine.acceptTick(asset, price, tickTime, period);
                                     if (web != null) web.evaluateJavascript(
@@ -235,7 +248,14 @@ public final class MainActivity extends Activity {
             o.put("price", Double.isFinite(lastPrice) ? lastPrice : JSONObject.NULL);
             o.put("lastTickAt", lastTickAt);
             o.put("lastTickReceivedAt", lastTickReceivedAt);
-            o.put("connected", lastTickAt > 0 && System.currentTimeMillis() - lastTickAt < 8000);
+            o.put("connected", lastTickReceivedAt > 0 && System.currentTimeMillis() - lastTickReceivedAt < 8000);
+            o.put("qxHeartbeatSendMs", Double.isFinite(qxHeartbeatSendMs) ? qxHeartbeatSendMs : JSONObject.NULL);
+            o.put("qxHeartbeatAt", qxHeartbeatWallAt);
+            o.put("qxHttpResponseMs", Double.isFinite(qxHttpResponseMs) ? qxHttpResponseMs : JSONObject.NULL);
+            o.put("qxHttpResponseAt", qxHttpWallAt);
+            JSONObject feed = feedMonitor.snapshot(currentAsset, SystemClock.elapsedRealtime());
+            java.util.Iterator<String> feedKeys = feed.keys();
+            while (feedKeys.hasNext()) { String key = feedKeys.next(); o.put(key, feed.opt(key)); }
             o.put("secureBridge", cryptoHandshakeVerified);
             o.put("secureBridgeAvailable", secureBridgeReady && crypto != null);
             o.put("fingerprint", currentFingerprint);
