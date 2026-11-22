@@ -122,6 +122,25 @@ public final class MainActivity extends Activity {
                                     });
                                     return;
                                 }
+                                if ("telemetry".equals(type)) {
+                                    double heartbeatMs = tick.optDouble("heartbeatSendMs", Double.NaN);
+                                    long heartbeatAt = tick.optLong("heartbeatAt", 0);
+                                    double httpMs = tick.optDouble("httpResponseMs", Double.NaN);
+                                    long httpAt = tick.optLong("httpResponseAt", 0);
+                                    if (Double.isFinite(heartbeatMs) && heartbeatMs >= 0 && heartbeatMs < 60000 && heartbeatAt > 0) {
+                                        qxHeartbeatSendMs = heartbeatMs;
+                                        qxHeartbeatWallAt = heartbeatAt;
+                                    }
+                                    if (Double.isFinite(httpMs) && httpMs >= 0 && httpMs < 60000 && httpAt > 0) {
+                                        qxHttpResponseMs = httpMs;
+                                        qxHttpWallAt = httpAt;
+                                    }
+                                    runOnUiThread(() -> {
+                                        if (web != null) web.evaluateJavascript(
+                                            "window.DRUpdate && window.DRUpdate(" + snapshot().toString() + ")", null);
+                                    });
+                                    return;
+                                }
                                 String source = tick.optString("source", "");
                                 final double heartbeatMs = tick.optDouble("heartbeatSendMs", Double.NaN);
                                 final long heartbeatAt = tick.optLong("heartbeatAt", 0);
