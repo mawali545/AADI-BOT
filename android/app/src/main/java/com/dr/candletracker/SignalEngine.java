@@ -18,6 +18,7 @@ public final class SignalEngine {
     private final List<Candle> candles = new ArrayList<>();
     private final List<Tick> tape = new ArrayList<>();
     private final Map<String, Long> lastTimestampByAsset = new HashMap<>();
+    private final Map<String, Long> liveBucketByAsset = new HashMap<>();
     private final Map<String, Long> issuedBucketByAsset = new HashMap<>();
     private final List<Pending> pendingResults = new ArrayList<>();
     private int signalCount;
@@ -44,6 +45,7 @@ public final class SignalEngine {
         settlePending(symbol, timestamp, price);
         lastTimestampByAsset.put(symbol, timestamp);
         long bucket = timestamp / duration * duration;
+        liveBucketByAsset.put(symbol, bucket);
         Candle current = lastCandle(symbol);
         if (current != null && bucket < current.bucket) return;
         if (current == null || bucket > current.bucket) {
@@ -119,6 +121,7 @@ public final class SignalEngine {
         candles.addAll(imported);
         while (candles.size() > MAX_CANDLES) candles.remove(0);
         asset = symbol;
+        liveBucketByAsset.remove(symbol);
         issuedBucketByAsset.remove(symbol);
         signal = "WAIT";
         signalCount = 0;
@@ -387,8 +390,12 @@ public final class SignalEngine {
     public synchronized JSONArray getHistogramBars() {
         JSONArray bars = new JSONArray();
         List<Candle> recent = new ArrayList<>();
-        for (int i = candles.size() - 1; i >= 0 && recent.size() < 8; i--)
-            if (candles.get(i).asset.equals(asset)) recent.add(0, candles.get(i));
+        Long forming = liveBucketByAsset.get(asset);
+        for (int i = candles.size() - 1; i >= 0 && recent.size() < 8; i--) {
+            Candle candle = candles.get(i);
+            if (candle.asset.equals(asset) && (forming == null || candle.bucket != forming.longValue()))
+                recent.add(0, candle);
+        }
         for (Candle candle : recent) {
             double range = safeRange(candle);
             double body = clamp((candle.close - candle.open) / range, -1, 1);
@@ -398,6 +405,14 @@ public final class SignalEngine {
             catch (JSONException ignored) { /* Skip an invalid telemetry bar. */ }
         }
         return bars;
+    }
+    /** Completed broker candles for the currently selected asset; excludes its live forming bucket. */
+    public synchronized int getAssetCandleCount() {
+        int count = 0;
+        Long forming = liveBucketByAsset.get(asset);
+        for (Candle candle : candles)
+            if (candle.asset.equals(asset) && (forming == null || candle.bucket != forming.longValue())) count++;
+        return count;
     }
     public synchronized int getCandleCount() { return candles.size(); }
     public synchronized long getLastTimestamp() { return lastTimestamp; }
