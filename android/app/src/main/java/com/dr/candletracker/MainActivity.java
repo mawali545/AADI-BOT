@@ -232,6 +232,10 @@ public final class MainActivity extends Activity {
             o.put("signal", signalEngine.getSignal());
             o.put("signalCount", signalEngine.getSignalCount());
             o.put("signalProbability", signalEngine.getSignalProbability());
+            o.put("histogram", signalEngine.getHistogram());
+            o.put("vector", signalEngine.getVector());
+            o.put("displacement", signalEngine.getDisplacement());
+            o.put("histogramBars", signalEngine.getHistogramBars());
             o.put("signalReason", signalEngine.getReason());
             o.put("wins", signalEngine.getWins());
             o.put("losses", signalEngine.getLosses());
