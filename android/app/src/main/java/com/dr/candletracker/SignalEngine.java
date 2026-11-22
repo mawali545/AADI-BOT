@@ -337,6 +337,15 @@ public final class SignalEngine {
             return new Scan("WAIT", 0,
                 "WAIT · live QX feed is moving against the completed-candle setup.");
 
+        // Use the latest genuine quote tape as a final veto only when pressure
+        // is strongly opposite. Sparse/noisy tape (|flow| below threshold)
+        // does not block a structurally confirmed candle setup.
+        double liveFlow = tickFlow(symbol);
+        if (liveFlow * expected <= -0.55)
+            return new Scan("WAIT", 0,
+                "WAIT · strong opposing live-tick pressure (" +
+                signed(liveFlow) + "); completed-candle setup has not held in live flow.");
+
         double structureScore = ("CALL".equals(result) ?
             (bullishStructure ? 1.0 : 0.75) : (bearishStructure ? 1.0 : 0.75));
         double expectedDirection = "CALL".equals(result) ? 1.0 : -1.0;
