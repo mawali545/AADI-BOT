@@ -241,6 +241,7 @@ public final class MainActivity extends Activity {
             o.put("losses", signalEngine.getLosses());
             o.put("ties", signalEngine.getTies());
             o.put("candleCount", signalEngine.getCandleCount());
+            o.put("assetCandleCount", signalEngine.getAssetCandleCount());
             o.put("open", Double.isFinite(signalEngine.getOpen()) ? signalEngine.getOpen() : JSONObject.NULL);
             o.put("high", Double.isFinite(signalEngine.getHigh()) ? signalEngine.getHigh() : JSONObject.NULL);
             o.put("low", Double.isFinite(signalEngine.getLow()) ? signalEngine.getLow() : JSONObject.NULL);
