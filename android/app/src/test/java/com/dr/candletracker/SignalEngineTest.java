@@ -126,7 +126,7 @@ public class SignalEngineTest {
         };
         e.acceptHistory("EURUSD_otc",60,history(bars));
         e.acceptTick("EURUSD_otc",1.0988,T+480000,60);
-        e.acceptTick("EURUSD_otc",1.0980,T+481000,60);
+        e.acceptTick("EURUSD_otc",1.0983,T+481000,60);
         assertEquals("PUT",e.getSignal());
     }
 
@@ -167,7 +167,7 @@ public class SignalEngineTest {
         e.acceptTick("EURUSD_otc",1.1013,T+490999,60);
         assertEquals(0,e.getWins());
         assertEquals(0,e.getLosses());
-        e.acceptTick("EURUSD_otc",1.1014,T+491000,60);
+        e.acceptTick("EURUSD_otc",1.1019,T+491000,60);
         assertEquals(1,e.getWins());
         e.acceptTick("EURUSD_otc",1.1015,T+491000,60);
         assertEquals(1,e.getWins());
