@@ -56,7 +56,7 @@ async function parseFrame(raw){
  try{
   // Socket.IO binary event: Engine.IO message(4) + Socket.IO type(5)
   // + attachment count + '-' + JSON header. Attachments follow as binary frames.
-  var binaryHeader=text.match(/^4(5\\d*)-(.*)$/s);
+  var binaryHeader=text.match(/^4(5\d*)-(.*)$/s);
   if(binaryHeader){
    var count=parseInt(binaryHeader[1].slice(1),10),packet=JSON.parse(binaryHeader[2]);
    if(!Array.isArray(packet)||typeof packet[0]!=='string'||!Number.isInteger(count)||count<0||count>64)throw new Error('invalid binary event header');
