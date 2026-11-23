@@ -282,8 +282,8 @@ function renderTelemetry(s,age,live){
   ['ANDROID BRIDGE',bridgeVerified],
   ['QX MARKET DATA',qxDataConfirmed],
   ['OHLC MEMORY',hasMemory],
-  ['HISTOGRAM + VECTOR',Number(s.assetCandleCount)>=8],
-  ['SIGNAL ENGINE',qxDataConfirmed&&Number(s.assetCandleCount)>=8]
+  ['OHLC + VECTOR FLOW',Number(s.assetCandleCount)>=3],
+  ['SIGNAL ENGINE',qxDataConfirmed&&Number(s.assetCandleCount)>=3]
  ];
  el('qh-check').innerHTML=checks.map(function(item){return '<div><span>'+item[0]+'</span><b>'+(item[1]?'✓':'…')+'</b></div>';}).join('');
  var jitter=s.tickJitterMs==null?'--':Math.round(Number(s.tickJitterMs))+'ms',gaps=Number(s.tickGapCount)||0,ooo=Number(s.outOfOrderCount)||0,duplicates=Number(s.duplicateTimestampCount)||0,historyBad=Number(s.historyInvalid)||0,historyDup=Number(s.historyDuplicateBuckets)||0,historyGaps=Number(s.historyGapCount)||0;el('qh-log').textContent=!bridgeVerified?'[LOCK] local Android bridge initializing':
