@@ -97,8 +97,8 @@ async function parseFrame(raw){
   if(binaryHeader){
    var count=parseInt(binaryHeader[1].slice(1),10),packet=JSON.parse(binaryHeader[2]);
    if(!Array.isArray(packet)||typeof packet[0]!=='string'||!Number.isInteger(count)||count<0||count>64)throw new Error('invalid binary event header');
-   var headerEvent=packet[0],headerData=packet.length>1?packet[1]:null;
-   recordFrameDiag('socketio-binary-header',bytes.length,headerEvent,headerData&&typeof headerData==='object'&&!Array.isArray(headerData)?Object.keys(headerData):[], '',{socketIoType:'BINARY_EVENT',attachments:count,shape:valueShape(headerData,0),headerBytes:bytes.length,attachmentBoundary:'header-then-'+count+'-binary-frame(s)'});
+   var headerEvent=packet[0],headerData=packet.length>1?packet[1]:null,headerPrefix=text.slice(0,Math.max(0,text.indexOf('['))),headerSafe=headerPrefix.match(/^4(5\\d*)-((?:\\/[A-Za-z0-9_-]+,)?)(\\d*)$/);
+   recordFrameDiag('socketio-binary-header',bytes.length,headerEvent,headerData&&typeof headerData==='object'&&!Array.isArray(headerData)?Object.keys(headerData):[], '',{socketIoType:'BINARY_EVENT',attachments:count,shape:valueShape(headerData,0),headerBytes:bytes.length,namespace:headerSafe&&headerSafe[2]?headerSafe[2].replace(/[,/]/g,''):'default',ackId:headerSafe&&headerSafe[3]?headerSafe[3]:'none',socketIoHeaderPrefix:headerSafe?headerPrefix:'unparsed',attachmentBoundary:'header-then-'+count+'-binary-frame(s)'});
    if(count===0)processSocketEvent(packet,fp,bytes.length);
    else{pendingBinaryPacket={packet:packet,expected:count,attachments:[],fingerprint:fp,headerBytes:bytes.length,eventName:headerEvent,attachmentBytes:0};log('QX BINARY EVENT '+packet[0]+' · waiting '+count+' attachment(s)');}
    backend.fingerprint=fp;return;
