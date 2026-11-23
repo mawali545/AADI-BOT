@@ -3,6 +3,7 @@ package com.dr.candletracker;
 import android.app.Activity;
 import android.os.Bundle;
 import android.os.Build;
+import android.os.SystemClock;
 import android.graphics.Color;
 import android.net.Uri;
 import android.net.http.SslError;
@@ -24,22 +25,24 @@ import java.util.Collections;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import org.json.JSONObject;
-import org.json.JSONArray;
 
 public final class MainActivity extends Activity {
     private WebView web;
     private String trackerScript = "";
     private volatile SecureBridgeCrypto crypto;
     private volatile boolean secureBridgeReady = false;
+    private volatile boolean cryptoHandshakeVerified = false;
     private volatile boolean pageReady = false;
     private volatile boolean documentStartScriptInstalled = false;
-    private long tickCount = 0, lastTickAt = 0;
+    private long tickCount = 0, lastTickAt = 0, lastTickReceivedAt = 0;
     private String currentAsset = "WAITING FOR MARKET";
     private String currentFingerprint = "";
     private int currentFrameBytes = 0;
     private double lastPrice = Double.NaN;
     private final SignalEngine signalEngine = new SignalEngine();
-    private final MarketDiagnostics diagnostics = new MarketDiagnostics();
+    private final FeedIntegrityMonitor feedMonitor = new FeedIntegrityMonitor();
+    private volatile double qxHeartbeatSendMs = Double.NaN, qxHttpResponseMs = Double.NaN;
+    private volatile long qxHeartbeatWallAt = 0, qxHttpWallAt = 0;
     private final ExecutorService cryptoExecutor = Executors.newSingleThreadExecutor();
 
     @Override public void onCreate(Bundle state) {
@@ -111,11 +114,42 @@ public final class MainActivity extends Activity {
                             try {
                                 JSONObject tick = new JSONObject(active.decryptEnvelope(message.getData()));
                                 String type = tick.optString("type", "tick");
+                                if ("crypto_probe".equals(type)) {
+                                    cryptoHandshakeVerified = "RSA-OAEP-256/AES-256-GCM".equals(tick.optString("suite", ""));
+                                    runOnUiThread(() -> {
+                                        if (web != null) web.evaluateJavascript(
+                                            "window.DRUpdate && window.DRUpdate(" + snapshot().toString() + ")", null);
+                                    });
+                                    return;
+                                }
+                                if ("telemetry".equals(type)) {
+                                    double heartbeatMs = tick.optDouble("heartbeatSendMs", Double.NaN);
+                                    long heartbeatAt = tick.optLong("heartbeatAt", 0);
+                                    double httpMs = tick.optDouble("httpResponseMs", Double.NaN);
+                                    long httpAt = tick.optLong("httpResponseAt", 0);
+                                    if (Double.isFinite(heartbeatMs) && heartbeatMs >= 0 && heartbeatMs < 60000 && heartbeatAt > 0) {
+                                        qxHeartbeatSendMs = heartbeatMs;
+                                        qxHeartbeatWallAt = heartbeatAt;
+                                    }
+                                    if (Double.isFinite(httpMs) && httpMs >= 0 && httpMs < 60000 && httpAt > 0) {
+                                        qxHttpResponseMs = httpMs;
+                                        qxHttpWallAt = httpAt;
+                                    }
+                                    runOnUiThread(() -> {
+                                        if (web != null) web.evaluateJavascript(
+                                            "window.DRUpdate && window.DRUpdate(" + snapshot().toString() + ")", null);
+                                    });
+                                    return;
+                                }
                                 String source = tick.optString("source", "");
+                                final double heartbeatMs = tick.optDouble("heartbeatSendMs", Double.NaN);
+                                final long heartbeatAt = tick.optLong("heartbeatAt", 0);
+                                final double httpMs = tick.optDouble("httpResponseMs", Double.NaN);
+                                final long httpAt = tick.optLong("httpResponseAt", 0);
                                 String asset = tick.optString("asset", "");
                                 String fingerprint = tick.optString("frameFingerprint", "");
                                 int frameBytes = tick.optInt("frameBytes", 0);
-                                long period = tick.optLong("period", 60);
+                                long period = tick.optLong("period", 10);
                                 if (!asset.matches("[A-Za-z0-9_./-]{3,32}") ||
                                     !fingerprint.matches("(?i)[a-f0-9]{64}") ||
                                     frameBytes < 1 || frameBytes > 1048576 || period < 1 || period > 86400) return;
@@ -129,8 +163,8 @@ public final class MainActivity extends Activity {
                                     runOnUiThread(() -> {
                                         currentAsset = asset;
                                         currentFingerprint = frameHash; currentFrameBytes = observedFrameBytes;
+                                        if (!feedMonitor.recordHistory(asset, period, candles)) return;
                                         signalEngine.acceptHistory(asset, period, candles);
-                                        diagnostics.onHistory(asset, candles.length());
                                         if (web != null) web.evaluateJavascript(
                                             "window.DRUpdate && window.DRUpdate(" + snapshot().toString() + ")", null);
                                     });
@@ -138,15 +172,25 @@ public final class MainActivity extends Activity {
                                 }
                                 double price = tick.optDouble("price", Double.NaN);
                                 long stamp = tick.optLong("timestamp", 0);
-                                if (!"tick".equals(type) || !("quotes/stream".equals(source) || "candle-generated".equals(source)) ||
+                                Object rawDirection = tick.opt("tickDirection");
+                                Integer brokerDirection = null;
+                                if (rawDirection instanceof Number) {
+                                    int d = ((Number) rawDirection).intValue();
+                                    if (d >= -1 && d <= 1) brokerDirection = d;
+                                }
+                                final Integer tickDirection = brokerDirection;
+                                if (!"tick".equals(type) || !source.matches("(?i).*(quote|tick|price|candle|market|instrument).*") ||
                                     !Double.isFinite(price) || price <= 0 || price >= 1e12 || stamp <= 0) return;
                                 final long tickTime = stamp;
+                                final long nativeArrivalElapsed = SystemClock.elapsedRealtime();
+                                if (tickTime > System.currentTimeMillis() + 5000L) return;
                                 runOnUiThread(() -> {
-                                    tickCount++; lastPrice = price; currentAsset = asset; lastTickAt = tickTime;
+                                    if (!feedMonitor.recordTick(asset, tickTime, nativeArrivalElapsed, period)) return;
+                                    tickCount++; lastPrice = price; currentAsset = asset; lastTickAt = tickTime; lastTickReceivedAt = System.currentTimeMillis();
+                                    if (Double.isFinite(heartbeatMs) && heartbeatMs >= 0 && heartbeatMs < 60000) { qxHeartbeatSendMs = heartbeatMs; qxHeartbeatWallAt = heartbeatAt; }
+                                    if (Double.isFinite(httpMs) && httpMs >= 0 && httpMs < 60000) { qxHttpResponseMs = httpMs; qxHttpWallAt = httpAt; }
                                     currentFingerprint = frameHash; currentFrameBytes = observedFrameBytes;
-                                    signalEngine.acceptTick(asset, price, tickTime, period);
-                                    diagnostics.onTick(asset, price, tickTime, System.currentTimeMillis());
-                                    diagnostics.onSignal(signalEngine.getSignal());
+                                    signalEngine.acceptTick(asset, price, tickTime, period, tickDirection);
                                     if (web != null) web.evaluateJavascript(
                                         "window.DRUpdate && window.DRUpdate(" + snapshot().toString() + ")", null);
                                 });
@@ -230,31 +274,40 @@ public final class MainActivity extends Activity {
             o.put("ticks", tickCount); o.put("asset", currentAsset);
             o.put("price", Double.isFinite(lastPrice) ? lastPrice : JSONObject.NULL);
             o.put("lastTickAt", lastTickAt);
-            o.put("connected", lastTickAt > 0 && System.currentTimeMillis() - lastTickAt < 8000);
-            o.put("secureBridge", secureBridgeReady && crypto != null);
+            o.put("lastTickReceivedAt", lastTickReceivedAt);
+            o.put("connected", lastTickReceivedAt > 0 && System.currentTimeMillis() - lastTickReceivedAt < 8000);
+            o.put("qxHeartbeatSendMs", Double.isFinite(qxHeartbeatSendMs) ? qxHeartbeatSendMs : JSONObject.NULL);
+            o.put("qxHeartbeatAt", qxHeartbeatWallAt);
+            o.put("qxHttpResponseMs", Double.isFinite(qxHttpResponseMs) ? qxHttpResponseMs : JSONObject.NULL);
+            o.put("qxHttpResponseAt", qxHttpWallAt);
+            JSONObject feed = feedMonitor.snapshot(currentAsset, SystemClock.elapsedRealtime());
+            java.util.Iterator<String> feedKeys = feed.keys();
+            while (feedKeys.hasNext()) { String key = feedKeys.next(); o.put(key, feed.opt(key)); }
+            o.put("secureBridge", cryptoHandshakeVerified);
+            o.put("secureBridgeAvailable", secureBridgeReady && crypto != null);
             o.put("fingerprint", currentFingerprint);
             o.put("frameBytes", currentFrameBytes);
             o.put("signal", signalEngine.getSignal());
+            o.put("qxDirectionalUpTicks", signalEngine.getDirectionalUpTicks());
+            o.put("qxDirectionalDownTicks", signalEngine.getDirectionalDownTicks());
+            o.put("qxDirectionalNeutralTicks", signalEngine.getDirectionalNeutralTicks());
+            o.put("qxDirectionalTicks", signalEngine.getBrokerDirectionTickCount());
+            o.put("signalCount", signalEngine.getSignalCount());
+            o.put("signalProbability", signalEngine.getSignalProbability());
+            o.put("histogram", signalEngine.getHistogram());
+            o.put("vector", signalEngine.getVector());
+            o.put("displacement", signalEngine.getDisplacement());
+            o.put("histogramBars", signalEngine.getHistogramBars());
             o.put("signalReason", signalEngine.getReason());
             o.put("wins", signalEngine.getWins());
             o.put("losses", signalEngine.getLosses());
             o.put("ties", signalEngine.getTies());
             o.put("candleCount", signalEngine.getCandleCount());
+            o.put("assetCandleCount", signalEngine.getAssetCandleCount());
             o.put("open", Double.isFinite(signalEngine.getOpen()) ? signalEngine.getOpen() : JSONObject.NULL);
             o.put("high", Double.isFinite(signalEngine.getHigh()) ? signalEngine.getHigh() : JSONObject.NULL);
             o.put("low", Double.isFinite(signalEngine.getLow()) ? signalEngine.getLow() : JSONObject.NULL);
             o.put("close", Double.isFinite(signalEngine.getClose()) ? signalEngine.getClose() : JSONObject.NULL);
-            JSONObject diagnosticState = diagnostics.snapshot();
-            long age = lastTickAt > 0 ? System.currentTimeMillis() - lastTickAt : Long.MAX_VALUE;
-            diagnosticState.put("node", age >= 0 && age < 8000 ? "ARMED" : "RECONNECTING");
-            diagnosticState.put("scanState", signalEngine.getSignal());
-            diagnosticState.put("cipherState", secureBridgeReady && crypto != null ? "LOCAL BRIDGE READY" : "LOCKED");
-            JSONArray checks = diagnosticState.optJSONArray("scanChecklist");
-            if (checks != null && checks.length() >= 6) {
-                JSONObject bridgeCheck = checks.optJSONObject(5);
-                if (bridgeCheck != null) bridgeCheck.put("passed", secureBridgeReady && crypto != null);
-            }
-            o.put("diagnostics", diagnosticState);
         } catch (Exception ignored) {}
         return o;
     }

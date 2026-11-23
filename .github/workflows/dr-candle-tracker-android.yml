@@ -5,9 +5,11 @@ on:
   push:
     branches:
       - dr-candle-tracker-build207-secure-fix
+      - dr-candle-tracker-build215-period-default-fix
   pull_request:
     branches:
       - dr-candle-tracker-build207-secure-fix
+      - dr-candle-tracker-build215-period-default-fix
   workflow_dispatch:
 
 permissions:

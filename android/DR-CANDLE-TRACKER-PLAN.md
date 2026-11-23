@@ -7,16 +7,14 @@
 - Do not reuse old AADI signal functions, indicators, formulas, or calculations.
 
 ## Background reference-video elements
-Memory Stream OHLC from validated live ticks, rolling price tape, normalized four-component vector (momentum, acceleration, path efficiency, tick pressure), vector magnitude, source-to-arrival latency, processing cycle counter, node state, scan state, and bounded event log are processed natively and remain background diagnostics only. These are transparent measurable implementations, not claims to reproduce undisclosed proprietary video formulas.
+Memory Stream OHLC, live candle buffer, live-feed tracking, vector/market-structure analysis, latency and cycle monitoring, node state, event/terminal logging, scanning checklist, and cipher/bridge status remain background diagnostics only.
 
 ## Signal engine
 - Native Java backend processes validated received QX ticks.
 - Build 10-second OHLC candles from actual source timestamps.
 - Analyze momentum, candle body pressure, wick rejection, recent structure, support/resistance liquidity sweeps, pullback recovery, live tick direction, and sideways/chop conditions.
 - Output CALL / PUT / WAIT without probability percentages.
-- Keep the existing CALL / PUT / WAIT scan rules and thresholds unchanged.
-- Save the exact signal timestamp and entry price. At signal timestamp + 10 seconds, settle against the first genuine QX quote tick at or after expiry: CALL wins if price is higher, PUT wins if price is lower, opposite movement is LOSS, equal price is TIE. If no live tick arrives, keep the result pending; never fabricate a result.
-- Keep each pending signal independent; no result is settled from a synthetic candle close.
+- Record a next-candle signal once per candle and settle it only against the actual received target candle. Missing data remains unresolved.
 - Manual trading only; never place orders automatically.
 - The reference video does not disclose exact hidden weights/formula; the implementation is a transparent approximation, not a claim of exact source reproduction.
 
