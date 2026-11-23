@@ -9,6 +9,7 @@ on:
       - dr-candle-tracker-build216-auth-status-honesty
       - dr-candle-tracker-build217-fast-signal
       - dr-candle-tracker-build233-qx-frame-parser
+      - dr-candle-tracker-build234-qx-order-asset-fix
   pull_request:
     branches:
       - dr-candle-tracker-build207-secure-fix
