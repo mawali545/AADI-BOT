@@ -188,12 +188,13 @@ public final class SignalEngine {
             recentMemory.add(0, c);
             if (recentMemory.size() >= 12) break;
         }
-        if (count < 8)
+        if (count < 3)
             return new Scan("WAIT", 0,
-                "MEMORY STREAM · collecting 8 completed genuine QX candles (" + count + "/8).");
+                "MEMORY STREAM · collecting 3 completed genuine QX candles (" + count + "/3).");
 
-        // Preserve the existing pattern rules and thresholds, but evaluate
-        // the latest 8–12 completed candles for the NEXT entry candle.
+        // Use a short adaptive memory: three completed broker candles are enough
+        // to form a live directional read; additional candles improve context.
+        // Never block a valid live setup solely because eight candles are absent.
         int completedWindow = Math.min(12, recentMemory.size());
         List<Candle> stream = new ArrayList<>(
             recentMemory.subList(recentMemory.size() - completedWindow, recentMemory.size()));
@@ -299,13 +300,11 @@ public final class SignalEngine {
         double upperWick = last.high - Math.max(last.open, last.close);
         double lowerWick = Math.min(last.open, last.close) - last.low;
         boolean bearishRejection = last.high >= highestBeforeLast - atr * 0.18 &&
-            upperWick >= Math.max(lastBody * 0.65, atr * 0.12) &&
-            lastClosePosition <= 0.18 && last.close < last.open &&
-            histogram > 0.12 && vector > 0.12 && displacement > 0.12;
+            upperWick >= Math.max(lastBody * 0.55, atr * 0.10) &&
+            lastClosePosition <= 0.22 && last.close < last.open;
         boolean bullishRejection = last.low <= lowestBeforeLast + atr * 0.18 &&
-            lowerWick >= Math.max(lastBody * 0.65, atr * 0.12) &&
-            lastClosePosition >= -0.18 && last.close > last.open &&
-            histogram < -0.12 && vector < -0.12 && displacement < -0.12;
+            lowerWick >= Math.max(lastBody * 0.55, atr * 0.10) &&
+            lastClosePosition >= -0.22 && last.close > last.open;
 
         double recentLow = Double.POSITIVE_INFINITY;
         double recentHigh = Double.NEGATIVE_INFINITY;
@@ -326,15 +325,18 @@ public final class SignalEngine {
         int histDir = direction(histogram);
         int vectorDir = direction(vector);
         int displacementDir = direction(displacement);
-        boolean alignedUp = histDir > 0 && vectorDir > 0 &&
-            (displacementDir >= 0 || bullishBreak);
-        boolean alignedDown = histDir < 0 && vectorDir < 0 &&
-            (displacementDir <= 0 || bearishBreak);
+        // Two-of-three OHLC evidence is sufficient; do not require every
+        // derived measure to agree before accepting genuine broker candles.
+        int directionalVote = histDir + vectorDir + displacementDir;
+        boolean alignedUp = directionalVote >= 1 || bullishBreak;
+        boolean alignedDown = directionalVote <= -1 || bearishBreak;
 
-        boolean callContinuation = bullishStructure && bullishPullback &&
-            bullishConfirmation && alignedUp && !overextendedUp;
-        boolean putContinuation = bearishStructure && bearishPullback &&
-            bearishConfirmation && alignedDown && !overextendedDown;
+        // A fresh confirming candle plus ANY one meaningful context signal
+        // (structure, pullback, or aligned OHLC pressure) can qualify.
+        boolean callContinuation = bullishConfirmation &&
+            (bullishStructure || bullishPullback || alignedUp) && !overextendedUp;
+        boolean putContinuation = bearishConfirmation &&
+            (bearishStructure || bearishPullback || alignedDown) && !overextendedDown;
         boolean callReversal = (bullishBreak && alignedUp && !overextendedUp) ||
             bullishRejection;
         boolean putReversal = (bearishBreak && alignedDown && !overextendedDown) ||
@@ -352,18 +354,13 @@ public final class SignalEngine {
         int expected = "CALL".equals(result) ? 1 : -1;
         // The current quote is only a confirmation check, never a candle source.
         double liveAgainst = (livePrice - last.close) * expected;
-        if (liveAgainst < -atr * 0.42)
-            return new Scan("WAIT", 0,
-                "WAIT · live QX feed is moving against the completed-candle setup.");
-
-        // Use the latest genuine quote tape as a final veto only when pressure
-        // is strongly opposite. Sparse/noisy tape (|flow| below threshold)
-        // does not block a structurally confirmed candle setup.
+        // Real quote tape is corroborating evidence, not a blanket veto.
+        // Reject only when both price displacement and recent tick pressure
+        // strongly oppose the broker-candle setup.
         double liveFlow = tickFlow(symbol);
-        if (liveFlow * expected <= -0.55)
+        if (liveAgainst < -atr * 0.85 && liveFlow * expected <= -0.70)
             return new Scan("WAIT", 0,
-                "WAIT · strong opposing live-tick pressure (" +
-                signed(liveFlow) + "); completed-candle setup has not held in live flow.");
+                "WAIT · completed-candle setup and live QX tick-flow both oppose entry.");
 
         double structureScore = ("CALL".equals(result) ?
             (bullishStructure ? 1.0 : 0.75) : (bearishStructure ? 1.0 : 0.75));
