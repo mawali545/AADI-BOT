@@ -8,9 +8,13 @@ var lastState={ticks:0,asset:'WAITING FOR QX',price:null,lastTickAt:0,connected:
 var backend={memoryStream:[],cycle:0,node:'ARMED',cipher:'LOCKED',fingerprint:'',latency:null,scanState:'WAITING'};
 var qxHttpRttMs=null,qxHttpRttAt=0,qxHttpRttSamples=[],qxHeartbeatResponseMs=null,qxHeartbeatAt=0,qxRttProbeBusy=false;
 function log(m){logs.push('['+new Date().toISOString()+'] '+String(m));if(logs.length>120)logs.shift();}
-function recordFrameDiag(kind,size,eventName,keys,hex){var item={at:new Date().toISOString(),kind:String(kind||'frame').slice(0,48),bytes:Number(size)||0,event:String(eventName||'').slice(0,96),keys:Array.isArray(keys)?keys.slice(0,24).map(function(k){return String(k).slice(0,48);}):[],hex:String(hex||'').slice(0,192)};frameDiagnostics.push(item);if(frameDiagnostics.length>80)frameDiagnostics.shift();try{window.localStorage.setItem('dr-qx-frame-diagnostics-v1',JSON.stringify(frameDiagnostics));}catch(_){}}
+var DIAG_PREFIX_BYTES=96;
+function valueShape(v,depth){depth=depth||0;if(depth>3)return'…';if(v===null)return'null';if(Array.isArray(v)){var types={};v.slice(0,12).forEach(function(x){var t=Array.isArray(x)?'array':(x===null?'null':typeof x);types[t]=(types[t]||0)+1;});return'array['+v.length+'] '+JSON.stringify(types);}if(typeof v==='object'){var keys=Object.keys(v);return'object{'+keys.slice(0,32).join(',')+(keys.length>32?',…':'')+'}';}return typeof v;}
+function safeDiagEvent(name){return /^(quotes\/stream|depth\/change|history\/list\/v2|history\/load|chart_notification\/get|loadHistoryPeriod|instruments\/list)$/.test(String(name||''));}
+function bytePreview(bytes){var prefix=bytes.subarray(0,Math.min(bytes.length,DIAG_PREFIX_BYTES));return{hex:Array.from(prefix).map(function(x){return x.toString(16).padStart(2,'0');}).join(''),base64:b64(prefix),previewBytes:prefix.length,truncated:bytes.length>prefix.length};}
+function recordFrameDiag(kind,size,eventName,keys,hex,extra){var item={at:new Date().toISOString(),kind:String(kind||'frame').slice(0,48),bytes:Number(size)||0,event:String(eventName||'').slice(0,96),keys:Array.isArray(keys)?keys.slice(0,24).map(function(k){return String(k).slice(0,48);}):[],hex:String(hex||'').slice(0,192),meta:extra&&typeof extra==='object'?extra:{}};frameDiagnostics.push(item);if(frameDiagnostics.length>80)frameDiagnostics.shift();try{window.localStorage.setItem('dr-qx-frame-diagnostics-v1',JSON.stringify(frameDiagnostics));}catch(_){}}
 try{var priorDiagnostics=JSON.parse(window.localStorage.getItem('dr-qx-frame-diagnostics-v1')||'[]');if(Array.isArray(priorDiagnostics))frameDiagnostics=priorDiagnostics.slice(-80);}catch(_){}
-function diagnosticCopyText(){var saved=frameDiagnostics.slice();try{var persisted=JSON.parse(window.localStorage.getItem('dr-qx-frame-diagnostics-v1')||'[]');if(Array.isArray(persisted)&&persisted.length>saved.length)saved=persisted.slice(-80);}catch(_){}return 'DR CANDLE TRACKER · QX FRAME DIAGNOSTICS\nCaptured: '+new Date().toISOString()+'\nPrivacy: no cookies, tokens, credentials, prices, or full text payloads included.\n\nFRAME RECORDS\n'+saved.map(function(x){return [x.at,x.kind,'bytes='+x.bytes,'event='+x.event,'keys='+x.keys.join(','),x.hex?'hex='+x.hex:''].filter(Boolean).join(' | ');}).join('\n')+'\n\nRECENT PARSER LOGS\n'+logs.slice(-80).join('\n');}
+function diagnosticCopyText(){var saved=frameDiagnostics.slice();try{var persisted=JSON.parse(window.localStorage.getItem('dr-qx-frame-diagnostics-v1')||'[]');if(Array.isArray(persisted)&&persisted.length>saved.length)saved=persisted.slice(-80);}catch(_){}return 'DR CANDLE TRACKER · QX FRAME DIAGNOSTICS\nCaptured: '+new Date().toISOString()+'\nPrivacy: credentials, cookies, authorization headers, SSID, tokens, prices and full payload values are excluded. Only safe event metadata and a maximum '+DIAG_PREFIX_BYTES+'-byte binary prefix for approved market-data events is included.\n\nFRAME RECORDS\n'+saved.map(function(x){var m=x.meta||{};return [x.at,x.kind,'bytes='+x.bytes,'event='+x.event,'keys='+x.keys.join(','),m.shape?'shape='+m.shape:'',m.socketIoType?'socketio='+m.socketIoType:'',m.attachments!=null?'attachments='+m.attachments:'',m.attachmentIndex!=null?'attachment='+m.attachmentIndex+'/'+m.attachments:'',m.offset!=null?'offset='+m.offset:'',m.headerBytes!=null?'headerBytes='+m.headerBytes:'',m.previewBytes!=null?'previewBytes='+m.previewBytes:'',m.base64?'base64='+m.base64:'',m.truncated?'preview-truncated=true':'',x.hex?'hex='+x.hex:''].filter(Boolean).join(' | ');}).join('\n')+'\n\nRECENT PARSER LOGS\n'+logs.slice(-80).join('\n');}
 function copyDiagnostics(){var value=diagnosticCopyText(),ok=false;try{var box=document.createElement('textarea');box.value=value;box.setAttribute('readonly','');box.style.position='fixed';box.style.opacity='0';document.body.appendChild(box);box.select();ok=document.execCommand('copy');box.remove();}catch(_){}var b=el('qh-copy');if(b)b.textContent=ok?'COPIED ✓':'COPY FAILED';setTimeout(function(){if(b)b.textContent='COPY QX DIAGNOSTICS';},1800);}
 function assetOf(o){if(!o||typeof o!=='object')return'';for(var k of ['asset','symbol','pair','instrument','assetName','ticker','active'])if(typeof o[k]==='string'&&/^[A-Z0-9_./-]{3,32}$/i.test(o[k].trim()))return o[k].trim();return'';}
 function num(o,keys){if(!o||typeof o!=='object')return null;for(var k of keys){var v=o[k];if((typeof v==='number'||(typeof v==='string'&&v.trim()))&&Number.isFinite(Number(v)))return Number(v);}return null;}
@@ -24,7 +28,11 @@ function send(price,asset,timestamp,tickDirection,fingerprint,frameBytes,sourceE
 function sendHistory(data,fp,size,sourceEvent){if(!data||typeof data!=='object')return;var asset=assetOf(data)||activeAsset,period=num(data,['period','timePeriod'])||activePeriod,rows=Array.isArray(data.candles)?data.candles:(Array.isArray(data.history)?data.history:(Array.isArray(data.data)?data.data:null));if(!asset||!rows)return;period=Number(period);if(!Number.isFinite(period)||period<1||period>86400)period=activePeriod;activePeriod=period;var candles=[];rows.slice(-900).forEach(function(c){if(Array.isArray(c)&&c.length<5)return;if(!Array.isArray(c)&&(!c||typeof c!=='object'))return;var t,o,cl,h,l;if(Array.isArray(c)){t=sourceTime(c[0]);o=Number(c[1]);cl=Number(c[2]);h=Number(c[3]);l=Number(c[4]);}else{t=sourceTime(c.time??c.timestamp??c.t);o=Number(c.open??c.o);cl=Number(c.close??c.c);h=Number(c.high??c.h);l=Number(c.low??c.l);}if(t&&[o,cl,h,l].every(Number.isFinite)&&o>0&&cl>0&&h>0&&l>0&&h>=Math.max(o,cl)&&l<=Math.min(o,cl))candles.push({time:t,open:o,close:cl,high:h,low:l});});if(candles.length)postPayload({type:'history',source:String(sourceEvent||'history/list/v2'),asset:asset,period:period,candles:candles},fp,size);}
 function walk(v,inherited,depth,fp,size,sourceEvent){if(depth>10||v==null)return;if(Array.isArray(v)){if(v.length>=3&&typeof v[0]==='string'&&/^[A-Z0-9_./-]{3,32}$/i.test(v[0])&&sourceTime(v[1])&&Number(v[2])>0){send(v[2],v[0],v[1],v.length>=4?v[3]:null,fp,size,sourceEvent);return;}v.forEach(function(x){walk(x,inherited,depth+1,fp,size,sourceEvent);});return;}if(typeof v!=='object')return;var a=assetOf(v)||inherited||activeAsset,p=num(v,['price','currentPrice','lastPrice','closePrice','quotePrice','value']),t=null;for(var k of ['timestamp','time','ts','created_at','at','serverTime'])if(v[k]!=null){t=sourceTime(v[k]);if(t)break;}if(p!==null&&a&&t){send(p,a,t,num(v,['tickDirection','direction','dir'])!==null?num(v,['tickDirection','direction','dir']):(v.side||null),fp,size,sourceEvent);return;}Object.keys(v).forEach(function(k){if(v[k]&&typeof v[k]==='object')walk(v[k],a,depth+1,fp,size,sourceEvent);});}
 function handleData(o,eventName,fp,size){
- if(eventName==='history/list/v2'||eventName==='history/load'||eventName==='chart_notification/get'||eventName==='loadHistoryPeriod'){sendHistory(o,fp,size,eventName);return;}
+ if(eventName==='history/list/v2'||eventName==='history/load'||eventName==='chart_notification/get'||eventName==='loadHistoryPeriod'){
+  if(Array.isArray(o))sendHistory({asset:activeAsset,period:activePeriod,candles:o},fp,size,eventName);
+  else sendHistory(o,fp,size,eventName);
+  return;
+ }
  if(eventName==='candle-generated'&&o&&typeof o==='object'){var ca=assetOf(o)||activeAsset,cp=num(o,['price','close']);var ct=null;for(var k of ['timestamp','time','ts'])if(o[k]!=null){ct=sourceTime(o[k]);if(ct)break;}if(cp!==null&&ca&&ct){send(cp,ca,ct,null,fp,size,eventName);return;}}
  walk(o,activeAsset,0,fp,size,eventName);
 }
@@ -33,7 +41,7 @@ function processSocketEvent(packet,fp,size){
  if(!Array.isArray(packet)||typeof packet[0]!=='string'){log('QX SOCKET EVENT SHAPE UNRECOGNIZED');return;}
  var eventName=packet[0],data=packet.length>1?packet[1]:null,a=assetOf(data);
  jsonFrames++;
- recordFrameDiag('socket-event',size,eventName,data&&typeof data==='object'?Object.keys(data):[],'');
+ recordFrameDiag('socket-event',size,eventName,data&&typeof data==='object'&&!Array.isArray(data)?Object.keys(data):[],'',{shape:valueShape(data,0),socketIoType:'EVENT',packetLength:packet.length});
  if(a){activeAsset=a;log('QX EVENT '+eventName+' · '+a);}
  else log('QX EVENT '+eventName);
  // Do not whitelist event names: broker event names change. Only validated
@@ -55,7 +63,7 @@ function restoreBinaryPlaceholders(value,attachments){
  return value;
 }
 function handleDecodedBinary(value,fp,size){
- recordFrameDiag('binary-json',size,'binary-json',value&&typeof value==='object'?Object.keys(value):[],'');
+ recordFrameDiag('binary-json',size,'binary-json',value&&typeof value==='object'&&!Array.isArray(value)?Object.keys(value):[],'',{shape:valueShape(value,0),payloadType:Array.isArray(value)?'array':'object'});
  if(value&&typeof value==='object'&&!Array.isArray(value)&&
    (Array.isArray(value.history)||Array.isArray(value.candles)||
     (Array.isArray(value.data)&&assetOf(value)))){
@@ -64,7 +72,11 @@ function handleDecodedBinary(value,fp,size){
   sendHistory(value,fp,size,eventName);return;
  }
  if(Array.isArray(value)&&typeof value[0]==='string'&&value.length<=3){processSocketEvent(value,fp,size);return;}
- log('QX BINARY JSON DATA · '+(Array.isArray(value)?'array':'object'));
+ if(Array.isArray(value)&&value.length&&value.every(function(c){return Array.isArray(c)&&c.length>=5&&sourceTime(c[0])&&[c[1],c[2],c[3],c[4]].every(function(n){return Number.isFinite(Number(n));});})){
+  log('QX BINARY JSON CANDLE ARRAY · '+value.length+' rows');
+  sendHistory({asset:activeAsset,period:activePeriod,candles:value},fp,size,'history/list/v2');return;
+ }
+ log('QX BINARY JSON DATA · '+(Array.isArray(value)?'array':'object')+' · '+valueShape(value,0));
  walk(value,activeAsset,0,fp,size,'quotes/stream');
 }
 async function parseFrame(raw){
@@ -85,21 +97,25 @@ async function parseFrame(raw){
   if(binaryHeader){
    var count=parseInt(binaryHeader[1].slice(1),10),packet=JSON.parse(binaryHeader[2]);
    if(!Array.isArray(packet)||typeof packet[0]!=='string'||!Number.isInteger(count)||count<0||count>64)throw new Error('invalid binary event header');
+   var headerEvent=packet[0],headerData=packet.length>1?packet[1]:null;
+   recordFrameDiag('socketio-binary-header',bytes.length,headerEvent,headerData&&typeof headerData==='object'&&!Array.isArray(headerData)?Object.keys(headerData):[], '',{socketIoType:'BINARY_EVENT',attachments:count,shape:valueShape(headerData,0),headerBytes:bytes.length,attachmentBoundary:'header-then-'+count+'-binary-frame(s)'});
    if(count===0)processSocketEvent(packet,fp,bytes.length);
-   else{pendingBinaryPacket={packet:packet,expected:count,attachments:[],fingerprint:fp,headerBytes:bytes.length};log('QX BINARY EVENT '+packet[0]+' · waiting '+count+' attachment(s)');}
+   else{pendingBinaryPacket={packet:packet,expected:count,attachments:[],fingerprint:fp,headerBytes:bytes.length,eventName:headerEvent,attachmentBytes:0};log('QX BINARY EVENT '+packet[0]+' · waiting '+count+' attachment(s)');}
    backend.fingerprint=fp;return;
   }
   // Binary attachment frames are paired in arrival order with the header.
   if(typeof raw!=='string'&&pendingBinaryPacket){
    var pending=pendingBinaryPacket,decodedAttachment=decodeQxBinaryJson(bytes);
+   var attachmentIndex=pending.attachments.length+1,offset=pending.attachmentBytes;
    pending.attachments.push(decodedAttachment!==null?decodedAttachment:bytes);
-   var attachHex=decodedAttachment===null?Array.from(bytes.subarray(0,48)).map(x=>x.toString(16).padStart(2,'0')).join(''):'';
-   recordFrameDiag(decodedAttachment!==null?'binary-attachment-json':'binary-attachment-opaque',bytes.length,pending.packet[0],decodedAttachment&&typeof decodedAttachment==='object'?Object.keys(decodedAttachment):[],attachHex);
-   log('QX BINARY ATTACHMENT '+pending.attachments.length+'/'+pending.expected+' · '+bytes.length+' bytes · '+(decodedAttachment!==null?'JSON decoded':'opaque bytes'));
+   pending.attachmentBytes+=bytes.length;
+   var approved=safeDiagEvent(pending.eventName),preview=approved?bytePreview(bytes):{hex:'',base64:'',previewBytes:0,truncated:false};
+   recordFrameDiag(decodedAttachment!==null?'binary-attachment-json':'binary-attachment-opaque',bytes.length,pending.eventName,decodedAttachment&&typeof decodedAttachment==='object'&&!Array.isArray(decodedAttachment)?Object.keys(decodedAttachment):[],preview.hex,{shape:decodedAttachment!==null?valueShape(decodedAttachment,0):'opaque-binary',payloadType:decodedAttachment!==null?(Array.isArray(decodedAttachment)?'array':'object'):'binary',socketIoType:'BINARY_ATTACHMENT',attachmentIndex:attachmentIndex,attachments:pending.expected,offset:offset,headerBytes:pending.headerBytes,previewBytes:preview.previewBytes,base64:preview.base64,truncated:preview.truncated,rawPrefixCaptured:approved});
+   log('QX BINARY ATTACHMENT '+attachmentIndex+'/'+pending.expected+' · '+bytes.length+' bytes · '+(decodedAttachment!==null?'JSON decoded':'opaque bytes')+' · '+valueShape(decodedAttachment,0));
    if(pending.attachments.length===pending.expected){
     pendingBinaryPacket=null;
     var restored=restoreBinaryPlaceholders(pending.packet,pending.attachments);
-    processSocketEvent(restored,pending.fingerprint,pending.headerBytes+pending.attachments.reduce((n,b)=>n+(b instanceof Uint8Array?b.length:0),0));
+    processSocketEvent(restored,pending.fingerprint,pending.headerBytes+pending.attachmentBytes);
    }
    return;
   }
