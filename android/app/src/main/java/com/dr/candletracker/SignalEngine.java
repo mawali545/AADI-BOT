@@ -301,11 +301,11 @@ public final class SignalEngine {
         boolean bearishRejection = last.high >= highestBeforeLast - atr * 0.18 &&
             upperWick >= Math.max(lastBody * 0.65, atr * 0.12) &&
             lastClosePosition <= 0.18 && last.close < last.open &&
-            (histogram > 0.12 || vector > 0.12) && displacement > 0.12;
+            histogram > 0.12 && vector > 0.12 && displacement > 0.12;
         boolean bullishRejection = last.low <= lowestBeforeLast + atr * 0.18 &&
             lowerWick >= Math.max(lastBody * 0.65, atr * 0.12) &&
             lastClosePosition >= -0.18 && last.close > last.open &&
-            (histogram < -0.12 || vector < -0.12) && displacement < -0.12;
+            histogram < -0.12 && vector < -0.12 && displacement < -0.12;
 
         double recentLow = Double.POSITIVE_INFINITY;
         double recentHigh = Double.NEGATIVE_INFINITY;
