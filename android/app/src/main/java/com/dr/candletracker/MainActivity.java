@@ -42,6 +42,12 @@ public final class MainActivity extends Activity {
     private double lastPrice = Double.NaN;
     private final SignalEngine signalEngine = new SignalEngine();
     private final FeedIntegrityMonitor feedMonitor = new FeedIntegrityMonitor();
+    private final android.os.Handler tickHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final java.util.Map<String, java.util.TreeMap<Long, QueuedTick>> pendingTickQueues = new java.util.HashMap<>();
+    private final java.util.Map<String, Runnable> pendingTickFlushes = new java.util.HashMap<>();
+    private final java.util.Map<String, Long> lastProcessedArrivalByAsset = new java.util.HashMap<>();
+    private static final long TICK_REORDER_WINDOW_MS = 220L;
+    private static final int MAX_PENDING_TICKS_PER_ASSET = 64;
     private volatile double qxHeartbeatSendMs = Double.NaN, qxHttpResponseMs = Double.NaN;
     private volatile long qxHeartbeatWallAt = 0, qxHttpWallAt = 0;
     private final ExecutorService cryptoExecutor = Executors.newSingleThreadExecutor();
@@ -186,17 +192,9 @@ public final class MainActivity extends Activity {
                                 final long tickTime = stamp;
                                 final long nativeArrivalElapsed = SystemClock.elapsedRealtime();
                                 if (tickTime > System.currentTimeMillis() + 5000L) return;
-                                runOnUiThread(() -> {
-                                    if (!feedMonitor.recordTick(asset, tickTime, nativeArrivalElapsed, period)) return;
-                                    qxDataConfirmed = true;
-                                    tickCount++; lastPrice = price; currentAsset = asset; lastTickAt = tickTime; lastTickReceivedAt = System.currentTimeMillis();
-                                    if (Double.isFinite(heartbeatMs) && heartbeatMs >= 0 && heartbeatMs < 60000) { qxHeartbeatSendMs = heartbeatMs; qxHeartbeatWallAt = heartbeatAt; }
-                                    if (Double.isFinite(httpMs) && httpMs >= 0 && httpMs < 60000) { qxHttpResponseMs = httpMs; qxHttpWallAt = httpAt; }
-                                    currentFingerprint = frameHash; currentFrameBytes = observedFrameBytes;
-                                    signalEngine.acceptTick(asset, price, tickTime, period, tickDirection);
-                                    if (web != null) web.evaluateJavascript(
-                                        "window.DRUpdate && window.DRUpdate(" + snapshot().toString() + ")", null);
-                                });
+                                runOnUiThread(() -> queueLiveTick(asset, price, tickTime, period,
+                                    tickDirection, nativeArrivalElapsed, frameHash, observedFrameBytes,
+                                    heartbeatMs, heartbeatAt, httpMs, httpAt));
                             } catch (Exception ignored) {
                                 runOnUiThread(() -> Toast.makeText(MainActivity.this,
                                     "Secure market message rejected.", Toast.LENGTH_SHORT).show());
@@ -246,6 +244,72 @@ public final class MainActivity extends Activity {
                 return host == null || !(host.equals("market-qx.trade") || host.endsWith(".market-qx.trade"));
             }
         });
+    }
+
+    private void queueLiveTick(String asset, double price, long timestamp, long period,
+            Integer direction, long arrivalElapsed, String fingerprint, int frameBytes,
+            double heartbeatMs, long heartbeatAt, double httpMs, long httpAt) {
+        java.util.TreeMap<Long, QueuedTick> queue = pendingTickQueues.get(asset);
+        if (queue == null) { queue = new java.util.TreeMap<>(); pendingTickQueues.put(asset, queue); }
+        // Keep one quote per broker timestamp; repeated timestamps are not new price events.
+        if (queue.containsKey(timestamp)) return;
+        queue.put(timestamp, new QueuedTick(price, timestamp, period, direction, arrivalElapsed,
+            fingerprint, frameBytes, heartbeatMs, heartbeatAt, httpMs, httpAt));
+        if (queue.size() >= MAX_PENDING_TICKS_PER_ASSET) {
+            Runnable task = pendingTickFlushes.remove(asset);
+            if (task != null) tickHandler.removeCallbacks(task);
+            flushQueuedTicks(asset);
+            return;
+        }
+        if (!pendingTickFlushes.containsKey(asset)) {
+            Runnable task = () -> {
+                pendingTickFlushes.remove(asset);
+                flushQueuedTicks(asset);
+            };
+            pendingTickFlushes.put(asset, task);
+            tickHandler.postDelayed(task, TICK_REORDER_WINDOW_MS);
+        }
+    }
+
+    private void flushQueuedTicks(String asset) {
+        java.util.TreeMap<Long, QueuedTick> queue = pendingTickQueues.get(asset);
+        if (queue == null || queue.isEmpty()) return;
+        java.util.List<QueuedTick> ordered = new java.util.ArrayList<>(queue.values());
+        queue.clear();
+        for (QueuedTick item : ordered) {
+            long previousArrival = lastProcessedArrivalByAsset.containsKey(asset)
+                ? lastProcessedArrivalByAsset.get(asset) : 0L;
+            long orderedArrival = Math.max(item.arrivalElapsed, previousArrival + 1L);
+            if (!feedMonitor.recordTick(asset, item.timestamp, orderedArrival, item.period)) continue;
+            lastProcessedArrivalByAsset.put(asset, orderedArrival);
+            qxDataConfirmed = true;
+            tickCount++; lastPrice = item.price; currentAsset = asset;
+            lastTickAt = item.timestamp; lastTickReceivedAt = System.currentTimeMillis();
+            if (Double.isFinite(item.heartbeatMs) && item.heartbeatMs >= 0 && item.heartbeatMs < 60000) {
+                qxHeartbeatSendMs = item.heartbeatMs; qxHeartbeatWallAt = item.heartbeatAt;
+            }
+            if (Double.isFinite(item.httpMs) && item.httpMs >= 0 && item.httpMs < 60000) {
+                qxHttpResponseMs = item.httpMs; qxHttpWallAt = item.httpAt;
+            }
+            currentFingerprint = item.fingerprint; currentFrameBytes = item.frameBytes;
+            signalEngine.acceptTick(asset, item.price, item.timestamp, item.period, item.direction);
+        }
+        if (web != null) web.evaluateJavascript(
+            "window.DRUpdate && window.DRUpdate(" + snapshot().toString() + ")", null);
+    }
+
+    private static final class QueuedTick {
+        final double price, heartbeatMs, httpMs;
+        final long timestamp, period, arrivalElapsed, heartbeatAt, httpAt;
+        final Integer direction;
+        final String fingerprint;
+        final int frameBytes;
+        QueuedTick(double p, long t, long periodSeconds, Integer d, long arrival,
+                String fp, int bytes, double heartbeat, long heartbeatTime, double http, long httpTime) {
+            price=p; timestamp=t; period=periodSeconds; direction=d; arrivalElapsed=arrival;
+            fingerprint=fp; frameBytes=bytes; heartbeatMs=heartbeat; heartbeatAt=heartbeatTime;
+            httpMs=http; httpAt=httpTime;
+        }
     }
 
     private void initializeCryptoOffMainThread() {
