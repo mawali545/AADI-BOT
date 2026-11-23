@@ -33,6 +33,8 @@ public final class MainActivity extends Activity {
     private volatile boolean secureBridgeReady = false;
     private volatile boolean cryptoHandshakeVerified = false;
     private volatile boolean qxDataConfirmed = false;
+    private volatile String qxLoginState = "NOT VERIFIED";
+    private volatile long qxLoginAt = 0;
     private volatile boolean pageReady = false;
     private volatile boolean documentStartScriptInstalled = false;
     private long tickCount = 0, lastTickAt = 0, lastTickReceivedAt = 0;
@@ -130,6 +132,12 @@ public final class MainActivity extends Activity {
                                     return;
                                 }
                                 if ("telemetry".equals(type)) {
+                                    String loginState = tick.optString("qxLoginState", "");
+                                    long loginAt = tick.optLong("qxLoginAt", 0);
+                                    if (("VERIFIED".equals(loginState) || "LOGIN REQUIRED".equals(loginState) || "NOT VERIFIED".equals(loginState)) && loginAt > 0) {
+                                        qxLoginState = loginState;
+                                        qxLoginAt = loginAt;
+                                    }
                                     double heartbeatMs = tick.optDouble("heartbeatSendMs", Double.NaN);
                                     long heartbeatAt = tick.optLong("heartbeatAt", 0);
                                     double httpMs = tick.optDouble("httpResponseMs", Double.NaN);
@@ -347,6 +355,8 @@ public final class MainActivity extends Activity {
             o.put("qxHeartbeatAt", qxHeartbeatWallAt);
             o.put("qxHttpResponseMs", Double.isFinite(qxHttpResponseMs) ? qxHttpResponseMs : JSONObject.NULL);
             o.put("qxHttpResponseAt", qxHttpWallAt);
+            o.put("qxLoginState", qxLoginState);
+            o.put("qxLoginAt", qxLoginAt);
             JSONObject feed = feedMonitor.snapshot(currentAsset, SystemClock.elapsedRealtime());
             java.util.Iterator<String> feedKeys = feed.keys();
             while (feedKeys.hasNext()) { String key = feedKeys.next(); o.put(key, feed.opt(key)); }
