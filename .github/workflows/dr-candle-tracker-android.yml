@@ -10,6 +10,8 @@ on:
       - dr-candle-tracker-build217-fast-signal
       - dr-candle-tracker-build233-qx-frame-parser
       - dr-candle-tracker-build234-qx-order-asset-fix
+      - dr-candle-tracker-build235-qx-telemetry-fix
+      - dr-candle-tracker-build236-diagnostics-honesty
   pull_request:
     branches:
       - dr-candle-tracker-build207-secure-fix
