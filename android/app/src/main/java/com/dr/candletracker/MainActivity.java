@@ -165,6 +165,7 @@ public final class MainActivity extends Activity {
                                         currentAsset = asset;
                                         currentFingerprint = frameHash; currentFrameBytes = observedFrameBytes;
                                         if (!feedMonitor.recordHistory(asset, period, candles)) return;
+                                        qxDataConfirmed = true;
                                         signalEngine.acceptHistory(asset, period, candles);
                                         if (web != null) web.evaluateJavascript(
                                             "window.DRUpdate && window.DRUpdate(" + snapshot().toString() + ")", null);
@@ -187,6 +188,7 @@ public final class MainActivity extends Activity {
                                 if (tickTime > System.currentTimeMillis() + 5000L) return;
                                 runOnUiThread(() -> {
                                     if (!feedMonitor.recordTick(asset, tickTime, nativeArrivalElapsed, period)) return;
+                                    qxDataConfirmed = true;
                                     tickCount++; lastPrice = price; currentAsset = asset; lastTickAt = tickTime; lastTickReceivedAt = System.currentTimeMillis();
                                     if (Double.isFinite(heartbeatMs) && heartbeatMs >= 0 && heartbeatMs < 60000) { qxHeartbeatSendMs = heartbeatMs; qxHeartbeatWallAt = heartbeatAt; }
                                     if (Double.isFinite(httpMs) && httpMs >= 0 && httpMs < 60000) { qxHttpResponseMs = httpMs; qxHttpWallAt = httpAt; }
