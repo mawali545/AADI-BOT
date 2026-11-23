@@ -122,11 +122,11 @@ public class SignalEngineTest {
             {1.1004,1.1005,1.1008,1.1002},
             {1.1005,1.1000,1.1007,1.0999},
             {1.1000,1.0995,1.1002,1.0994},
-            {1.0995,1.0988,1.0997,1.0987}
+            {1.0995,1.0996,1.0998,1.0987}
         };
         e.acceptHistory("EURUSD_otc",60,history(bars));
         e.acceptTick("EURUSD_otc",1.0988,T+480000,60);
-        e.acceptTick("EURUSD_otc",1.0983,T+481000,60);
+        e.acceptTick("EURUSD_otc",1.0985,T+481000,60);
         assertEquals("PUT",e.getSignal());
     }
 
