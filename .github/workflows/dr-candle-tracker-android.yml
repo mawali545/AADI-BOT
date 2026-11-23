@@ -7,11 +7,13 @@ on:
       - dr-candle-tracker-build207-secure-fix
       - dr-candle-tracker-build215-period-default-fix
       - dr-candle-tracker-build216-auth-status-honesty
+      - dr-candle-tracker-build217-fast-signal
   pull_request:
     branches:
       - dr-candle-tracker-build207-secure-fix
       - dr-candle-tracker-build215-period-default-fix
       - dr-candle-tracker-build216-auth-status-honesty
+      - dr-candle-tracker-build217-fast-signal
   workflow_dispatch:
 
 permissions:
