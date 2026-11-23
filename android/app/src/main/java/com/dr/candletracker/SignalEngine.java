@@ -176,16 +176,26 @@ public final class SignalEngine {
      */
     private Scan scan(String symbol, long currentBucket, double livePrice) {
         List<Candle> memory = new ArrayList<>();
-        for (Candle c : candles)
-            if (c.asset.equals(symbol) && c.bucket < currentBucket) memory.add(c);
+        Candle forming = null;
+        for (Candle c : candles) {
+            if (!c.asset.equals(symbol)) continue;
+            if (c.bucket < currentBucket) memory.add(c);
+            else if (c.bucket == currentBucket) forming = c;
+        }
 
         int count = memory.size();
         if (count < 8)
             return new Scan("WAIT", 0,
                 "MEMORY STREAM · collecting 8 completed genuine QX candles (" + count + "/8).");
 
-        int length = Math.min(12, count);
-        List<Candle> stream = memory.subList(count - length, count);
+        // Keep the eight-completed-candle warm-up, but evaluate the genuine
+        // current QX candle intrabar instead of waiting for its period to close.
+        // This moves confirmation earlier without lowering any pattern thresholds.
+        int completedWindow = Math.min(forming == null ? 12 : 11, count);
+        List<Candle> stream = new ArrayList<>(
+            memory.subList(count - completedWindow, count));
+        if (forming != null) stream.add(forming);
+        int length = stream.size();
         Candle last = stream.get(length - 1);
         Candle previous = stream.get(length - 2);
 
