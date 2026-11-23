@@ -31,7 +31,8 @@ public final class MainActivity extends Activity {
     private String trackerScript = "";
     private volatile SecureBridgeCrypto crypto;
     private volatile boolean secureBridgeReady = false;
-    private volatile boolean cryptoHandshakeVerified = false;\n    private volatile boolean qxDataConfirmed = false;
+    private volatile boolean cryptoHandshakeVerified = false;
+    private volatile boolean qxDataConfirmed = false;
     private volatile boolean pageReady = false;
     private volatile boolean documentStartScriptInstalled = false;
     private long tickCount = 0, lastTickAt = 0, lastTickReceivedAt = 0;
@@ -283,7 +284,8 @@ public final class MainActivity extends Activity {
             JSONObject feed = feedMonitor.snapshot(currentAsset, SystemClock.elapsedRealtime());
             java.util.Iterator<String> feedKeys = feed.keys();
             while (feedKeys.hasNext()) { String key = feedKeys.next(); o.put(key, feed.opt(key)); }
-            o.put("secureBridge", cryptoHandshakeVerified);\n            o.put("qxDataConfirmed", qxDataConfirmed);
+            o.put("secureBridge", cryptoHandshakeVerified);
+            o.put("qxDataConfirmed", qxDataConfirmed);
             o.put("secureBridgeAvailable", secureBridgeReady && crypto != null);
             o.put("fingerprint", currentFingerprint);
             o.put("frameBytes", currentFrameBytes);
