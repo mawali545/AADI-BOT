@@ -175,25 +175,32 @@ public final class SignalEngine {
      * opposing live flow and choppy memory remain WAIT.
      */
     private Scan scan(String symbol, long currentBucket, double livePrice) {
-        List<Candle> memory = new ArrayList<>();
+        // Only the most recent 12 completed candles can affect this scan.
+        // Walk backward and stop once that window is collected; this avoids
+        // allocating/scanning the full 900-candle history on every live tick.
+        List<Candle> recentMemory = new ArrayList<>();
         Candle forming = null;
-        for (Candle c : candles) {
+        int count = 0;
+        for (int i = candles.size() - 1; i >= 0; i--) {
+            Candle c = candles.get(i);
             if (!c.asset.equals(symbol)) continue;
-            if (c.bucket < currentBucket) memory.add(c);
-            else if (c.bucket == currentBucket) forming = c;
+            if (c.bucket == currentBucket) {
+                forming = c;
+            } else if (c.bucket < currentBucket) {
+                count++;
+                recentMemory.add(0, c);
+                if (recentMemory.size() >= 12) break;
+            }
         }
-
-        int count = memory.size();
         if (count < 8)
             return new Scan("WAIT", 0,
                 "MEMORY STREAM · collecting 8 completed genuine QX candles (" + count + "/8).");
 
-        // Keep the eight-completed-candle warm-up, but evaluate the genuine
-        // current QX candle intrabar instead of waiting for its period to close.
-        // This moves confirmation earlier without lowering any pattern thresholds.
-        int completedWindow = Math.min(forming == null ? 12 : 11, count);
+        // Keep the eight-completed-candle warm-up and every existing pattern
+        // threshold, while evaluating the genuine forming candle intrabar.
+        int completedWindow = Math.min(forming == null ? 12 : 11, recentMemory.size());
         List<Candle> stream = new ArrayList<>(
-            memory.subList(count - completedWindow, count));
+            recentMemory.subList(recentMemory.size() - completedWindow, recentMemory.size()));
         if (forming != null) stream.add(forming);
         int length = stream.size();
         Candle last = stream.get(length - 1);
