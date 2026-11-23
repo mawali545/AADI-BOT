@@ -179,7 +179,7 @@ public final class MainActivity extends Activity {
                                     if (d >= -1 && d <= 1) brokerDirection = d;
                                 }
                                 final Integer tickDirection = brokerDirection;
-                                if (!"tick".equals(type) || !("quotes/stream".equals(source) || "candle-generated".equals(source)) ||
+                                if (!"tick".equals(type) || source.isEmpty() ||
                                     !Double.isFinite(price) || price <= 0 || price >= 1e12 || stamp <= 0) return;
                                 final long tickTime = stamp;
                                 final long nativeArrivalElapsed = SystemClock.elapsedRealtime();

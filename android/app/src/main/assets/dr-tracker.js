@@ -17,7 +17,7 @@ function postPayload(payload,fingerprint,frameBytes){if(!/^[a-f0-9]{64}$/i.test(
 function postTelemetry(metrics){if(!nativePublicKey||!aesKey||!wrappedAesKey||!window.DRSecure||typeof window.DRSecure.postMessage!=='function')return;sendQueue=sendQueue.then(async function(){var envelope=await makeEnvelope(Object.assign({type:'telemetry'},metrics||{}));window.DRSecure.postMessage(JSON.stringify(envelope));}).catch(function(e){log('SECURE TELEMETRY SEND ERROR: '+(e&&e.message||e));});}
 function directionOf(value){if(typeof value==='number'&&Number.isFinite(value)&&Number.isInteger(value)&&value>=-1&&value<=1)return value;if(typeof value==='string'){var s=value.trim().toLowerCase();if(s==='1'||s==='up'||s==='buy'||s==='bull'||s==='call')return 1;if(s==='-1'||s==='down'||s==='sell'||s==='bear'||s==='put')return -1;if(s==='0'||s==='flat'||s==='neutral')return 0;}return null;}
 function send(price,asset,timestamp,tickDirection,fingerprint,frameBytes,sourceEvent){price=Number(price);asset=String(asset||activeAsset||'').trim();timestamp=sourceTime(timestamp);tickDirection=directionOf(tickDirection);if(!Number.isFinite(price)||price<=0||price>=1e12||!asset||!/^[A-Z0-9_./-]{3,32}$/i.test(asset)||!timestamp)return;postPayload({type:'tick',source:String(sourceEvent||'unclassified'),price:price,asset:asset,timestamp:timestamp,tickDirection:tickDirection,period:Number(activePeriod)||10,heartbeatSendMs:qxHeartbeatResponseMs,heartbeatAt:qxHeartbeatAt,httpResponseMs:qxHttpRttMs,httpResponseAt:qxHttpRttAt},fingerprint,frameBytes);}
-function sendHistory(data,fp,size,sourceEvent){if(!data||typeof data!=='object')return;var asset=assetOf(data)||activeAsset,period=num(data,['period','timePeriod'])||activePeriod,rows=Array.isArray(data.candles)?data.candles:(Array.isArray(data.history)?data.history:(Array.isArray(data.data)?data.data:null));if(!asset||!rows)return;var candles=[];rows.slice(-900).forEach(function(c){if(!Array.isArray(c)||c.length<5)return;var t=sourceTime(c[0]),o=Number(c[1]),cl=Number(c[2]),h=Number(c[3]),l=Number(c[4]);if(t&&[o,cl,h,l].every(Number.isFinite)&&o>0&&cl>0&&h>0&&l>0&&h>=Math.max(o,cl)&&l<=Math.min(o,cl))candles.push({time:t,open:o,close:cl,high:h,low:l});});if(candles.length)postPayload({type:'history',source:String(sourceEvent||'history/list/v2'),asset:asset,period:Number(period)||10,candles:candles},fp,size);}
+function sendHistory(data,fp,size,sourceEvent){if(!data||typeof data!=='object')return;var asset=assetOf(data)||activeAsset,period=num(data,['period','timePeriod'])||activePeriod,rows=Array.isArray(data.candles)?data.candles:(Array.isArray(data.history)?data.history:(Array.isArray(data.data)?data.data:null));if(!asset||!rows)return;var candles=[];rows.slice(-900).forEach(function(c){if(!Array.isArray(c)||c.length<5)return;var t,o,cl,h,l;if(Array.isArray(c)&&c.length>=5){t=sourceTime(c[0]);o=Number(c[1]);cl=Number(c[2]);h=Number(c[3]);l=Number(c[4]);}else if(c&&typeof c==='object'){t=sourceTime(c.time??c.timestamp??c.t);o=Number(c.open??c.o);cl=Number(c.close??c.c);h=Number(c.high??c.h);l=Number(c.low??c.l);}else return;if(t&&[o,cl,h,l].every(Number.isFinite)&&o>0&&cl>0&&h>0&&l>0&&h>=Math.max(o,cl)&&l<=Math.min(o,cl))candles.push({time:t,open:o,close:cl,high:h,low:l});});if(candles.length)postPayload({type:'history',source:String(sourceEvent||'history/list/v2'),asset:asset,period:Number(period)||10,candles:candles},fp,size);}
 function walk(v,inherited,depth,fp,size,sourceEvent){if(depth>10||v==null)return;if(Array.isArray(v)){if(v.length>=3&&typeof v[0]==='string'&&/^[A-Z0-9_./-]{3,32}$/i.test(v[0])&&sourceTime(v[1])&&Number(v[2])>0){send(v[2],v[0],v[1],v.length>=4?v[3]:null,fp,size,sourceEvent);return;}v.forEach(function(x){walk(x,inherited,depth+1,fp,size,sourceEvent);});return;}if(typeof v!=='object')return;var a=assetOf(v)||inherited||activeAsset,p=num(v,['price','currentPrice','lastPrice','closePrice','quotePrice','value']),t=null;for(var k of ['timestamp','time','ts','created_at','at','serverTime'])if(v[k]!=null){t=sourceTime(v[k]);if(t)break;}if(p!==null&&a&&t){send(p,a,t,num(v,['tickDirection','direction','dir'])!==null?num(v,['tickDirection','direction','dir']):(v.side||null),fp,size,sourceEvent);return;}Object.keys(v).forEach(function(k){if(v[k]&&typeof v[k]==='object')walk(v[k],a,depth+1,fp,size,sourceEvent);});}
 function handleData(o,eventName,fp,size){
  if(eventName==='history/list/v2'||eventName==='history/load'||eventName==='chart_notification/get'||eventName==='loadHistoryPeriod'){sendHistory(o,fp,size,eventName);return;}
@@ -35,12 +35,31 @@ function processSocketEvent(packet,fp,size){
  // timestamp+price or valid OHLC fields are forwarded by the parsers above.
  handleData(data,eventName,fp,size);
 }
+function decodeQxBinaryJson(bytes){
+ if(!(bytes instanceof Uint8Array))return null;
+ var start=bytes.length&&bytes[0]===4?1:0;
+ if(start>=bytes.length)return null;
+ try{return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes.subarray(start)));}catch(_){}
+ return null;
+}
 function restoreBinaryPlaceholders(value,attachments){
  if(!value||typeof value!=='object')return value;
- if(value._placeholder===true&&Number.isInteger(value.num)&&attachments[value.num])return attachments[value.num];
+ if(value._placeholder===true&&Number.isInteger(value.num)&&value.num>=0&&value.num<attachments.length)return attachments[value.num];
  if(Array.isArray(value))return value.map(v=>restoreBinaryPlaceholders(v,attachments));
  Object.keys(value).forEach(k=>{value[k]=restoreBinaryPlaceholders(value[k],attachments);});
  return value;
+}
+function handleDecodedBinary(value,fp,size){
+ if(value&&typeof value==='object'&&!Array.isArray(value)&&
+   (Array.isArray(value.history)||Array.isArray(value.candles)||
+    (Array.isArray(value.data)&&assetOf(value)))){
+  var eventName=Array.isArray(value.candles)||Array.isArray(value.history)?'history/list/v2':'history/load';
+  log('QX BINARY JSON HISTORY · '+eventName+' · '+(assetOf(value)||'asset pending'));
+  sendHistory(value,fp,size,eventName);return;
+ }
+ if(Array.isArray(value)&&typeof value[0]==='string'&&value.length<=3){processSocketEvent(value,fp,size);return;}
+ log('QX BINARY JSON DATA · '+(Array.isArray(value)?'array':'object'));
+ walk(value,activeAsset,0,fp,size,'quotes/stream');
 }
 async function parseFrame(raw){
  frames++;
@@ -66,16 +85,22 @@ async function parseFrame(raw){
   }
   // Binary attachment frames are paired in arrival order with the header.
   if(typeof raw!=='string'&&pendingBinaryPacket){
-   var pending=pendingBinaryPacket;pending.attachments.push(bytes);
-   log('QX BINARY ATTACHMENT '+pending.attachments.length+'/'+pending.expected+' · '+bytes.length+' bytes');
+   var pending=pendingBinaryPacket,decodedAttachment=decodeQxBinaryJson(bytes);
+   pending.attachments.push(decodedAttachment!==null?decodedAttachment:bytes);
+   log('QX BINARY ATTACHMENT '+pending.attachments.length+'/'+pending.expected+' · '+bytes.length+' bytes · '+(decodedAttachment!==null?'JSON decoded':'opaque bytes'));
    if(pending.attachments.length===pending.expected){
     pendingBinaryPacket=null;
     var restored=restoreBinaryPlaceholders(pending.packet,pending.attachments);
-    processSocketEvent(restored,pending.fingerprint,pending.headerBytes+pending.attachments.reduce((n,b)=>n+b.length,0));
+    processSocketEvent(restored,pending.fingerprint,pending.headerBytes+pending.attachments.reduce((n,b)=>n+(b instanceof Uint8Array?b.length:0),0));
    }
    return;
   }
-  if(typeof raw!=='string'){log('QX UNCLASSIFIED BINARY FRAME · '+bytes.length+' bytes (not decoded without a verified schema)');return;}
+  if(typeof raw!=='string'){
+   var binaryJson=decodeQxBinaryJson(bytes);
+   if(binaryJson!==null){log('QX ENGINE.IO BINARY JSON DECODED · '+bytes.length+' bytes');handleDecodedBinary(binaryJson,fp,bytes.length);backend.fingerprint=fp;return;}
+   var prefix=Array.from(bytes.subarray(0,12)).map(x=>x.toString(16).padStart(2,'0')).join('');
+   log('QX OPAQUE BINARY FRAME · '+bytes.length+' bytes · HEX '+prefix);return;
+  }
   if(text.startsWith('42'))text=text.slice(2);
   else if(text.charCodeAt(0)===4)text=text.slice(1);
   else if(text.startsWith('0')||text.startsWith('1')||text.startsWith('6'))return;
