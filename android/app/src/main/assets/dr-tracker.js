@@ -2,7 +2,7 @@
 'use strict';
 if (window.__DR_CANDLE_TRACKER__) return;
 window.__DR_CANDLE_TRACKER__ = true;
-var NativeWS=window.WebSocket,sockets=0,frames=0,jsonFrames=0,sent=0,rejected=0,activeAsset='',activePeriod=10,pendingBinaryEvent='',logs=[],host,root;
+var NativeWS=window.WebSocket,sockets=0,frames=0,jsonFrames=0,sent=0,rejected=0,activeAsset='',activePeriod=10,pendingBinaryEvent='',pendingBinaryPacket=null,logs=[],host,root;
 var nativePublicKey=null,aesKey=null,wrappedAesKey=null,sendQueue=Promise.resolve();
 var lastState={ticks:0,asset:'WAITING FOR QX',price:null,lastTickAt:0,connected:false,signal:'WAIT',wins:0,losses:0};
 var backend={memoryStream:[],cycle:0,node:'ARMED',cipher:'LOCKED',fingerprint:'',latency:null,scanState:'WAITING'};
@@ -19,9 +19,73 @@ function directionOf(value){if(typeof value==='number'&&Number.isFinite(value)&&
 function send(price,asset,timestamp,tickDirection,fingerprint,frameBytes,sourceEvent){price=Number(price);asset=String(asset||activeAsset||'').trim();timestamp=sourceTime(timestamp);tickDirection=directionOf(tickDirection);if(!Number.isFinite(price)||price<=0||price>=1e12||!asset||!/^[A-Z0-9_./-]{3,32}$/i.test(asset)||!timestamp)return;postPayload({type:'tick',source:String(sourceEvent||'unclassified'),price:price,asset:asset,timestamp:timestamp,tickDirection:tickDirection,period:Number(activePeriod)||10,heartbeatSendMs:qxHeartbeatResponseMs,heartbeatAt:qxHeartbeatAt,httpResponseMs:qxHttpRttMs,httpResponseAt:qxHttpRttAt},fingerprint,frameBytes);}
 function sendHistory(data,fp,size,sourceEvent){if(!data||typeof data!=='object')return;var asset=assetOf(data)||activeAsset,period=num(data,['period','timePeriod'])||activePeriod,rows=Array.isArray(data.candles)?data.candles:(Array.isArray(data.history)?data.history:(Array.isArray(data.data)?data.data:null));if(!asset||!rows)return;var candles=[];rows.slice(-900).forEach(function(c){if(!Array.isArray(c)||c.length<5)return;var t=sourceTime(c[0]),o=Number(c[1]),cl=Number(c[2]),h=Number(c[3]),l=Number(c[4]);if(t&&[o,cl,h,l].every(Number.isFinite)&&o>0&&cl>0&&h>0&&l>0&&h>=Math.max(o,cl)&&l<=Math.min(o,cl))candles.push({time:t,open:o,close:cl,high:h,low:l});});if(candles.length)postPayload({type:'history',source:String(sourceEvent||'history/list/v2'),asset:asset,period:Number(period)||10,candles:candles},fp,size);}
 function walk(v,inherited,depth,fp,size,sourceEvent){if(depth>10||v==null)return;if(Array.isArray(v)){if(v.length>=3&&typeof v[0]==='string'&&/^[A-Z0-9_./-]{3,32}$/i.test(v[0])&&sourceTime(v[1])&&Number(v[2])>0){send(v[2],v[0],v[1],v.length>=4?v[3]:null,fp,size,sourceEvent);return;}v.forEach(function(x){walk(x,inherited,depth+1,fp,size,sourceEvent);});return;}if(typeof v!=='object')return;var a=assetOf(v)||inherited||activeAsset,p=num(v,['price','currentPrice','lastPrice','closePrice','quotePrice','value']),t=null;for(var k of ['timestamp','time','ts','created_at','at','serverTime'])if(v[k]!=null){t=sourceTime(v[k]);if(t)break;}if(p!==null&&a&&t){send(p,a,t,num(v,['tickDirection','direction','dir'])!==null?num(v,['tickDirection','direction','dir']):(v.side||null),fp,size,sourceEvent);return;}Object.keys(v).forEach(function(k){if(v[k]&&typeof v[k]==='object')walk(v[k],a,depth+1,fp,size,sourceEvent);});}
-function handleData(o,eventName,fp,size){if(eventName==='history/list/v2'||eventName==='history/load'||eventName==='chart_notification/get'||eventName==='loadHistoryPeriod'){sendHistory(o,fp,size,eventName);return;}if(eventName==='candle-generated'&&o&&typeof o==='object'){var ca=assetOf(o)||activeAsset,cp=num(o,['price','close']);var ct=null;for(var k of ['timestamp','time','ts'])if(o[k]!=null){ct=sourceTime(o[k]);if(ct)break;}if(cp!==null&&ca&&ct){send(cp,ca,ct,null,fp,size,eventName);return;}}walk(o,activeAsset,0,fp,size,eventName);}
-async function parseFrame(raw){frames++;if(typeof raw!=='string')return;var text=raw.trim();if(text==='2'){log('QX ENGINE.IO SERVER PING');return;}if(text==='3'){log('QX ENGINE.IO PONG FRAME RECEIVED');return;}if(!window.crypto||!crypto.subtle)return;var bytes=new TextEncoder().encode(raw),digest=await crypto.subtle.digest('SHA-256',bytes),fp=Array.from(new Uint8Array(digest)).map(x=>x.toString(16).padStart(2,'0')).join('');try{if(text.startsWith('451-')){var head=JSON.parse(text.slice(4));if(Array.isArray(head)&&typeof head[0]==='string'){pendingBinaryEvent=head[0];log('QX BINARY EVENT '+pendingBinaryEvent);}return;}var eventName='';if(text.charCodeAt(0)===4){text=text.slice(1);eventName=pendingBinaryEvent;pendingBinaryEvent='';}else if(text.startsWith('42'))text=text.slice(2);var o=JSON.parse(text);jsonFrames++;if(Array.isArray(o)&&typeof o[0]==='string'){eventName=o[0];var data=o[1],a=assetOf(data);if(a&&/(asset|instrument|symbol|subscribe|stream|quote|change|price|tick|candle|market)/i.test(eventName)){activeAsset=a;log('MARKET EVENT '+eventName+' · '+a);}if(eventName==='quotes/stream'||eventName==='history/list/v2'||eventName==='history/load'||eventName==='chart_notification/get'||eventName==='candle-generated'||eventName==='loadHistoryPeriod')handleData(data,eventName,fp,bytes.length);else log('IGNORED NON-MARKET QX EVENT '+eventName);}else handleData(o,eventName,fp,bytes.length);backend.fingerprint=fp;}catch(e){log('QX FRAME PARSE '+(e&&e.message||e));}}
-try{if(NativeWS)window.WebSocket=new Proxy(NativeWS,{construct:function(T,args){var ws=Reflect.construct(T,args,T);sockets++;var socketPingAt=0;try{var old=ws.send;ws.send=function(d){try{if(typeof d==='string'){var heartbeatText=d.trim();if(heartbeatText==='3'&&socketPingAt>0){qxHeartbeatResponseMs=Math.max(0,performance.now()-socketPingAt);qxHeartbeatAt=Date.now();socketPingAt=0;log('QX ENGINE.IO PONG SEND (LOCAL) · '+qxHeartbeatResponseMs.toFixed(1)+' ms local response');postTelemetry({heartbeatSendMs:qxHeartbeatResponseMs,heartbeatAt:qxHeartbeatAt});}var q=d.startsWith('42')?d.slice(2):d,o=JSON.parse(q);if(Array.isArray(o)){var a=assetOf(o[1]);if(a&&/(asset|instrument|symbol|subscribe|stream|quote|change|price|tick|history)/i.test(o[0])){activeAsset=a;/* Keep the tracker signal clock fixed at the requested 10-second period. */}}}}catch(_){}return old.call(this,d);};}catch(_){}ws.addEventListener('open',()=>log('QX WEBSOCKET OPEN'));ws.addEventListener('message',e=>{if(typeof e.data==='string'){var incoming=e.data.trim();if(incoming==='2')socketPingAt=performance.now();parseFrame(e.data);}else if(e.data instanceof Blob)e.data.text().then(function(v){var incoming=String(v).trim();if(incoming==='2')socketPingAt=performance.now();parseFrame(v);}).catch(()=>{});else if(e.data instanceof ArrayBuffer){try{var decoded=new TextDecoder().decode(e.data);if(decoded.trim()==='2')socketPingAt=performance.now();parseFrame(decoded);}catch(_){}}});ws.addEventListener('close',()=>log('QX WEBSOCKET CLOSED'));ws.addEventListener('error',()=>log('QX WEBSOCKET ERROR'));return ws;}});}catch(e){log('WEBSOCKET OBSERVER ERROR '+(e&&e.message||e));}
+function handleData(o,eventName,fp,size){
+ if(eventName==='history/list/v2'||eventName==='history/load'||eventName==='chart_notification/get'||eventName==='loadHistoryPeriod'){sendHistory(o,fp,size,eventName);return;}
+ if(eventName==='candle-generated'&&o&&typeof o==='object'){var ca=assetOf(o)||activeAsset,cp=num(o,['price','close']);var ct=null;for(var k of ['timestamp','time','ts'])if(o[k]!=null){ct=sourceTime(o[k]);if(ct)break;}if(cp!==null&&ca&&ct){send(cp,ca,ct,null,fp,size,eventName);return;}}
+ walk(o,activeAsset,0,fp,size,eventName);
+}
+function bytesFingerprint(bytes){return crypto.subtle.digest('SHA-256',bytes).then(function(d){return Array.from(new Uint8Array(d)).map(x=>x.toString(16).padStart(2,'0')).join('');});}
+function processSocketEvent(packet,fp,size){
+ if(!Array.isArray(packet)||typeof packet[0]!=='string'){log('QX SOCKET EVENT SHAPE UNRECOGNIZED');return;}
+ var eventName=packet[0],data=packet.length>1?packet[1]:null,a=assetOf(data);
+ jsonFrames++;
+ if(a){activeAsset=a;log('QX EVENT '+eventName+' · '+a);}
+ else log('QX EVENT '+eventName);
+ // Do not whitelist event names: broker event names change. Only validated
+ // timestamp+price or valid OHLC fields are forwarded by the parsers above.
+ handleData(data,eventName,fp,size);
+}
+function restoreBinaryPlaceholders(value,attachments){
+ if(!value||typeof value!=='object')return value;
+ if(value._placeholder===true&&Number.isInteger(value.num)&&attachments[value.num])return attachments[value.num];
+ if(Array.isArray(value))return value.map(v=>restoreBinaryPlaceholders(v,attachments));
+ Object.keys(value).forEach(k=>{value[k]=restoreBinaryPlaceholders(value[k],attachments);});
+ return value;
+}
+async function parseFrame(raw){
+ frames++;
+ var bytes;
+ if(typeof raw==='string')bytes=new TextEncoder().encode(raw);
+ else if(raw instanceof ArrayBuffer)bytes=new Uint8Array(raw);
+ else if(ArrayBuffer.isView(raw))bytes=new Uint8Array(raw.buffer,raw.byteOffset,raw.byteLength);
+ else return;
+ if(!window.crypto||!crypto.subtle)return;
+ var fp=await bytesFingerprint(bytes),textFrame=typeof raw==='string'?raw:new TextDecoder('utf-8',{fatal:false}).decode(bytes),text=textFrame.trim();
+ if(text==='2'){log('QX ENGINE.IO SERVER PING');return;}
+ if(text==='3'){log('QX ENGINE.IO PONG FRAME RECEIVED');return;}
+ try{
+  // Socket.IO binary event: Engine.IO message(4) + Socket.IO type(5)
+  // + attachment count + '-' + JSON header. Attachments follow as binary frames.
+  var binaryHeader=text.match(/^4(5\\d*)-(.*)$/s);
+  if(binaryHeader){
+   var count=parseInt(binaryHeader[1].slice(1),10),packet=JSON.parse(binaryHeader[2]);
+   if(!Array.isArray(packet)||typeof packet[0]!=='string'||!Number.isInteger(count)||count<0||count>64)throw new Error('invalid binary event header');
+   if(count===0)processSocketEvent(packet,fp,bytes.length);
+   else{pendingBinaryPacket={packet:packet,expected:count,attachments:[],fingerprint:fp,headerBytes:bytes.length};log('QX BINARY EVENT '+packet[0]+' · waiting '+count+' attachment(s)');}
+   backend.fingerprint=fp;return;
+  }
+  // Binary attachment frames are paired in arrival order with the header.
+  if(typeof raw!=='string'&&pendingBinaryPacket){
+   var pending=pendingBinaryPacket;pending.attachments.push(bytes);
+   log('QX BINARY ATTACHMENT '+pending.attachments.length+'/'+pending.expected+' · '+bytes.length+' bytes');
+   if(pending.attachments.length===pending.expected){
+    pendingBinaryPacket=null;
+    var restored=restoreBinaryPlaceholders(pending.packet,pending.attachments);
+    processSocketEvent(restored,pending.fingerprint,pending.headerBytes+pending.attachments.reduce((n,b)=>n+b.length,0));
+   }
+   return;
+  }
+  if(typeof raw!=='string'){log('QX UNCLASSIFIED BINARY FRAME · '+bytes.length+' bytes (not decoded without a verified schema)');return;}
+  if(text.startsWith('42'))text=text.slice(2);
+  else if(text.charCodeAt(0)===4)text=text.slice(1);
+  else if(text.startsWith('0')||text.startsWith('1')||text.startsWith('6'))return;
+  var packet=JSON.parse(text);
+  if(Array.isArray(packet)&&typeof packet[0]==='string')processSocketEvent(packet,fp,bytes.length);
+  else{jsonFrames++;handleData(packet,'',fp,bytes.length);}
+  backend.fingerprint=fp;
+ }catch(e){log('QX FRAME PARSE '+(e&&e.message||e));}
+}
+try{if(NativeWS)window.WebSocket=new Proxy(NativeWS,{construct:function(T,args){var ws=Reflect.construct(T,args,T);sockets++;var socketPingAt=0;try{var old=ws.send;ws.send=function(d){try{if(typeof d==='string'){var heartbeatText=d.trim();if(heartbeatText==='3'&&socketPingAt>0){qxHeartbeatResponseMs=Math.max(0,performance.now()-socketPingAt);qxHeartbeatAt=Date.now();socketPingAt=0;log('QX ENGINE.IO PONG SEND (LOCAL) · '+qxHeartbeatResponseMs.toFixed(1)+' ms local response');postTelemetry({heartbeatSendMs:qxHeartbeatResponseMs,heartbeatAt:qxHeartbeatAt});}var q=d.startsWith('42')?d.slice(2):d,o=JSON.parse(q);if(Array.isArray(o)){var a=assetOf(o[1]);if(a&&/(asset|instrument|symbol|subscribe|stream|quote|change|price|tick|history)/i.test(o[0])){activeAsset=a;/* Keep the tracker signal clock fixed at the requested 10-second period. */}}}}catch(_){}return old.call(this,d);};}catch(_){}ws.addEventListener('open',()=>log('QX WEBSOCKET OPEN'));ws.addEventListener('message',e=>{if(typeof e.data==='string'){var incoming=e.data.trim();if(incoming==='2')socketPingAt=performance.now();parseFrame(e.data);}else if(e.data instanceof Blob)e.data.arrayBuffer().then(function(v){parseFrame(v);}).catch(()=>{});else if(e.data instanceof ArrayBuffer){try{var decoded=new TextDecoder().decode(e.data);if(decoded.trim()==='2')socketPingAt=performance.now();}catch(_){}parseFrame(e.data);}});ws.addEventListener('close',()=>log('QX WEBSOCKET CLOSED'));ws.addEventListener('error',()=>log('QX WEBSOCKET ERROR'));return ws;}});}catch(e){log('WEBSOCKET OBSERVER ERROR '+(e&&e.message||e));}
 var css=[
 '*{box-sizing:border-box}',
 '#strip{position:fixed;z-index:2147483647;top:0;left:4px;right:4px;height:88px;background:rgba(3,13,8,.94);border:1px solid rgba(91,255,151,.62);border-radius:9px;color:#e8fff0;padding:6px 10px;font:12px/1.2 Arial,sans-serif;pointer-events:none;box-shadow:0 2px 14px rgba(0,0,0,.35);backdrop-filter:blur(5px)}',
