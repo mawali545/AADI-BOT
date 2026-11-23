@@ -9,6 +9,7 @@ var backend={memoryStream:[],cycle:0,node:'ARMED',cipher:'LOCKED',fingerprint:''
 var qxHttpRttMs=null,qxHttpRttAt=0,qxHttpRttSamples=[],qxHeartbeatResponseMs=null,qxHeartbeatAt=0,qxRttProbeBusy=false;
 function log(m){logs.push('['+new Date().toISOString()+'] '+String(m));if(logs.length>120)logs.shift();}
 function recordFrameDiag(kind,size,eventName,keys,hex){var item={at:new Date().toISOString(),kind:String(kind||'frame').slice(0,48),bytes:Number(size)||0,event:String(eventName||'').slice(0,96),keys:Array.isArray(keys)?keys.slice(0,24).map(function(k){return String(k).slice(0,48);}):[],hex:String(hex||'').slice(0,192)};frameDiagnostics.push(item);if(frameDiagnostics.length>80)frameDiagnostics.shift();try{window.localStorage.setItem('dr-qx-frame-diagnostics-v1',JSON.stringify(frameDiagnostics));}catch(_){}}
+try{var priorDiagnostics=JSON.parse(window.localStorage.getItem('dr-qx-frame-diagnostics-v1')||'[]');if(Array.isArray(priorDiagnostics))frameDiagnostics=priorDiagnostics.slice(-80);}catch(_){}
 function diagnosticCopyText(){var saved=frameDiagnostics.slice();try{var persisted=JSON.parse(window.localStorage.getItem('dr-qx-frame-diagnostics-v1')||'[]');if(Array.isArray(persisted)&&persisted.length>saved.length)saved=persisted.slice(-80);}catch(_){}return 'DR CANDLE TRACKER · QX FRAME DIAGNOSTICS\nCaptured: '+new Date().toISOString()+'\nPrivacy: no cookies, tokens, credentials, prices, or full text payloads included.\n\nFRAME RECORDS\n'+saved.map(function(x){return [x.at,x.kind,'bytes='+x.bytes,'event='+x.event,'keys='+x.keys.join(','),x.hex?'hex='+x.hex:''].filter(Boolean).join(' | ');}).join('\n')+'\n\nRECENT PARSER LOGS\n'+logs.slice(-80).join('\n');}
 function copyDiagnostics(){var value=diagnosticCopyText(),ok=false;try{var box=document.createElement('textarea');box.value=value;box.setAttribute('readonly','');box.style.position='fixed';box.style.opacity='0';document.body.appendChild(box);box.select();ok=document.execCommand('copy');box.remove();}catch(_){}var b=el('qh-copy');if(b)b.textContent=ok?'COPIED ✓':'COPY FAILED';setTimeout(function(){if(b)b.textContent='COPY QX DIAGNOSTICS';},1800);}
 function assetOf(o){if(!o||typeof o!=='object')return'';for(var k of ['asset','symbol','pair','instrument','assetName','ticker','active'])if(typeof o[k]==='string'&&/^[A-Z0-9_./-]{3,32}$/i.test(o[k].trim()))return o[k].trim();return'';}
@@ -54,6 +55,7 @@ function restoreBinaryPlaceholders(value,attachments){
  return value;
 }
 function handleDecodedBinary(value,fp,size){
+ recordFrameDiag('binary-json',size,'binary-json',value&&typeof value==='object'?Object.keys(value):[],'');
  if(value&&typeof value==='object'&&!Array.isArray(value)&&
    (Array.isArray(value.history)||Array.isArray(value.candles)||
     (Array.isArray(value.data)&&assetOf(value)))){
