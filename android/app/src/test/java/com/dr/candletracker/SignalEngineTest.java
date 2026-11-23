@@ -150,6 +150,26 @@ public class SignalEngineTest {
         assertTrue(e.getReason().contains("LEVEL REJECTION / REVERSAL"));
     }
 
+    @Test public void selloffIntoPriorLowWithLowerWickCanSignalCallReversal() throws Exception {
+        SignalEngine e = new SignalEngine();
+        double[][] bars = new double[][] {
+            {1.1021,1.1018,1.1022,1.1017},
+            {1.1018,1.1015,1.1019,1.1014},
+            {1.1015,1.1012,1.1016,1.1011},
+            {1.1012,1.1009,1.1013,1.1008},
+            {1.1009,1.1006,1.1010,1.1005},
+            {1.1006,1.1003,1.1007,1.1002},
+            {1.1003,1.1000,1.1004,1.0999},
+            {1.1000,1.1002,1.1003,1.0992}
+        };
+        e.acceptHistory("EURUSD_otc",60,history(bars));
+        e.acceptTick("EURUSD_otc",1.1002,T+480000,60);
+        e.acceptTick("EURUSD_otc",1.0992,T+480500,60);
+        e.acceptTick("EURUSD_otc",1.1008,T+481000,60);
+        assertEquals("CALL",e.getSignal());
+        assertTrue(e.getReason().contains("LEVEL REJECTION / REVERSAL"));
+    }
+
     @Test public void telemetryMemoryExcludesTheCurrentlyFormingQxCandle() throws Exception {
         SignalEngine e = new SignalEngine();
         e.acceptHistory("EURUSD_otc",60,history(bullishPullbackSetup()));
