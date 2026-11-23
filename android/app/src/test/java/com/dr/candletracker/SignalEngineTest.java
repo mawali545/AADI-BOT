@@ -77,6 +77,18 @@ public class SignalEngineTest {
         assertEquals(0,e.getCandleCount());
     }
 
+    @Test public void threeCompletedBrokerCandlesCanProduceSignal() throws Exception {
+        SignalEngine e = new SignalEngine();
+        double[][] bars = new double[][] {
+            {1.1000,1.1002,1.1003,1.0999},
+            {1.1002,1.1004,1.1005,1.1001},
+            {1.1004,1.1007,1.1008,1.1003}
+        };
+        e.acceptHistory("EURUSD_otc",60,history(bars));
+        e.acceptTick("EURUSD_otc",1.1007,T+180000,60);
+        assertEquals("CALL",e.getSignal());
+    }
+
     @Test public void continuationNeedsPullbackAndFreshConfirmation() throws Exception {
         SignalEngine e = new SignalEngine();
         e.acceptHistory("EURUSD_otc",60,history(bullishPullbackSetup()));
