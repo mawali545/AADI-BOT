@@ -231,16 +231,17 @@ function renderTelemetry(s,age,live){
  var fingerprint=String(s.fingerprint||'');
  el('qh-hash').textContent=fingerprint?fingerprint.slice(0,12).toUpperCase()+'…':'--';var reason=String(s.signalReason||'Waiting for QX data');el('qh-reason').textContent=reason.length>44?reason.slice(0,43)+'…':reason;el('qh-reason').title=reason;
  var checks=[
-  ['QX SOCKET OBSERVER',live],
-  ['CRYPTO HANDSHAKE',cipher],
+  ['QX LIVE TICKS',live],
+  ['ANDROID BRIDGE',bridgeVerified],
+  ['QX AUTHENTICATED FEED',qxAuthenticated],
   ['OHLC MEMORY',hasMemory],
   ['HISTOGRAM + VECTOR',Number(s.assetCandleCount)>=8],
-  ['SIGNAL ENGINE',live&&Number(s.assetCandleCount)>=8]
+  ['SIGNAL ENGINE',qxAuthenticated&&Number(s.assetCandleCount)>=8]
  ];
  el('qh-check').innerHTML=checks.map(function(item){return '<div><span>'+item[0]+'</span><b>'+(item[1]?'✓':'…')+'</b></div>';}).join('');
- var jitter=s.tickJitterMs==null?'--':Math.round(Number(s.tickJitterMs))+'ms',gaps=Number(s.tickGapCount)||0,ooo=Number(s.outOfOrderCount)||0,duplicates=Number(s.duplicateTimestampCount)||0,historyBad=Number(s.historyInvalid)||0,historyDup=Number(s.historyDuplicateBuckets)||0,historyGaps=Number(s.historyGapCount)||0;el('qh-log').textContent=!cipher?'[LOCK] secure bridge initializing':
-  (!live?'[WAIT] scanning QX websocket / reconnecting':
-   (hasMemory?'[OK] OHLC memory · histogram/vector scan':'[OK] live feed · loading OHLC memory')+' · jitter '+jitter+' · gaps '+gaps+' · out-of-order '+ooo+' · duplicate '+duplicates+' · OHLC invalid '+historyBad+' · OHLC duplicate '+historyDup+' · OHLC gaps '+historyGaps);
+ var jitter=s.tickJitterMs==null?'--':Math.round(Number(s.tickJitterMs))+'ms',gaps=Number(s.tickGapCount)||0,ooo=Number(s.outOfOrderCount)||0,duplicates=Number(s.duplicateTimestampCount)||0,historyBad=Number(s.historyInvalid)||0,historyDup=Number(s.historyDuplicateBuckets)||0,historyGaps=Number(s.historyGapCount)||0;el('qh-log').textContent=!bridgeVerified?'[LOCK] local Android bridge initializing':
+  (!qxAuthenticated?'[WAIT] no authenticated QX market data confirmed':
+   (hasMemory?'[OK] authenticated QX feed · OHLC memory scan':'[OK] authenticated QX ticks · loading OHLC memory')+' · jitter '+jitter+' · gaps '+gaps+' · out-of-order '+ooo+' · duplicate '+duplicates+' · OHLC invalid '+historyBad+' · OHLC duplicate '+historyDup+' · OHLC gaps '+historyGaps);
 }
 function render(s){var receivedAt=Number(s.lastTickReceivedAt)||Number(s.lastTickAt)||0;var age=receivedAt?Date.now()-receivedAt:Infinity,live=!!s.lastTickAt&&age>=-30000&&age<8000;el('status').textContent=live?'● QX WS LIVE':(s.ticks?'● RECONNECTING':'WAITING FOR QX');el('status').style.color=live?'#7cffaa':'#ffd58a';el('market').textContent=(live?(s.asset||'MARKET'):(s.asset||'WAITING FOR QX'))+'  '+(s.price==null?'—':String(s.price));fitMarketText();var sig=live&&['CALL','PUT'].includes(s.signal)?s.signal:'WAIT';var count=Number(s.signalCount)||0,prob=Math.round(Number(s.signalProbability)||0);['wait','call','put'].forEach(function(id){el(id).className='sig'+(id.toUpperCase()===sig?' active '+id:'');el(id).textContent=id==='wait'?'WAIT':(id.toUpperCase()===sig&&prob>0?id.toUpperCase()+' '+prob+'/100':id.toUpperCase());});if(sig==='WAIT'){lastSignalCount=count;el('call').style.opacity='1';el('put').style.opacity='1';if(fadeTimer!==null){clearTimeout(fadeTimer);fadeTimer=null;}}else if(count!==lastSignalCount){lastSignalCount=count;el('call').style.opacity='1';el('put').style.opacity='1';var target=el(sig.toLowerCase());if(fadeTimer!==null)clearTimeout(fadeTimer);target.style.opacity='1';fadeTimer=setTimeout(function(){target.style.opacity='.68';fadeTimer=null;},450);}el('wins').innerHTML='WINS <b>'+(Number(s.wins)||0)+'</b>';el('losses').innerHTML='LOSSES <b>'+(Number(s.losses)||0)+'</b>';renderTelemetry(s,age,live);}
 window.DRUpdate=function(s){if(!s||typeof s!=='object')return;lastState=Object.assign(lastState,s);lastState.qxHttpRttMs=qxHttpRttMs;lastState.qxHttpRttAt=qxHttpRttAt;lastState.qxHeartbeatResponseMs=qxHeartbeatResponseMs;lastState.qxHeartbeatAt=qxHeartbeatAt;backend.cycle++;backend.scanState=s.signal||'WAIT';backend.latency=s.lastTickAt?Math.max(0,Date.now()-Number(s.lastTickAt)):null;if(s.fingerprint)backend.fingerprint=s.fingerprint;render(lastState);};
