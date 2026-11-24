@@ -18,7 +18,10 @@ public final class MarketScanner {
     private long lastTimestamp, updates, historyLoads, lastDurationNs, totalDurationNs, maxDurationNs;
     private long candlesReceived, ticksReceived, rejectedRows, gaps;
     private double lastPrice = Double.NaN, strength;
-    private int lastCandlesScanned, lastTicksScanned, fullHistorySwingChanges;\n    private long fullHistoryScans;\n    private String fullHistoryDirection = "UNKNOWN";\n    private double fullHistoryHigh = Double.NaN, fullHistoryLow = Double.NaN;
+    private int lastCandlesScanned, lastTicksScanned, fullHistorySwingChanges;
+    private long fullHistoryScans;
+    private String fullHistoryDirection = "UNKNOWN";
+    private double fullHistoryHigh = Double.NaN, fullHistoryLow = Double.NaN;
 
     public synchronized void acceptHistory(String symbol, JSONArray rows) {
         if (symbol == null || !symbol.matches("[A-Za-z0-9_./-]{3,32}") || rows == null) return;
@@ -156,7 +159,8 @@ public final class MarketScanner {
         try{
             o.put("asset",asset);o.put("direction",direction);o.put("pattern",pattern);o.put("pace",pace);o.put("structure",structure);o.put("detail",detail);
             o.put("strength",Math.round(strength));o.put("candlesAvailable",candles.size());o.put("ticksAvailable",ticks.size());
-            o.put("candlesScanned",candles.size());o.put("recentCandlesAnalyzed",lastCandlesScanned);o.put("ticksScanned",lastTicksScanned);o.put("updates",updates);o.put("historyLoads",historyLoads);\n            o.put("fullHistoryScans",fullHistoryScans);o.put("fullChartDirection",fullHistoryDirection);o.put("fullChartHigh",Double.isFinite(fullHistoryHigh)?fullHistoryHigh:JSONObject.NULL);o.put("fullChartLow",Double.isFinite(fullHistoryLow)?fullHistoryLow:JSONObject.NULL);o.put("fullChartSwingChanges",fullHistorySwingChanges);
+            o.put("candlesScanned",candles.size());o.put("recentCandlesAnalyzed",lastCandlesScanned);o.put("ticksScanned",lastTicksScanned);o.put("updates",updates);o.put("historyLoads",historyLoads);
+            o.put("fullHistoryScans",fullHistoryScans);o.put("fullChartDirection",fullHistoryDirection);o.put("fullChartHigh",Double.isFinite(fullHistoryHigh)?fullHistoryHigh:JSONObject.NULL);o.put("fullChartLow",Double.isFinite(fullHistoryLow)?fullHistoryLow:JSONObject.NULL);o.put("fullChartSwingChanges",fullHistorySwingChanges);
             o.put("rejectedRows",rejectedRows);o.put("tickGaps",gaps);o.put("lastScanUs",lastDurationNs/1000.0);
             o.put("avgScanUs",updates>0?(totalDurationNs/(double)updates)/1000.0:0);o.put("maxScanUs",maxDurationNs/1000.0);
             o.put("lastTimestamp",lastTimestamp);o.put("lastPrice",Double.isFinite(lastPrice)?lastPrice:JSONObject.NULL);
