@@ -188,13 +188,13 @@ public final class SignalEngine {
             recentMemory.add(0, c);
             if (recentMemory.size() >= 12) break;
         }
-        if (count < 3)
+        if (count < 2)
             return new Scan("WAIT", 0,
-                "MEMORY STREAM · collecting 3 completed genuine QX candles (" + count + "/3).");
+                "MEMORY STREAM · collecting 2 completed genuine QX candles (" + count + "/2).");
 
-        // Use a short adaptive memory: three completed broker candles are enough
-        // to form a live directional read; additional candles improve context.
-        // Never block a valid live setup solely because eight candles are absent.
+        // Use a short adaptive memory: two completed broker candles are the minimum.
+        // The forming candle is excluded from structure decisions; current real
+        // QX ticks corroborate momentum, so the engine does not wait for 8-12 bars.
         int completedWindow = Math.min(12, recentMemory.size());
         List<Candle> stream = new ArrayList<>(
             recentMemory.subList(recentMemory.size() - completedWindow, recentMemory.size()));
@@ -232,6 +232,23 @@ public final class SignalEngine {
         lastHistogram = histogram;
         lastVector = vector;
         lastDisplacement = displacement;
+
+        // Regression slope across the completed candle closes, normalized by ATR.
+        // This is price momentum from genuine QX OHLC, not a synthetic indicator.
+        double meanX = (length - 1) * 0.5, meanY = 0.0, covariance = 0.0, varianceX = 0.0;
+        for (int i = 0; i < length; i++) meanY += stream.get(i).close;
+        meanY /= length;
+        for (int i = 0; i < length; i++) {
+            double dx = i - meanX;
+            covariance += dx * (stream.get(i).close - meanY);
+            varianceX += dx * dx;
+        }
+        double slopeMomentum = varianceX <= 0 ? 0 : clamp((covariance / varianceX) / Math.max(atr, 1e-12), -1, 1);
+        int liveTickCount = recentTickCount(symbol);
+        double liveTickMomentum = tickFlow(symbol);
+        double momentum = liveTickCount >= 4
+            ? clamp(0.65 * slopeMomentum + 0.35 * liveTickMomentum, -1, 1)
+            : slopeMomentum;
 
         // Compare the earlier and later halves for higher-high/higher-low
         // or lower-high/lower-low structure rather than following candle color.
@@ -322,6 +339,23 @@ public final class SignalEngine {
             lastClosePosition >= -0.22 && last.close > last.open &&
             last.close > previous.close;
 
+        // Broker-feed liquidity proxy: repeated OHLC wick tests create local
+        // support/resistance zones. This is NOT traded volume or a full order book.
+        int supportTouches = 0, resistanceTouches = 0;
+        for (int i = 0; i < length - 1; i++) {
+            Candle c = stream.get(i);
+            if (Math.abs(c.low - lowestBeforeLast) <= atr * 0.22) supportTouches++;
+            if (Math.abs(c.high - highestBeforeLast) <= atr * 0.22) resistanceTouches++;
+        }
+        boolean supportHold = last.low <= lowestBeforeLast + atr * 0.24 &&
+            last.close > lowestBeforeLast && lowerWick >= atr * 0.08;
+        boolean resistanceReject = last.high >= highestBeforeLast - atr * 0.24 &&
+            last.close < highestBeforeLast && upperWick >= atr * 0.08;
+        boolean bullishLiquiditySweep = last.low < lowestBeforeLast - atr * 0.025 &&
+            last.close > lowestBeforeLast && lowerWick >= atr * 0.08;
+        boolean bearishLiquiditySweep = last.high > highestBeforeLast + atr * 0.025 &&
+            last.close < highestBeforeLast && upperWick >= atr * 0.08;
+
         double recentLow = Double.POSITIVE_INFINITY;
         double recentHigh = Double.NEGATIVE_INFINITY;
         for (int i = Math.max(0, length - 6); i < length; i++) {
@@ -347,6 +381,8 @@ public final class SignalEngine {
             (vectorDir > 0 ? 1 : 0) + (displacementDir > 0 ? 1 : 0);
         int bearishVotes = (histDir < 0 ? 1 : 0) +
             (vectorDir < 0 ? 1 : 0) + (displacementDir < 0 ? 1 : 0);
+        if (momentum > 0.12) bullishVotes++;
+        else if (momentum < -0.12) bearishVotes++;
         // Require two independent directional reads, not one isolated vote.
         // A decisive structure break remains a separate valid reversal trigger.
         boolean alignedUp = bullishVotes >= 2 || bullishBreak;
@@ -359,14 +395,16 @@ public final class SignalEngine {
         boolean putContinuation = bearishConfirmation &&
             (bearishStructure || bearishPullback || alignedDown) && !overextendedDown;
         boolean callReversal = (bullishBreak && alignedUp && !overextendedUp) ||
-            bullishRejection;
+            bullishRejection || bullishLiquiditySweep || (supportHold && supportTouches >= 1 &&
+            lastClosePosition > 0.10 && momentum > -0.25);
         boolean putReversal = (bearishBreak && alignedDown && !overextendedDown) ||
-            bearishRejection;
+            bearishRejection || bearishLiquiditySweep || (resistanceReject && resistanceTouches >= 1 &&
+            lastClosePosition < -0.10 && momentum < 0.25);
 
         if (!callContinuation && !putContinuation && !callReversal && !putReversal) {
             String why = "WAIT · no confirmed pullback/continuation or structure-break reversal";
             if (overextendedUp || overextendedDown) why += " · move extended; do not chase";
-            else if (!alignedUp && !alignedDown) why += " · histogram/vector/displacement disagree";
+            else if (!alignedUp && !alignedDown) why += " · slope/momentum/pressure disagree";
             else if (!(bullishConfirmation || bearishConfirmation)) why += " · candle confirmation missing";
             return new Scan("WAIT", 0, why + " · bull " + bullishBars + " / bear " + bearishBars + ".");
         }
@@ -388,7 +426,8 @@ public final class SignalEngine {
         double expectedDirection = "CALL".equals(result) ? 1.0 : -1.0;
         double agreement = (clamp(histogram * expectedDirection, 0.0, 1.0) +
             clamp(vector * expectedDirection, 0.0, 1.0) +
-            clamp(displacement * expectedDirection, 0.0, 1.0)) / 3.0;
+            clamp(displacement * expectedDirection, 0.0, 1.0) +
+            clamp(momentum * expectedDirection, 0.0, 1.0)) / 4.0;
         double bodyQuality = clamp(lastBody / Math.max(atr * 0.9, 1e-12), 0.0, 1.0);
         double closeQuality = "CALL".equals(result) ?
             clamp((lastClosePosition + 1.0) * 0.5, 0.0, 1.0) :
@@ -411,13 +450,21 @@ public final class SignalEngine {
             setupScore = Math.min(setupScore, 55.0 + agreement * 25.0);
         setupScore = clamp(setupScore, 45.0, 85.0);
         String setup = (callReversal || putReversal) ?
-            (rejectionSetup ? "LEVEL REJECTION / REVERSAL" :
-                "STRUCTURE BREAK / REVERSAL") : "PULLBACK / CONTINUATION";
+            ((rejectionSetup || bullishLiquiditySweep || bearishLiquiditySweep || supportHold || resistanceReject)
+                ? "LIQUIDITY SWEEP / LEVEL REVERSAL" : "STRUCTURE BREAK / REVERSAL") : "PULLBACK / CONTINUATION";
         return new Scan(result, setupScore,
             result + " · " + setup + " · setup score " + Math.round(setupScore) +
             "/100 (evidence score, not a measured win probability) · histogram " + signed(histogram) +
-            " · vector " + signed(vector) + " · displacement " +
-            signed(displacement) + " · bull " + bullishBars + " / bear " + bearishBars);
+            " · vector " + signed(vector) + " · slope " + signed(slopeMomentum) +
+            " · live momentum " + signed(momentum) + " · S/R touches " + supportTouches + "/" +
+            resistanceTouches + " · bull " + bullishBars + " / bear " + bearishBars);
+    }
+
+    private int recentTickCount(String symbol) {
+        int count = 0;
+        for (int i = tape.size() - 1; i >= 0 && count < 12; i--)
+            if (tape.get(i).asset.equals(symbol)) count++;
+        return count;
     }
 
     private double tickFlow(String symbol) {
