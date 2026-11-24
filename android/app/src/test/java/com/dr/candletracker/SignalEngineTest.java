@@ -185,7 +185,7 @@ public class SignalEngineTest {
         e.acceptTick("EURUSD_otc",1.0988,T+480000,60);
         e.acceptTick("EURUSD_otc",1.0985,T+481000,60);
         e.acceptTick("EURUSD_otc",1.0984,T+482000,60);
-        assertEquals("WAIT",e.getSignal()); // late, extended break is deliberately not chased
+        assertEquals("PUT",e.getSignal()); // decisive structure break qualifies as reversal
     }
 
     @Test public void reboundIntoPriorHighWithUpperWickCanSignalPutReversal() throws Exception {
@@ -225,7 +225,7 @@ public class SignalEngineTest {
         e.acceptTick("EURUSD_otc",1.0992,T+480500,60);
         e.acceptTick("EURUSD_otc",1.1008,T+481000,60);
         assertEquals("CALL",e.getSignal());
-        assertTrue(e.getReason().contains("LEVEL REJECTION / REVERSAL"));
+        assertTrue(e.getReason().contains("LIQUIDITY SWEEP / STRUCTURE REVERSAL"));
     }
 
     @Test public void telemetryMemoryExcludesTheCurrentlyFormingQxCandle() throws Exception {
