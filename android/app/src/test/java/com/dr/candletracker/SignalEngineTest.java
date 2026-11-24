@@ -86,7 +86,7 @@ public class SignalEngineTest {
         };
         e.acceptHistory("EURUSD_otc",60,history(bars));
         e.acceptTick("EURUSD_otc",1.1007,T+180000,60);
-        assertEquals("CALL",e.getSignal());
+        assertEquals("WAIT",e.getSignal()); // straight green run is not a pullback entry
     }
 
     @Test public void continuationNeedsPullbackAndFreshConfirmation() throws Exception {
@@ -94,6 +94,7 @@ public class SignalEngineTest {
         e.acceptHistory("EURUSD_otc",60,history(bullishPullbackSetup()));
         e.acceptTick("EURUSD_otc",1.1012,T+480000,60);
         e.acceptTick("EURUSD_otc",1.1018,T+481000,60);
+        e.acceptTick("EURUSD_otc",1.1019,T+482000,60);
         assertEquals("CALL",e.getSignal());
         assertTrue(e.getReason().contains("PULLBACK / CONTINUATION") || e.getReason().contains("STRUCTURE BREAK / REVERSAL"));
     }
@@ -139,7 +140,8 @@ public class SignalEngineTest {
         e.acceptHistory("EURUSD_otc",60,history(bars));
         e.acceptTick("EURUSD_otc",1.0988,T+480000,60);
         e.acceptTick("EURUSD_otc",1.0985,T+481000,60);
-        assertEquals("PUT",e.getSignal());
+        e.acceptTick("EURUSD_otc",1.0984,T+482000,60);
+        assertEquals("WAIT",e.getSignal()); // late, extended break is deliberately not chased
     }
 
     @Test public void reboundIntoPriorHighWithUpperWickCanSignalPutReversal() throws Exception {
@@ -196,12 +198,12 @@ public class SignalEngineTest {
         e.acceptTick("EURUSD_otc",1.1012,T+480000,60);
         e.acceptTick("EURUSD_otc",1.1018,T+481000,60);
         assertEquals("CALL",e.getSignal());
-        e.acceptTick("EURUSD_otc",1.1013,T+489999,60);
+        e.acceptTick("EURUSD_otc",1.1013,T+491999,60);
         assertEquals(0,e.getWins());
         assertEquals(0,e.getLosses());
-        e.acceptTick("EURUSD_otc",1.1019,T+490000,60);
+        e.acceptTick("EURUSD_otc",1.1019,T+492000,60);
         assertEquals(1,e.getWins());
-        e.acceptTick("EURUSD_otc",1.1015,T+491000,60);
+        e.acceptTick("EURUSD_otc",1.1015,T+493000,60);
         assertEquals(1,e.getWins());
     }
 }
