@@ -42,9 +42,7 @@ public final class MainActivity extends Activity {
     private String currentFingerprint = "";
     private int currentFrameBytes = 0;
     private double lastPrice = Double.NaN;
-    private final SignalEngine signalEngine = new SignalEngine();
-    private final MarketScanner marketScanner = new MarketScanner();
-    private volatile JSONObject signalScannerSnapshot = new JSONObject();
+    private final AIScanner aiScanner = new AIScanner();
     private final FeedIntegrityMonitor feedMonitor = new FeedIntegrityMonitor();
     private final android.os.Handler tickHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private final java.util.Map<String, java.util.TreeMap<Long, QueuedTick>> pendingTickQueues = new java.util.HashMap<>();
@@ -186,9 +184,7 @@ public final class MainActivity extends Activity {
                                         currentFingerprint = frameHash; currentFrameBytes = observedFrameBytes;
                                         if (!feedMonitor.recordHistory(asset, period, candles)) return;
                                         qxDataConfirmed = true;
-                                        signalEngine.acceptHistory(asset, period, candles);
-                                        marketScanner.acceptHistory(asset, candles);
-                                        signalScannerSnapshot = marketScanner.snapshot();
+                                        aiScanner.acceptHistory(asset, period, candles);
                                         if (web != null) web.evaluateJavascript(
                                             "window.DRUpdate && window.DRUpdate(" + snapshot().toString() + ")", null);
                                     });
@@ -308,10 +304,7 @@ public final class MainActivity extends Activity {
                 qxHttpResponseMs = item.httpMs; qxHttpWallAt = item.httpAt;
             }
             currentFingerprint = item.fingerprint; currentFrameBytes = item.frameBytes;
-            marketScanner.acceptTick(asset, item.price, item.timestamp);
-            signalEngine.acceptTick(asset, item.price, item.timestamp, item.period, item.direction);
-            // Freeze the independent scanner readout beside the latest signal state; it never gates the signal engine.
-            signalScannerSnapshot = marketScanner.snapshot();
+            aiScanner.acceptTick(asset, item.price, item.timestamp, item.period, item.direction);
         }
         if (web != null) web.evaluateJavascript(
             "window.DRUpdate && window.DRUpdate(" + snapshot().toString() + ")", null);
@@ -376,29 +369,26 @@ public final class MainActivity extends Activity {
             o.put("secureBridgeAvailable", secureBridgeReady && crypto != null);
             o.put("fingerprint", currentFingerprint);
             o.put("frameBytes", currentFrameBytes);
-            o.put("signal", signalEngine.getSignal());
-            o.put("scanner", marketScanner.snapshot());
-            o.put("signalScanner", new JSONObject(signalScannerSnapshot.toString()));
-            o.put("qxDirectionalUpTicks", signalEngine.getDirectionalUpTicks());
-            o.put("qxDirectionalDownTicks", signalEngine.getDirectionalDownTicks());
-            o.put("qxDirectionalNeutralTicks", signalEngine.getDirectionalNeutralTicks());
-            o.put("qxDirectionalTicks", signalEngine.getBrokerDirectionTickCount());
-            o.put("signalCount", signalEngine.getSignalCount());
-            o.put("signalProbability", signalEngine.getSignalProbability());
-            o.put("histogram", signalEngine.getHistogram());
-            o.put("vector", signalEngine.getVector());
-            o.put("displacement", signalEngine.getDisplacement());
-            o.put("histogramBars", signalEngine.getHistogramBars());
-            o.put("signalReason", signalEngine.getReason());
-            o.put("wins", signalEngine.getWins());
-            o.put("losses", signalEngine.getLosses());
-            o.put("ties", signalEngine.getTies());
-            o.put("candleCount", signalEngine.getCandleCount());
-            o.put("assetCandleCount", signalEngine.getAssetCandleCount());
-            o.put("open", Double.isFinite(signalEngine.getOpen()) ? signalEngine.getOpen() : JSONObject.NULL);
-            o.put("high", Double.isFinite(signalEngine.getHigh()) ? signalEngine.getHigh() : JSONObject.NULL);
-            o.put("low", Double.isFinite(signalEngine.getLow()) ? signalEngine.getLow() : JSONObject.NULL);
-            o.put("close", Double.isFinite(signalEngine.getClose()) ? signalEngine.getClose() : JSONObject.NULL);
+            o.put("signal", aiScanner.getSignal());
+            JSONObject ai = aiScanner.snapshot();
+            o.put("scanner", ai);
+            o.put("signalScanner", new JSONObject(ai.toString()));
+            o.put("signalCount", aiScanner.getSignalCount());
+            o.put("signalProbability", aiScanner.getSignalProbability());
+            o.put("histogram", aiScanner.getHistogram());
+            o.put("vector", aiScanner.getVector());
+            o.put("displacement", aiScanner.getDisplacement());
+            o.put("histogramBars", aiScanner.getHistogramBars());
+            o.put("signalReason", aiScanner.getReason());
+            o.put("wins", aiScanner.getWins());
+            o.put("losses", aiScanner.getLosses());
+            o.put("ties", aiScanner.getTies());
+            o.put("candleCount", aiScanner.getCandleCount());
+            o.put("assetCandleCount", aiScanner.getAssetCandleCount());
+            o.put("open", Double.isFinite(aiScanner.getOpen()) ? aiScanner.getOpen() : JSONObject.NULL);
+            o.put("high", Double.isFinite(aiScanner.getHigh()) ? aiScanner.getHigh() : JSONObject.NULL);
+            o.put("low", Double.isFinite(aiScanner.getLow()) ? aiScanner.getLow() : JSONObject.NULL);
+            o.put("close", Double.isFinite(aiScanner.getClose()) ? aiScanner.getClose() : JSONObject.NULL);
         } catch (Exception ignored) {}
         return o;
     }
