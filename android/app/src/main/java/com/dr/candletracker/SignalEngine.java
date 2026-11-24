@@ -174,40 +174,36 @@ public final class SignalEngine {
      * close through the recent structure boundary. Extended moves, weak closes,
      * opposing live flow and choppy memory remain WAIT.
      */
+    /**
+     * Market-regime engine. All candle inputs are broker-supplied QX OHLC.
+     * It separates trend continuation, liquidity-sweep reversals, volatility
+     * shocks and low-quality/range conditions before allowing an entry.
+     */
     private Scan scan(String symbol, long currentBucket, double livePrice) {
-        // Entry decisions are based ONLY on closed broker candles.
-        // The live/forming candle is deliberately excluded: its wick and body
-        // can reverse before close, creating transient false CALL/PUT entries.
-        // Walk backward and retain the latest 12 completed candles only.
-        List<Candle> recentMemory = new ArrayList<>();
-        int count = 0;
-        for (int i = candles.size() - 1; i >= 0; i--) {
+        List<Candle> stream = new ArrayList<>();
+        for (int i = candles.size() - 1; i >= 0 && stream.size() < 12; i--) {
             Candle c = candles.get(i);
-            if (!c.asset.equals(symbol) || c.bucket >= currentBucket) continue;
-            count++;
-            recentMemory.add(0, c);
-            if (recentMemory.size() >= 12) break;
+            if (c.asset.equals(symbol) && c.bucket < currentBucket) stream.add(0, c);
         }
-        if (count < 3)
-            return new Scan("WAIT", 0,
-                "MEMORY STREAM · collecting 3 completed genuine QX candles (" + count + "/3).");
-
-        // Use a short adaptive memory: three completed broker candles are enough
-        // to form a live directional read; additional candles improve context.
-        // Never block a valid live setup solely because eight candles are absent.
-        int completedWindow = Math.min(12, recentMemory.size());
-        List<Candle> stream = new ArrayList<>(
-            recentMemory.subList(recentMemory.size() - completedWindow, recentMemory.size()));
         int length = stream.size();
+        if (length < 3)
+            return new Scan("WAIT", 0,
+                "MEMORY STREAM · collecting 3 completed genuine QX candles (" + length + "/3).");
+
         Candle last = stream.get(length - 1);
         Candle previous = stream.get(length - 2);
-
         double atr = 0.0, histogram = 0.0, vectorBody = 0.0, vectorClose = 0.0;
-        double totalWeight = 0.0, totalPath = 0.0;
+        double totalWeight = 0.0, totalPath = 0.0, priorRangeSum = 0.0;
         int bullishBars = 0, bearishBars = 0, reversals = 0, priorDirection = 0;
+        double priorHigh = Double.NEGATIVE_INFINITY, priorLow = Double.POSITIVE_INFINITY;
         for (int i = 0; i < length; i++) {
             Candle c = stream.get(i);
             double range = safeRange(c);
+            double trueRange = range;
+            if (i > 0) {
+                Candle p = stream.get(i - 1);
+                trueRange = Math.max(range, Math.max(Math.abs(c.high - p.close), Math.abs(c.low - p.close)));
+            }
             double body = clamp((c.close - c.open) / range, -1.0, 1.0);
             double closePosition = clamp(((c.close - c.low) - (c.high - c.close)) / range, -1.0, 1.0);
             double weight = 1.0 + (double) i / Math.max(1, length - 1);
@@ -215,7 +211,12 @@ public final class SignalEngine {
             vectorBody += body * weight;
             vectorClose += closePosition * weight;
             totalWeight += weight;
-            atr += range;
+            atr += trueRange;
+            if (i < length - 1) {
+                priorRangeSum += trueRange;
+                priorHigh = Math.max(priorHigh, c.high);
+                priorLow = Math.min(priorLow, c.low);
+            }
             int d = direction(c.close - c.open);
             if (d > 0) bullishBars++;
             else if (d < 0) bearishBars++;
@@ -224,6 +225,7 @@ public final class SignalEngine {
             if (i > 0) totalPath += Math.abs(c.close - stream.get(i - 1).close);
         }
         atr /= length;
+        double priorAtr = priorRangeSum / Math.max(1, length - 1);
         histogram = clamp(histogram / totalWeight, -1, 1);
         double vector = clamp(0.62 * (vectorBody / totalWeight) +
             0.38 * (vectorClose / totalWeight), -1, 1);
@@ -233,9 +235,7 @@ public final class SignalEngine {
         lastVector = vector;
         lastDisplacement = displacement;
 
-        // Compare the earlier and later halves for higher-high/higher-low
-        // or lower-high/lower-low structure rather than following candle color.
-        int half = length / 2;
+        int half = Math.max(1, length / 2);
         double earlyHigh = Double.NEGATIVE_INFINITY, earlyLow = Double.POSITIVE_INFINITY;
         double lateHigh = Double.NEGATIVE_INFINITY, lateLow = Double.POSITIVE_INFINITY;
         for (int i = 0; i < length; i++) {
@@ -249,175 +249,204 @@ public final class SignalEngine {
             }
         }
         boolean bullishStructure = lateHigh > earlyHigh + atr * 0.08 &&
-            lateLow > earlyLow - atr * 0.12;
+            lateLow > earlyLow + atr * 0.04;
         boolean bearishStructure = lateLow < earlyLow - atr * 0.08 &&
-            lateHigh < earlyHigh + atr * 0.12;
-
-        // Detect a pullback before continuation; a string of green/red candles
-        // by itself cannot qualify as an entry.
-        boolean bullishPullback = false, bearishPullback = false;
-        int greenRun = 0, redRun = 0, maxGreenRun = 0, maxRedRun = 0;
-        double highestBeforeLast = Double.NEGATIVE_INFINITY;
-        double lowestBeforeLast = Double.POSITIVE_INFINITY;
-        for (int i = 0; i < length - 1; i++) {
-            Candle c = stream.get(i);
-            if (c.close < c.open || (i > 0 &&
-                c.low < stream.get(i - 1).close - atr * 0.22)) bullishPullback = true;
-            if (c.close > c.open || (i > 0 &&
-                c.high > stream.get(i - 1).close + atr * 0.22)) bearishPullback = true;
-            if (c.close > c.open) { greenRun++; redRun = 0; }
-            else if (c.close < c.open) { redRun++; greenRun = 0; }
-            else { greenRun = 0; redRun = 0; }
-            maxGreenRun = Math.max(maxGreenRun, greenRun);
-            maxRedRun = Math.max(maxRedRun, redRun);
-            highestBeforeLast = Math.max(highestBeforeLast, c.high);
-            lowestBeforeLast = Math.min(lowestBeforeLast, c.low);
-        }
+            lateHigh < earlyHigh - atr * 0.04;
 
         double lastRange = safeRange(last);
         double lastBody = Math.abs(last.close - last.open);
         double lastClosePosition = clamp(
             ((last.close - last.low) - (last.high - last.close)) / lastRange, -1, 1);
-        boolean bullishConfirmation = last.close > last.open &&
-            last.close > previous.close && lastBody >= atr * 0.28 &&
-            lastClosePosition >= 0.28;
-        boolean bearishConfirmation = last.close < last.open &&
-            last.close < previous.close && lastBody >= atr * 0.28 &&
-            lastClosePosition <= -0.28;
-
-        // A confirmed structure break can qualify as a reversal even while the
-        // older trend points the other way. It must close beyond prior structure.
-        boolean bearishBreak = last.close < lowestBeforeLast - atr * 0.04 &&
-            last.close < last.open && lastBody >= atr * 0.42 &&
-            lastClosePosition <= -0.38;
-        boolean bullishBreak = last.close > highestBeforeLast + atr * 0.04 &&
-            last.close > last.open && lastBody >= atr * 0.42 &&
-            lastClosePosition >= 0.38;
-
-        // Video chart example: price rebounds into a prior high, rejects it,
-        // and turns red. Treat this as a reversal only when the preceding
-        // directional move is still visible in the candle-memory vector.
         double upperWick = last.high - Math.max(last.open, last.close);
         double lowerWick = Math.min(last.open, last.close) - last.low;
-        int priorBullishBars = 0, priorBearishBars = 0;
-        for (int i = 0; i < length - 1; i++) {
-            Candle c = stream.get(i);
-            if (c.close > c.open) priorBullishBars++;
-            else if (c.close < c.open) priorBearishBars++;
-        }
-        // A wick alone is not a reversal. Require visible prior pressure in the
-        // opposite direction and a rejection close beyond the previous close.
-        boolean priorBullishPressure = previous.close > stream.get(0).close + atr * 0.20 ||
-            priorBullishBars >= Math.max(2, (length - 1 + 1) / 2);
-        boolean priorBearishPressure = previous.close < stream.get(0).close - atr * 0.20 ||
-            priorBearishBars >= Math.max(2, (length - 1 + 1) / 2);
-        boolean bearishRejection = priorBullishPressure &&
-            last.high >= highestBeforeLast - atr * 0.18 &&
-            upperWick >= Math.max(lastBody * 0.55, atr * 0.10) &&
-            lastClosePosition <= 0.22 && last.close < last.open &&
-            last.close < previous.close;
-        boolean bullishRejection = priorBearishPressure &&
-            last.low <= lowestBeforeLast + atr * 0.18 &&
-            lowerWick >= Math.max(lastBody * 0.55, atr * 0.10) &&
-            lastClosePosition >= -0.22 && last.close > last.open &&
-            last.close > previous.close;
 
-        double recentLow = Double.POSITIVE_INFINITY;
-        double recentHigh = Double.NEGATIVE_INFINITY;
-        for (int i = Math.max(0, length - 6); i < length; i++) {
-            recentLow = Math.min(recentLow, stream.get(i).low);
-            recentHigh = Math.max(recentHigh, stream.get(i).high);
-        }
-        boolean overextendedUp = last.close - recentLow > atr * 3.6 || maxGreenRun >= 4;
-        boolean overextendedDown = recentHigh - last.close > atr * 3.6 || maxRedRun >= 4;
+        // A sudden range expansion is a market-shock state, not an invitation
+        // to chase the first candle. Wait for the next completed candle to settle.
+        boolean volatilityShock = priorAtr > 1e-12 && lastRange > priorAtr * 2.35;
+        if (volatilityShock)
+            return new Scan("WAIT", 0,
+                "WAIT · QX volatility shock / abnormal range expansion; wait for market to stabilize.");
 
-        boolean chop = reversals >= length - 4 &&
-            Math.abs(displacement) < 0.24 &&
-            Math.abs(histogram) < 0.28 && Math.abs(vector) < 0.28;
+        boolean chop = reversals >= Math.max(2, length - 4) &&
+            Math.abs(displacement) < 0.22 &&
+            Math.abs(histogram) < 0.30 && Math.abs(vector) < 0.30;
         if (chop)
             return new Scan("WAIT", 0,
-                "WAIT · alternating candles / weak directional structure; no clean setup.");
+                "WAIT · choppy/range regime; alternating candles and weak directional displacement.");
 
-        int histDir = direction(histogram);
-        int vectorDir = direction(vector);
+        // Continuations require a measurable counter-trend retracement inside
+        // an established structure, followed by a fresh close through the
+        // immediately preceding candle's extreme. A single opposite-colour
+        // candle is no longer enough to label a pullback.
+        double impulseLow = Double.POSITIVE_INFINITY, impulseHigh = Double.NEGATIVE_INFINITY;
+        double pullbackLow = Double.POSITIVE_INFINITY, pullbackHigh = Double.NEGATIVE_INFINITY;
+        boolean bullishCounterBar = false, bearishCounterBar = false;
+        int pullbackStart = Math.max(1, length - 4);
+        for (int i = 0; i < length - 1; i++) {
+            Candle c = stream.get(i);
+            if (i < pullbackStart) {
+                impulseLow = Math.min(impulseLow, c.low);
+                impulseHigh = Math.max(impulseHigh, c.high);
+            } else {
+                pullbackLow = Math.min(pullbackLow, c.low);
+                pullbackHigh = Math.max(pullbackHigh, c.high);
+                if (c.close < c.open || (i > 0 && c.low < stream.get(i - 1).low - atr * 0.08))
+                    bullishCounterBar = true;
+                if (c.close > c.open || (i > 0 && c.high > stream.get(i - 1).high + atr * 0.08))
+                    bearishCounterBar = true;
+            }
+        }
+        double upImpulse = Math.max(0, impulseHigh - impulseLow);
+        double downImpulse = Math.max(0, impulseHigh - impulseLow);
+        double upRetracement = Math.max(0, impulseHigh - pullbackLow);
+        double downRetracement = Math.max(0, pullbackHigh - impulseLow);
+        boolean validBullPullback = bullishStructure && bullishCounterBar &&
+            upImpulse >= atr * 0.55 &&
+            upRetracement >= Math.max(atr * 0.18, upImpulse * 0.12) &&
+            upRetracement <= upImpulse * 0.72;
+        boolean validBearPullback = bearishStructure && bearishCounterBar &&
+            downImpulse >= atr * 0.55 &&
+            downRetracement >= Math.max(atr * 0.18, downImpulse * 0.12) &&
+            downRetracement <= downImpulse * 0.72;
+
+        boolean bullishConfirmation = last.close > last.open &&
+            last.close > previous.high && lastBody >= atr * 0.28 &&
+            lastClosePosition >= 0.30;
+        boolean bearishConfirmation = last.close < last.open &&
+            last.close < previous.low && lastBody >= atr * 0.28 &&
+            lastClosePosition <= -0.30;
+
+        // A reversal must sweep beyond a prior extreme and close back through
+        // that same level. Merely touching a prior high/low cannot trigger it.
+        int priorBullBars = 0, priorBearBars = 0;
+        for (int i = Math.max(0, length - 5); i < length - 1; i++) {
+            Candle c = stream.get(i);
+            if (c.close > c.open) priorBullBars++;
+            else if (c.close < c.open) priorBearBars++;
+        }
+        boolean bearishSweep = last.high > priorHigh + atr * 0.04 &&
+            last.close < priorHigh - atr * 0.02 &&
+            upperWick >= Math.max(atr * 0.22, lastBody * 0.45) &&
+            last.close < last.open && lastClosePosition <= -0.25 &&
+            (bullishStructure || priorBullBars >= 2);
+        boolean bullishSweep = last.low < priorLow - atr * 0.04 &&
+            last.close > priorLow + atr * 0.02 &&
+            lowerWick >= Math.max(atr * 0.22, lastBody * 0.45) &&
+            last.close > last.open && lastClosePosition >= 0.25 &&
+            (bearishStructure || priorBearBars >= 2);
+
+        boolean bearishBreak = last.close < priorLow - atr * 0.08 &&
+            last.close < last.open && lastBody >= atr * 0.48 &&
+            lastClosePosition <= -0.42;
+        boolean bullishBreak = last.close > priorHigh + atr * 0.08 &&
+            last.close > last.open && lastBody >= atr * 0.48 &&
+            lastClosePosition >= 0.42;
+
+        double recentLow = Double.POSITIVE_INFINITY, recentHigh = Double.NEGATIVE_INFINITY;
+        int greenRun = 0, redRun = 0, maxGreenRun = 0, maxRedRun = 0;
+        for (int i = Math.max(0, length - 6); i < length; i++) {
+            Candle c = stream.get(i);
+            recentLow = Math.min(recentLow, c.low);
+            recentHigh = Math.max(recentHigh, c.high);
+            if (c.close > c.open) { greenRun++; redRun = 0; }
+            else if (c.close < c.open) { redRun++; greenRun = 0; }
+            else { greenRun = 0; redRun = 0; }
+            maxGreenRun = Math.max(maxGreenRun, greenRun);
+            maxRedRun = Math.max(maxRedRun, redRun);
+        }
+        boolean overextendedUp = last.close - recentLow > atr * 3.4 || maxGreenRun >= 4;
+        boolean overextendedDown = recentHigh - last.close > atr * 3.4 || maxRedRun >= 4;
+
+        int histDir = direction(histogram), vectorDir = direction(vector);
         int displacementDir = direction(displacement);
-        // Two-of-three OHLC evidence is sufficient; do not require every
-        // derived measure to agree before accepting genuine broker candles.
-        int bullishVotes = (histDir > 0 ? 1 : 0) +
-            (vectorDir > 0 ? 1 : 0) + (displacementDir > 0 ? 1 : 0);
-        int bearishVotes = (histDir < 0 ? 1 : 0) +
-            (vectorDir < 0 ? 1 : 0) + (displacementDir < 0 ? 1 : 0);
-        // Require two independent directional reads, not one isolated vote.
-        // A decisive structure break remains a separate valid reversal trigger.
-        boolean alignedUp = bullishVotes >= 2 || bullishBreak;
-        boolean alignedDown = bearishVotes >= 2 || bearishBreak;
+        int bullishVotes = (histDir > 0 ? 1 : 0) + (vectorDir > 0 ? 1 : 0) +
+            (displacementDir > 0 ? 1 : 0);
+        int bearishVotes = (histDir < 0 ? 1 : 0) + (vectorDir < 0 ? 1 : 0) +
+            (displacementDir < 0 ? 1 : 0);
+        boolean alignedUp = bullishVotes >= 2 && displacement > 0.18;
+        boolean alignedDown = bearishVotes >= 2 && displacement < -0.18;
 
-        // A fresh confirming candle plus ANY one meaningful context signal
-        // (structure, pullback, or aligned OHLC pressure) can qualify.
-        boolean callContinuation = bullishConfirmation &&
-            (bullishStructure || bullishPullback || alignedUp) && !overextendedUp;
-        boolean putContinuation = bearishConfirmation &&
-            (bearishStructure || bearishPullback || alignedDown) && !overextendedDown;
-        boolean callReversal = (bullishBreak && alignedUp && !overextendedUp) ||
-            bullishRejection;
-        boolean putReversal = (bearishBreak && alignedDown && !overextendedDown) ||
-            bearishRejection;
+        boolean callContinuation = validBullPullback && bullishConfirmation &&
+            alignedUp && !overextendedUp;
+        boolean putContinuation = validBearPullback && bearishConfirmation &&
+            alignedDown && !overextendedDown;
+        boolean callReversal = (bullishSweep || bullishBreak) && !overextendedUp;
+        boolean putReversal = (bearishSweep || bearishBreak) && !overextendedDown;
 
-        if (!callContinuation && !putContinuation && !callReversal && !putReversal) {
-            String why = "WAIT · no confirmed pullback/continuation or structure-break reversal";
-            if (overextendedUp || overextendedDown) why += " · move extended; do not chase";
-            else if (!alignedUp && !alignedDown) why += " · histogram/vector/displacement disagree";
-            else if (!(bullishConfirmation || bearishConfirmation)) why += " · candle confirmation missing";
+        if ((!callContinuation && !putContinuation && !callReversal && !putReversal) ||
+            ((callContinuation || callReversal) && (putContinuation || putReversal))) {
+            String why = "WAIT · no high-quality trend pullback or confirmed sweep/structure reversal";
+            if (overextendedUp || overextendedDown) why += " · exhausted/extended move";
+            else if (volatilityShock) why += " · volatility shock";
+            else if (!alignedUp && !alignedDown && !bullishSweep && !bearishSweep &&
+                    !bullishBreak && !bearishBreak) why += " · weak or conflicting market direction";
+            else if (!(validBullPullback || validBearPullback)) why += " · valid retracement missing";
+            else if (!(bullishConfirmation || bearishConfirmation)) why += " · close confirmation missing";
             return new Scan("WAIT", 0, why + " · bull " + bullishBars + " / bear " + bearishBars + ".");
         }
 
         String result = (callContinuation || callReversal) ? "CALL" : "PUT";
         int expected = "CALL".equals(result) ? 1 : -1;
-        // The current quote is only a confirmation check, never a candle source.
-        double liveAgainst = (livePrice - last.close) * expected;
-        // Real quote tape is corroborating evidence, not a blanket veto.
-        // Reject only when both price displacement and recent tick pressure
-        // strongly oppose the broker-candle setup.
-        double liveFlow = tickFlow(symbol);
-        if (liveAgainst < -atr * 0.85 && liveFlow * expected <= -0.70)
-            return new Scan("WAIT", 0,
-                "WAIT · completed-candle setup and live QX tick-flow both oppose entry.");
 
-        double structureScore = ("CALL".equals(result) ?
-            (bullishStructure ? 1.0 : 0.75) : (bearishStructure ? 1.0 : 0.75));
-        double expectedDirection = "CALL".equals(result) ? 1.0 : -1.0;
-        double agreement = (clamp(histogram * expectedDirection, 0.0, 1.0) +
-            clamp(vector * expectedDirection, 0.0, 1.0) +
-            clamp(displacement * expectedDirection, 0.0, 1.0)) / 3.0;
+        // Confirm the new entry candle with a minimum of three genuine QX
+        // quotes. This is tick confirmation, not an increase in candle memory.
+        int liveTicks = countBucketTicks(symbol, currentBucket);
+        if (liveTicks < 3)
+            return new Scan("WAIT", 0,
+                "WAIT · setup detected; confirming with 3 genuine live QX quotes (" + liveTicks + "/3).");
+        double liveFlow = bucketTickFlow(symbol, currentBucket);
+        if (liveFlow * expected < -0.25 ||
+            (livePrice - last.close) * expected < -atr * 0.22)
+            return new Scan("WAIT", 0,
+                "WAIT · live QX quote pressure is turning against the completed-candle setup.");
+
+        boolean reversalSetup = callReversal || putReversal;
+        double agreement = (clamp(histogram * expected, 0.0, 1.0) +
+            clamp(vector * expected, 0.0, 1.0) +
+            clamp(displacement * expected, 0.0, 1.0)) / 3.0;
         double bodyQuality = clamp(lastBody / Math.max(atr * 0.9, 1e-12), 0.0, 1.0);
         double closeQuality = "CALL".equals(result) ?
             clamp((lastClosePosition + 1.0) * 0.5, 0.0, 1.0) :
             clamp((1.0 - lastClosePosition) * 0.5, 0.0, 1.0);
-        boolean rejectionSetup = bullishRejection || bearishRejection;
-        double patternQuality = rejectionSetup ?
+        double patternQuality = reversalSetup ?
             clamp(Math.max(upperWick, lowerWick) / lastRange, 0.0, 1.0) : 1.0;
-        double setupScore;
-        if (rejectionSetup) {
-            setupScore = 48.0 + patternQuality * 14.0 + bodyQuality * 10.0 +
-                closeQuality * 8.0 + Math.min(1.0, Math.abs(displacement)) * 8.0;
-        } else {
-            setupScore = 45.0 + agreement * 22.0 + structureScore * 8.0 +
-                bodyQuality * 10.0 + closeQuality * 8.0 + patternQuality * 7.0;
-        }
-        // Weak directional agreement must not be inflated by structure/body bonuses.
-        // Keep the signal available, but cap its evidence score when continuation/break
-        // evidence is weak; confirmed level-rejection reversals use their own candle score.
-        if (!rejectionSetup && agreement < 0.40)
-            setupScore = Math.min(setupScore, 55.0 + agreement * 25.0);
+        double setupScore = 45.0 + agreement * 20.0 + bodyQuality * 12.0 +
+            closeQuality * 8.0 + patternQuality * 8.0 +
+            (reversalSetup ? 4.0 : (validBullPullback || validBearPullback ? 7.0 : 0.0));
         setupScore = clamp(setupScore, 45.0, 85.0);
-        String setup = (callReversal || putReversal) ?
-            (rejectionSetup ? "LEVEL REJECTION / REVERSAL" :
-                "STRUCTURE BREAK / REVERSAL") : "PULLBACK / CONTINUATION";
+        String setup = reversalSetup ? "LIQUIDITY SWEEP / STRUCTURE REVERSAL" :
+            "TREND PULLBACK / CONTINUATION";
         return new Scan(result, setupScore,
             result + " · " + setup + " · setup score " + Math.round(setupScore) +
             "/100 (evidence score, not a measured win probability) · histogram " + signed(histogram) +
-            " · vector " + signed(vector) + " · displacement " +
-            signed(displacement) + " · bull " + bullishBars + " / bear " + bearishBars);
+            " · vector " + signed(vector) + " · displacement " + signed(displacement) +
+            " · live QX flow " + signed(liveFlow) + " · bull " + bullishBars + " / bear " + bearishBars);
+    }
+
+    private int countBucketTicks(String symbol, long bucket) {
+        int count = 0;
+        for (Tick tick : tape)
+            if (tick.asset.equals(symbol) && tick.timestamp >= bucket) count++;
+        return count;
+    }
+
+    private double bucketTickFlow(String symbol, long bucket) {
+        List<Tick> recent = new ArrayList<>();
+        for (int i = tape.size() - 1; i >= 0; i--) {
+            Tick tick = tape.get(i);
+            if (tick.asset.equals(symbol) && tick.timestamp >= bucket) recent.add(0, tick);
+        }
+        if (recent.size() < 2) return 0;
+        int up = 0, down = 0;
+        for (int i = 1; i < recent.size(); i++) {
+            Tick current = recent.get(i);
+            int d = current.brokerDirection != null
+                ? current.brokerDirection.intValue()
+                : direction(current.price - recent.get(i - 1).price);
+            if (d > 0) up++; else if (d < 0) down++;
+        }
+        int total = up + down;
+        return total == 0 ? 0 : clamp((double) (up - down) / total, -1, 1);
     }
 
     private double tickFlow(String symbol) {
