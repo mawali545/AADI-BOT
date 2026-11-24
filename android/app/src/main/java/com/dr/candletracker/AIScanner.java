@@ -231,8 +231,8 @@ public final class AIScanner {
             o.put("remainingMs",pending?Math.max(0,expiryTimestamp-lastTimestamp):0);
             o.put("pending",pending);o.put("expirySeconds",10);o.put("lastResult",lastResult);
             o.put("wins",wins);o.put("losses",losses);o.put("ties",ties);
-            o.put("candlesAvailable",bars.size());o.put("ticksAvailable",tape.size());
-            o.put("candlesScanned",bars.size());o.put("ticksScanned",lastTicksScanned);
+            o.put("candlesAvailable",bars.size()+liveBars.size());o.put("historyCandlesAvailable",bars.size());o.put("tickDerivedCandlesAvailable",liveBars.size());o.put("ticksAvailable",tape.size());
+            o.put("candlesScanned",bars.size()+liveBars.size());o.put("ticksScanned",lastTicksScanned);
             o.put("recentCandlesAnalyzed",lastBarsScanned);o.put("fullHistoryScans",fullHistoryScans);
             o.put("historyLoads",historyLoads);o.put("fullChartDirection",historyDirection);
             o.put("fullChartHigh",Double.isFinite(historyHigh)?historyHigh:JSONObject.NULL);
