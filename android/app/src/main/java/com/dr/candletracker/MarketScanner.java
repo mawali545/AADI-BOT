@@ -10,7 +10,7 @@ import org.json.JSONObject;
 
 /** Independent descriptive scan of broker-supplied OHLC history and live QX ticks. */
 public final class MarketScanner {
-    private static final int MAX_CANDLES = 900, MAX_TICKS = 900, ANALYSIS_CANDLES = 36, ANALYSIS_TICKS = 90;
+    private static final int MAX_CANDLES = 1800, MAX_TICKS = 900, ANALYSIS_CANDLES = 36, ANALYSIS_TICKS = 90;
     private final Deque<Bar> candles = new ArrayDeque<>();
     private final Deque<Quote> ticks = new ArrayDeque<>();
     private String asset = "WAITING", direction = "UNKNOWN", pattern = "COLLECTING", pace = "UNKNOWN";
@@ -18,7 +18,7 @@ public final class MarketScanner {
     private long lastTimestamp, updates, historyLoads, lastDurationNs, totalDurationNs, maxDurationNs;
     private long candlesReceived, ticksReceived, rejectedRows, gaps;
     private double lastPrice = Double.NaN, strength;
-    private int lastCandlesScanned, lastTicksScanned;
+    private int lastCandlesScanned, lastTicksScanned, fullHistorySwingChanges;\n    private long fullHistoryScans;\n    private String fullHistoryDirection = "UNKNOWN";\n    private double fullHistoryHigh = Double.NaN, fullHistoryLow = Double.NaN;
 
     public synchronized void acceptHistory(String symbol, JSONArray rows) {
         if (symbol == null || !symbol.matches("[A-Za-z0-9_./-]{3,32}") || rows == null) return;
@@ -46,6 +46,25 @@ public final class MarketScanner {
         for(Bar b:unique.values()){candles.addLast(b);if(candles.size()>MAX_CANDLES)candles.removeFirst();}
         candlesReceived=candles.size();historyLoads++;
         analyze(started);
+    }
+
+    /** One complete pass over every genuine candle supplied by QX; never repeated on each tick. */
+    private void scanFullHistory() {
+        fullHistoryScans++;
+        fullHistorySwingChanges=0;
+        fullHistoryHigh=Double.NEGATIVE_INFINITY;
+        fullHistoryLow=Double.POSITIVE_INFINITY;
+        if(candles.isEmpty()){fullHistoryDirection="UNKNOWN";return;}
+        double first=candles.peekFirst().close,last=candles.peekLast().close;
+        int previous=0;
+        for(Bar bar:candles){
+            fullHistoryHigh=Math.max(fullHistoryHigh,bar.high);
+            fullHistoryLow=Math.min(fullHistoryLow,bar.low);
+            int d=sgn(bar.close-bar.open);
+            if(d!=0&&previous!=0&&d!=previous)fullHistorySwingChanges++;
+            if(d!=0)previous=d;
+        }
+        fullHistoryDirection=last>first?"UP":(last<first?"DOWN":"SIDEWAYS");
     }
 
     public synchronized void acceptTick(String symbol,double price,long timestamp) {
@@ -134,7 +153,7 @@ public final class MarketScanner {
         try{
             o.put("asset",asset);o.put("direction",direction);o.put("pattern",pattern);o.put("pace",pace);o.put("structure",structure);o.put("detail",detail);
             o.put("strength",Math.round(strength));o.put("candlesAvailable",candles.size());o.put("ticksAvailable",ticks.size());
-            o.put("candlesScanned",lastCandlesScanned);o.put("ticksScanned",lastTicksScanned);o.put("updates",updates);o.put("historyLoads",historyLoads);
+            o.put("candlesScanned",candles.size());o.put("recentCandlesAnalyzed",lastCandlesScanned);o.put("ticksScanned",lastTicksScanned);o.put("updates",updates);o.put("historyLoads",historyLoads);\n            o.put("fullHistoryScans",fullHistoryScans);o.put("fullChartDirection",fullHistoryDirection);o.put("fullChartHigh",Double.isFinite(fullHistoryHigh)?fullHistoryHigh:JSONObject.NULL);o.put("fullChartLow",Double.isFinite(fullHistoryLow)?fullHistoryLow:JSONObject.NULL);o.put("fullChartSwingChanges",fullHistorySwingChanges);
             o.put("rejectedRows",rejectedRows);o.put("tickGaps",gaps);o.put("lastScanUs",lastDurationNs/1000.0);
             o.put("avgScanUs",updates>0?(totalDurationNs/(double)updates)/1000.0:0);o.put("maxScanUs",maxDurationNs/1000.0);
             o.put("lastTimestamp",lastTimestamp);o.put("lastPrice",Double.isFinite(lastPrice)?lastPrice:JSONObject.NULL);
