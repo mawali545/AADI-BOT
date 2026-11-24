@@ -43,6 +43,8 @@ public final class MainActivity extends Activity {
     private int currentFrameBytes = 0;
     private double lastPrice = Double.NaN;
     private final SignalEngine signalEngine = new SignalEngine();
+    private final MarketScanner marketScanner = new MarketScanner();
+    private volatile JSONObject signalScannerSnapshot = new JSONObject();
     private final FeedIntegrityMonitor feedMonitor = new FeedIntegrityMonitor();
     private final android.os.Handler tickHandler = new android.os.Handler(android.os.Looper.getMainLooper());
     private final java.util.Map<String, java.util.TreeMap<Long, QueuedTick>> pendingTickQueues = new java.util.HashMap<>();
@@ -185,6 +187,8 @@ public final class MainActivity extends Activity {
                                         if (!feedMonitor.recordHistory(asset, period, candles)) return;
                                         qxDataConfirmed = true;
                                         signalEngine.acceptHistory(asset, period, candles);
+                                        marketScanner.acceptHistory(asset, candles);
+                                        signalScannerSnapshot = marketScanner.snapshot();
                                         if (web != null) web.evaluateJavascript(
                                             "window.DRUpdate && window.DRUpdate(" + snapshot().toString() + ")", null);
                                     });
@@ -304,7 +308,10 @@ public final class MainActivity extends Activity {
                 qxHttpResponseMs = item.httpMs; qxHttpWallAt = item.httpAt;
             }
             currentFingerprint = item.fingerprint; currentFrameBytes = item.frameBytes;
+            marketScanner.acceptTick(asset, item.price, item.timestamp);
             signalEngine.acceptTick(asset, item.price, item.timestamp, item.period, item.direction);
+            // Freeze the independent scanner readout beside the latest signal state; it never gates the signal engine.
+            signalScannerSnapshot = marketScanner.snapshot();
         }
         if (web != null) web.evaluateJavascript(
             "window.DRUpdate && window.DRUpdate(" + snapshot().toString() + ")", null);
@@ -370,6 +377,8 @@ public final class MainActivity extends Activity {
             o.put("fingerprint", currentFingerprint);
             o.put("frameBytes", currentFrameBytes);
             o.put("signal", signalEngine.getSignal());
+            o.put("scanner", marketScanner.snapshot());
+            o.put("signalScanner", new JSONObject(signalScannerSnapshot.toString()));
             o.put("qxDirectionalUpTicks", signalEngine.getDirectionalUpTicks());
             o.put("qxDirectionalDownTicks", signalEngine.getDirectionalDownTicks());
             o.put("qxDirectionalNeutralTicks", signalEngine.getDirectionalNeutralTicks());
