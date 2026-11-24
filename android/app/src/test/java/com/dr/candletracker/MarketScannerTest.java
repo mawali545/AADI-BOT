@@ -21,7 +21,9 @@ public class MarketScannerTest {
         assertEquals("EURUSD_otc",s.getString("asset"));
         assertEquals(4,s.getInt("candlesAvailable"));
         assertEquals(2,s.getInt("ticksAvailable"));
-        assertTrue(s.getInt("candlesScanned")>0);
+        assertEquals(4,s.getInt("candlesScanned"));
+        assertEquals(1,s.getLong("fullHistoryScans"));
+        assertEquals(4,s.getInt("recentCandlesAnalyzed"));
         assertTrue(s.getInt("ticksScanned")>0);
         assertTrue(s.getLong("updates")>=3);
         assertTrue(s.getDouble("lastScanUs")>=0);
