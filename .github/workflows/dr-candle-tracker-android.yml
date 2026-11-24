@@ -1,5 +1,6 @@
 name: DR Candle Tracker Android Build
 # Scoped to the dedicated DR Candle Tracker feature branch.
+# AI scanner branch uses the same Android unit-test and debug-APK pipeline.
 
 on:
   push:
