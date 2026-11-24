@@ -79,7 +79,10 @@ public final class MarketScanner {
     }
 
     private void analyze(long started) {
-        List<Bar> b=new ArrayList<>(candles);
+        List<Bar> b=new ArrayList<>();
+        java.util.Iterator<Bar> historyTail=candles.descendingIterator();
+        while(historyTail.hasNext()&&b.size()<ANALYSIS_CANDLES)b.add(historyTail.next());
+        java.util.Collections.reverse(b);
         List<Quote> q=new ArrayList<>(ticks);
         int n=Math.min(ANALYSIS_CANDLES,b.size()),m=Math.min(ANALYSIS_TICKS,q.size());
         lastCandlesScanned=n;lastTicksScanned=m;updates++;
