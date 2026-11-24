@@ -41,6 +41,7 @@ public class AIScannerTest {
         for(int i=0;i<12;i++)a.acceptTick("EURUSD_otc",1.1000+i*0.0001,T+i*1000L,10,1);
         assertTrue(a.snapshot().optInt("tickDerivedCandlesAvailable")>=5);
         assertTrue(a.snapshot().optInt("ticksAvailable")>=8);
+        assertTrue("Structure should classify moving flat tick-derived candles",a.snapshot().optString("structure").contains("BULLISH"));
         assertEquals("CALL",a.getSignal());
     }
     @Test public void strongBullishLiveFlowCreatesCallAndLocksEntryPrice() throws Exception {
