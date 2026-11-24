@@ -18,6 +18,18 @@ public class AIScannerTest {
         }
         return new JSONArray(s.append("]").toString());
     }
+    private JSONArray bearishHistory() throws Exception {
+        StringBuilder s=new StringBuilder("[");
+        double p=1.1030;
+        for(int i=0;i<10;i++){
+            double o=p,cl=p-0.00020,h=o+0.00003,l=cl-0.00004;
+            if(i>0)s.append(",");
+            s.append("{\"time\":").append(T+i*60000L).append(",\"open\":").append(o)
+             .append(",\"close\":").append(cl).append(",\"high\":").append(h).append(",\"low\":").append(l).append("}");
+            p=cl;
+        }
+        return new JSONArray(s.append("]").toString());
+    }
     @Test public void waitsUntilRealHistoryAndEnoughLiveTicksExist() throws Exception {
         AIScanner a=new AIScanner();a.acceptHistory("EURUSD_otc",60,bullishHistory());
         assertEquals("WAIT",a.getSignal());
@@ -46,7 +58,7 @@ public class AIScannerTest {
     @Test public void putWinsOnlyWhenExpiryPriceIsBelowLockedEntry() throws Exception {
         AIScanner a=new AIScanner();a.acceptHistory("EURUSD_otc",60,bullishHistory());
         // Establish an initial sequence, then a decisive bearish flow on a separate selected asset.
-        a.acceptHistory("GBPUSD_otc",60,bullishHistory());
+        a.acceptHistory("GBPUSD_otc",60,bearishHistory());
         for(int i=0;i<10;i++)a.acceptTick("GBPUSD_otc",1.1020-i*0.00005,T+600001+i*100,60,-1);
         assertEquals("PUT",a.getSignal());
         double entry=a.snapshot().optDouble("entryPrice");
