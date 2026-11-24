@@ -20,7 +20,7 @@ public final class AIScanner {
     private final Deque<Quote> tape=new ArrayDeque<>();
     private final Deque<Bar> liveBars=new ArrayDeque<>();
     private String asset="WAITING FOR QX", signal="WAIT", reason="Waiting for genuine QX market data";
-    private String pattern="COLLECTING", direction="UNKNOWN";
+    private String pattern="COLLECTING", direction="UNKNOWN", structure="COLLECTING STRUCTURE";
     private long lastTimestamp, entryTimestamp, expiryTimestamp, fullHistoryScans, historyLoads, scanCount;
     private long lastScanNs,totalScanNs,maxScanNs;
     private double lastPrice=Double.NaN,entryPrice=Double.NaN,evidenceScore;
@@ -131,6 +131,7 @@ public final class AIScanner {
         List<Bar> recentBars=new ArrayList<>();
         for(Bar b:bars)recentBars.add(b);
         for(Bar b:liveBars)recentBars.add(b);
+        structure=classifyStructure(recentBars);
         int from=Math.max(0,recentBars.size()-BAR_WINDOW);
         int bn=recentBars.size()-from;
         List<Quote> q=new ArrayList<>(tape);
@@ -180,6 +181,39 @@ public final class AIScanner {
         return new Scan(side,dir,pat,score,bn,qn,why);
     }
 
+
+    // Classify market structure from three chronological OHLC swing zones.
+    // Requires real candle ranges; flat/insufficient data is explicitly reported.
+    private static String classifyStructure(List<Bar> input){
+        if(input==null||input.size()<6)return "COLLECTING STRUCTURE";
+        int n=input.size(),a=n/3,b=(2*n)/3;
+        if(a<2||b-a<2||n-b<2)return "COLLECTING STRUCTURE";
+        double[] highs=new double[3],lows=new double[3];
+        int[] starts={0,a,b},ends={a,b,n};
+        for(int k=0;k<3;k++){
+            highs[k]=Double.NEGATIVE_INFINITY;lows[k]=Double.POSITIVE_INFINITY;
+            boolean moved=false;
+            for(int i=starts[k];i<ends[k];i++){
+                Bar x=input.get(i);
+                highs[k]=Math.max(highs[k],x.high);lows[k]=Math.min(lows[k],x.low);
+                if(x.high-x.low>1e-12)moved=true;
+            }
+            if(!moved)return "COLLECTING STRUCTURE";
+        }
+        double eps=Math.max(1e-12,Math.max(Math.abs(highs[2]),Math.abs(lows[2]))*1e-7);
+        boolean hh=highs[2]>highs[1]+eps,hl=lows[2]>lows[1]+eps;
+        boolean lh=highs[2]<highs[1]-eps,ll=lows[2]<lows[1]-eps;
+        boolean priorDown=highs[1]<highs[0]-eps&&lows[1]<lows[0]-eps;
+        boolean priorUp=highs[1]>highs[0]+eps&&lows[1]>lows[0]+eps;
+        if(priorDown&&hh&&hl)return "REVERSAL UP";
+        if(priorUp&&lh&&ll)return "REVERSAL DOWN";
+        if(hh&&hl)return "HH + HL · BULLISH";
+        if(lh&&ll)return "LH + LL · BEARISH";
+        if(hh&&ll)return "EXPANDING RANGE";
+        if(lh&&hl)return "CONTRACTING RANGE";
+        return "RANGE";
+    }
+
     private void settle(double expiryPrice){
         double delta=expiryPrice-entryPrice;
         double eps=Math.max(1e-12,Math.abs(entryPrice)*1e-12);
@@ -224,7 +258,7 @@ public final class AIScanner {
     public synchronized JSONObject snapshot(){
         JSONObject o=new JSONObject();
         try{
-            o.put("asset",asset);o.put("signal",signal);o.put("direction",direction);o.put("pattern",pattern);
+            o.put("asset",asset);o.put("signal",signal);o.put("direction",direction);o.put("pattern",pattern);o.put("structure",structure);
             o.put("detail",reason);o.put("evidenceScore",Math.round(evidenceScore));
             o.put("entryPrice",Double.isFinite(entryPrice)?entryPrice:JSONObject.NULL);
             o.put("entryTimestamp",entryTimestamp);o.put("expiryTimestamp",expiryTimestamp);
