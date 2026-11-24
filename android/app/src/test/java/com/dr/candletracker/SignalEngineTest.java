@@ -241,6 +241,7 @@ public class SignalEngineTest {
         e.acceptHistory("EURUSD_otc",60,history(bullishPullbackSetup()));
         e.acceptTick("EURUSD_otc",1.1012,T+480000,60);
         e.acceptTick("EURUSD_otc",1.1018,T+481000,60);
+        e.acceptTick("EURUSD_otc",1.1019,T+482000,60);
         assertEquals("CALL",e.getSignal());
         e.acceptTick("EURUSD_otc",1.1013,T+491999,60);
         assertEquals(0,e.getWins());
