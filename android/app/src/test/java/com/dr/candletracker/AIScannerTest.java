@@ -36,6 +36,13 @@ public class AIScannerTest {
         a.acceptTick("EURUSD_otc",1.1020,T+600000,60,null);
         assertEquals("WAIT",a.getSignal());
     }
+    @Test public void genuineLiveTicksBuildOhlcAndCanProduceSignalWithoutBrokerHistory() {
+        AIScanner a=new AIScanner();
+        for(int i=0;i<12;i++)a.acceptTick("EURUSD_otc",1.1000+i*0.0001,T+i*1000L,10,1);
+        assertTrue(a.snapshot().optInt("tickDerivedCandlesAvailable")>=5);
+        assertTrue(a.snapshot().optInt("ticksAvailable")>=8);
+        assertEquals("CALL",a.getSignal());
+    }
     @Test public void strongBullishLiveFlowCreatesCallAndLocksEntryPrice() throws Exception {
         AIScanner a=new AIScanner();a.acceptHistory("EURUSD_otc",60,bullishHistory());
         for(int i=0;i<10;i++)a.acceptTick("EURUSD_otc",1.1020+i*0.00005,T+600001+i*100,60,1);
