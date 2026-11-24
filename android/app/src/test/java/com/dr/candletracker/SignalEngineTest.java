@@ -96,7 +96,7 @@ public class SignalEngineTest {
         e.acceptTick("EURUSD_otc",1.1018,T+481000,60);
         e.acceptTick("EURUSD_otc",1.1019,T+482000,60);
         assertEquals("CALL",e.getSignal());
-        assertTrue(e.getReason().contains("PULLBACK / CONTINUATION") || e.getReason().contains("STRUCTURE BREAK / REVERSAL"));
+        assertTrue(e.getReason().contains("TREND PULLBACK / CONTINUATION") || e.getReason().contains("LIQUIDITY SWEEP / STRUCTURE REVERSAL"));
     }
 
     @Test public void signalScoreIsExplicitlyAnEvidenceScoreNotAWinProbability() throws Exception {
@@ -104,6 +104,7 @@ public class SignalEngineTest {
         e.acceptHistory("EURUSD_otc",60,history(bullishPullbackSetup()));
         e.acceptTick("EURUSD_otc",1.1012,T+480000,60);
         e.acceptTick("EURUSD_otc",1.1018,T+481000,60);
+        e.acceptTick("EURUSD_otc",1.1019,T+482000,60);
         assertEquals("CALL",e.getSignal());
         assertTrue(e.getSignalProbability() >= 45.0);
         assertTrue(e.getSignalProbability() <= 85.0);
@@ -161,7 +162,7 @@ public class SignalEngineTest {
         e.acceptTick("EURUSD_otc",1.1028,T+480500,60);
         e.acceptTick("EURUSD_otc",1.1013,T+481000,60);
         assertEquals("PUT",e.getSignal());
-        assertTrue(e.getReason().contains("LEVEL REJECTION / REVERSAL"));
+        assertTrue(e.getReason().contains("LIQUIDITY SWEEP / STRUCTURE REVERSAL"));
     }
 
     @Test public void selloffIntoPriorLowWithLowerWickCanSignalCallReversal() throws Exception {
@@ -201,7 +202,7 @@ public class SignalEngineTest {
         e.acceptTick("EURUSD_otc",1.1013,T+491999,60);
         assertEquals(0,e.getWins());
         assertEquals(0,e.getLosses());
-        e.acceptTick("EURUSD_otc",1.1019,T+492000,60);
+        e.acceptTick("EURUSD_otc",1.1021,T+492000,60);
         assertEquals(1,e.getWins());
         e.acceptTick("EURUSD_otc",1.1015,T+493000,60);
         assertEquals(1,e.getWins());
