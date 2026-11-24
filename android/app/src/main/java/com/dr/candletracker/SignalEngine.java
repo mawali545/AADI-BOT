@@ -299,12 +299,28 @@ public final class SignalEngine {
         // directional move is still visible in the candle-memory vector.
         double upperWick = last.high - Math.max(last.open, last.close);
         double lowerWick = Math.min(last.open, last.close) - last.low;
-        boolean bearishRejection = last.high >= highestBeforeLast - atr * 0.18 &&
+        int priorBullishBars = 0, priorBearishBars = 0;
+        for (int i = 0; i < length - 1; i++) {
+            Candle c = stream.get(i);
+            if (c.close > c.open) priorBullishBars++;
+            else if (c.close < c.open) priorBearishBars++;
+        }
+        // A wick alone is not a reversal. Require visible prior pressure in the
+        // opposite direction and a rejection close beyond the previous close.
+        boolean priorBullishPressure = previous.close > stream.get(0).close + atr * 0.20 ||
+            priorBullishBars >= Math.max(2, (length - 1 + 1) / 2);
+        boolean priorBearishPressure = previous.close < stream.get(0).close - atr * 0.20 ||
+            priorBearishBars >= Math.max(2, (length - 1 + 1) / 2);
+        boolean bearishRejection = priorBullishPressure &&
+            last.high >= highestBeforeLast - atr * 0.18 &&
             upperWick >= Math.max(lastBody * 0.55, atr * 0.10) &&
-            lastClosePosition <= 0.22 && last.close < last.open;
-        boolean bullishRejection = last.low <= lowestBeforeLast + atr * 0.18 &&
+            lastClosePosition <= 0.22 && last.close < last.open &&
+            last.close < previous.close;
+        boolean bullishRejection = priorBearishPressure &&
+            last.low <= lowestBeforeLast + atr * 0.18 &&
             lowerWick >= Math.max(lastBody * 0.55, atr * 0.10) &&
-            lastClosePosition >= -0.22 && last.close > last.open;
+            lastClosePosition >= -0.22 && last.close > last.open &&
+            last.close > previous.close;
 
         double recentLow = Double.POSITIVE_INFINITY;
         double recentHigh = Double.NEGATIVE_INFINITY;
@@ -327,9 +343,14 @@ public final class SignalEngine {
         int displacementDir = direction(displacement);
         // Two-of-three OHLC evidence is sufficient; do not require every
         // derived measure to agree before accepting genuine broker candles.
-        int directionalVote = histDir + vectorDir + displacementDir;
-        boolean alignedUp = directionalVote >= 1 || bullishBreak;
-        boolean alignedDown = directionalVote <= -1 || bearishBreak;
+        int bullishVotes = (histDir > 0 ? 1 : 0) +
+            (vectorDir > 0 ? 1 : 0) + (displacementDir > 0 ? 1 : 0);
+        int bearishVotes = (histDir < 0 ? 1 : 0) +
+            (vectorDir < 0 ? 1 : 0) + (displacementDir < 0 ? 1 : 0);
+        // Require two independent directional reads, not one isolated vote.
+        // A decisive structure break remains a separate valid reversal trigger.
+        boolean alignedUp = bullishVotes >= 2 || bullishBreak;
+        boolean alignedDown = bearishVotes >= 2 || bearishBreak;
 
         // A fresh confirming candle plus ANY one meaningful context signal
         // (structure, pullback, or aligned OHLC pressure) can qualify.
