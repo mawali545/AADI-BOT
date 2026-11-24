@@ -48,6 +48,7 @@ public final class MarketScanner {
         candles.clear();
         for(Bar b:unique.values()){candles.addLast(b);if(candles.size()>MAX_CANDLES)candles.removeFirst();}
         candlesReceived=candles.size();historyLoads++;
+        scanFullHistory();
         analyze(started);
     }
 
