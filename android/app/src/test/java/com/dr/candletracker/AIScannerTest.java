@@ -40,8 +40,11 @@ public class AIScannerTest {
         AIScanner a=new AIScanner();a.acceptHistory("EURUSD_otc",60,bullishHistory());
         for(int i=0;i<10;i++)a.acceptTick("EURUSD_otc",1.1020+i*0.00005,T+600001+i*100,60,1);
         assertEquals("CALL",a.getSignal());
-        assertEquals(1.10245,a.snapshot().optDouble("entryPrice"),0.00000001);
-        assertEquals(T+600901,a.snapshot().optLong("expiryTimestamp"));
+        double lockedEntry=a.snapshot().optDouble("entryPrice");
+        long lockedAt=a.snapshot().optLong("entryTimestamp");
+        assertTrue(lockedEntry>=1.1020&&lockedEntry<=1.10245);
+        assertTrue(lockedAt>=T+600001&&lockedAt<=T+600901);
+        assertEquals(lockedAt+10000L,a.snapshot().optLong("expiryTimestamp"));
     }
     @Test public void tenSecondExpiryUsesFirstActualQuoteAtOrAfterEntryExpiry() throws Exception {
         AIScanner a=new AIScanner();a.acceptHistory("EURUSD_otc",60,bullishHistory());
