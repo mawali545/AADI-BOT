@@ -192,13 +192,13 @@ public final class AIScanner {
         int[] starts={0,a,b},ends={a,b,n};
         for(int k=0;k<3;k++){
             highs[k]=Double.NEGATIVE_INFINITY;lows[k]=Double.POSITIVE_INFINITY;
-            boolean moved=false;
             for(int i=starts[k];i<ends[k];i++){
                 Bar x=input.get(i);
                 highs[k]=Math.max(highs[k],x.high);lows[k]=Math.min(lows[k],x.low);
-                if(x.high-x.low>1e-12)moved=true;
             }
-            if(!moved)return "COLLECTING STRUCTURE";
+            // A stream may deliver only one quote per second, producing flat
+            // individual OHLC bars; compare the full zone's real price span.
+            if(highs[k]-lows[k]<=1e-12)return "COLLECTING STRUCTURE";
         }
         double eps=Math.max(1e-12,Math.max(Math.abs(highs[2]),Math.abs(lows[2]))*1e-7);
         boolean hh=highs[2]>highs[1]+eps,hl=lows[2]>lows[1]+eps;
