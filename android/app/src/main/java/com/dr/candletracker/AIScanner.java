@@ -18,6 +18,7 @@ public final class AIScanner {
     private static final long EXPIRY_MS=10_000L;
     private final Deque<Bar> bars=new ArrayDeque<>();
     private final Deque<Quote> tape=new ArrayDeque<>();
+    private final Deque<Bar> liveBars=new ArrayDeque<>();
     private String asset="WAITING FOR QX", signal="WAIT", reason="Waiting for genuine QX market data";
     private String pattern="COLLECTING", direction="UNKNOWN";
     private long lastTimestamp, entryTimestamp, expiryTimestamp, fullHistoryScans, historyLoads, scanCount;
@@ -47,7 +48,7 @@ public final class AIScanner {
             }catch(Exception ignored){}
         }
         if(!symbol.equals(asset)){resetForAsset(symbol);}
-        asset=symbol;bars.clear();
+        asset=symbol;bars.clear();liveBars.clear();
         for(Bar b:parsed.values()){bars.addLast(b);if(bars.size()>MAX_BARS)bars.removeFirst();}
         historyLoads++;scanFullHistory();
         long elapsed=Math.max(0,System.nanoTime()-started);lastScanNs=elapsed;totalScanNs+=elapsed;maxScanNs=Math.max(maxScanNs,elapsed);
@@ -59,6 +60,7 @@ public final class AIScanner {
         if(!symbol.equals(asset))resetForAsset(symbol);
         if(timestamp<=lastTimestamp)return;
         lastTimestamp=timestamp;lastPrice=price;
+        acceptLiveOhlc(timestamp,price);
         tape.addLast(new Quote(price,timestamp,brokerDirection));
         while(tape.size()>MAX_TICKS)tape.removeFirst();
 
@@ -88,8 +90,22 @@ public final class AIScanner {
         recordScanTime(Math.max(0,System.nanoTime()-started));
     }
 
+    // Build genuine one-second OHLC buckets from received QX ticks when broker history is absent.
+    // These are derived only from real quotes; no prices or candles are fabricated.
+    private void acceptLiveOhlc(long timestamp,double price){
+        long bucket=(timestamp/1000L)*1000L;
+        Bar last=liveBars.peekLast();
+        if(last!=null&&last.time==bucket){
+            liveBars.removeLast();
+            liveBars.addLast(new Bar(bucket,last.open,Math.max(last.high,price),Math.min(last.low,price),price));
+        }else if(last==null||bucket>last.time){
+            liveBars.addLast(new Bar(bucket,price,price,price,price));
+            while(liveBars.size()>MAX_CANDLES)liveBars.removeFirst();
+        }
+    }
+
     private void resetForAsset(String symbol){
-        asset=symbol;bars.clear();tape.clear();lastTimestamp=0;lastPrice=Double.NaN;
+        asset=symbol;bars.clear();liveBars.clear();tape.clear();lastTimestamp=0;lastPrice=Double.NaN;
         signal="WAIT";pending=false;entryPrice=Double.NaN;entryTimestamp=0;expiryTimestamp=0;
         reason="Selected "+symbol+" · collecting genuine QX data";
         historyHigh=Double.NaN;historyLow=Double.NaN;historyDirection="UNKNOWN";
@@ -114,6 +130,7 @@ public final class AIScanner {
     private Scan analyze(double price){
         List<Bar> recentBars=new ArrayList<>();
         for(Bar b:bars)recentBars.add(b);
+        for(Bar b:liveBars)recentBars.add(b);
         int from=Math.max(0,recentBars.size()-BAR_WINDOW);
         int bn=recentBars.size()-from;
         List<Quote> q=new ArrayList<>(tape);
@@ -189,12 +206,12 @@ public final class AIScanner {
     public synchronized int getSignalCount(){return wins+losses+ties+(pending?1:0);}
     public synchronized double getSignalProbability(){return evidenceScore;}
     public synchronized double getLastPrice(){return lastPrice;}
-    public synchronized int getCandleCount(){return bars.size();}
-    public synchronized int getAssetCandleCount(){return bars.size();}
-    public synchronized double getOpen(){return bars.isEmpty()?Double.NaN:bars.peekLast().open;}
-    public synchronized double getHigh(){return bars.isEmpty()?Double.NaN:bars.peekLast().high;}
-    public synchronized double getLow(){return bars.isEmpty()?Double.NaN:bars.peekLast().low;}
-    public synchronized double getClose(){return bars.isEmpty()?Double.NaN:bars.peekLast().close;}
+    public synchronized int getCandleCount(){return bars.size()+liveBars.size();}
+    public synchronized int getAssetCandleCount(){return bars.size()+liveBars.size();}
+    public synchronized double getOpen(){return !liveBars.isEmpty()?liveBars.peekLast().open:(bars.isEmpty()?Double.NaN:bars.peekLast().open);}
+    public synchronized double getHigh(){return !liveBars.isEmpty()?liveBars.peekLast().high:(bars.isEmpty()?Double.NaN:bars.peekLast().high);}
+    public synchronized double getLow(){return !liveBars.isEmpty()?liveBars.peekLast().low:(bars.isEmpty()?Double.NaN:bars.peekLast().low);}
+    public synchronized double getClose(){return !liveBars.isEmpty()?liveBars.peekLast().close:(bars.isEmpty()?Double.NaN:bars.peekLast().close);}
     public synchronized double getVector(){return evidenceScore/100.0;}
     public synchronized double getHistogram(){return evidenceScore;}
     public synchronized double getDisplacement(){return Double.isFinite(lastPrice)&&Double.isFinite(entryPrice)?lastPrice-entryPrice:0;}
