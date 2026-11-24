@@ -450,8 +450,10 @@ public final class SignalEngine {
             setupScore = Math.min(setupScore, 55.0 + agreement * 25.0);
         setupScore = clamp(setupScore, 45.0, 85.0);
         String setup = (callReversal || putReversal) ?
-            ((rejectionSetup || bullishLiquiditySweep || bearishLiquiditySweep || supportHold || resistanceReject)
-                ? "LIQUIDITY SWEEP / LEVEL REVERSAL" : "STRUCTURE BREAK / REVERSAL") : "PULLBACK / CONTINUATION";
+            (rejectionSetup ? "LEVEL REJECTION / REVERSAL" :
+                ((bullishLiquiditySweep || bearishLiquiditySweep || supportHold || resistanceReject)
+                    ? "LIQUIDITY SWEEP / LEVEL REVERSAL" : "STRUCTURE BREAK / REVERSAL"))
+            : "PULLBACK / CONTINUATION";
         return new Scan(result, setupScore,
             result + " · " + setup + " · setup score " + Math.round(setupScore) +
             "/100 (evidence score, not a measured win probability) · histogram " + signed(histogram) +
