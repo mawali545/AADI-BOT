@@ -51,8 +51,7 @@ public final class AIScanner {
         for(Bar b:parsed.values()){bars.addLast(b);if(bars.size()>MAX_BARS)bars.removeFirst();}
         historyLoads++;scanFullHistory();
         long elapsed=Math.max(0,System.nanoTime()-started);lastScanNs=elapsed;totalScanNs+=elapsed;maxScanNs=Math.max(maxScanNs,elapsed);
-        reason="Loaded "+bars.size()+" genuine QX candles; waiting for live price flow";
-        signal="WAIT";pending=false;entryPrice=Double.NaN;entryTimestamp=0;expiryTimestamp=0;
+        if(!pending){reason="Loaded "+bars.size()+" genuine QX candles; waiting for live price flow";signal="WAIT";}
     }
 
     public synchronized void acceptTick(String symbol,double price,long timestamp,long periodSeconds,Integer brokerDirection){
