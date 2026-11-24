@@ -100,7 +100,7 @@ public final class AIScanner {
             liveBars.addLast(new Bar(bucket,last.open,Math.max(last.high,price),Math.min(last.low,price),price));
         }else if(last==null||bucket>last.time){
             liveBars.addLast(new Bar(bucket,price,price,price,price));
-            while(liveBars.size()>MAX_CANDLES)liveBars.removeFirst();
+            while(liveBars.size()>MAX_BARS)liveBars.removeFirst();
         }
     }
 
