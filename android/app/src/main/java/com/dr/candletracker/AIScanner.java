@@ -136,7 +136,7 @@ public final class AIScanner {
         List<Quote> q=new ArrayList<>(tape);
         int qFrom=Math.max(0,q.size()-TICK_WINDOW),qn=q.size()-qFrom;
         if(bn<5||qn<8)return new Scan("WAIT","UNKNOWN","COLLECTING",0,bn,qn,
-            "Need at least 5 genuine OHLC candles and 8 live QX ticks");
+            "Need 5 genuine history/live-tick OHLC candles and 8 live QX ticks");
         double path=0,net=q.get(q.size()-1).price-q.get(qFrom).price;
         int up=0,down=0,changes=0;
         for(int i=qFrom+1;i<q.size();i++){
