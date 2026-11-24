@@ -32,7 +32,7 @@ function sendHistory(data,fp,size,sourceEvent){
  if(!asset||!rows)return;
  period=Number(period);if(!Number.isFinite(period)||period<1||period>86400)period=activePeriod;
  var duration=period*1000,byBucket=Object.create(null);
- rows.slice(-1800).forEach(function(c){
+ rows.slice(-3600).forEach(function(c){
   if(Array.isArray(c)&&c.length<5)return;
   if(!Array.isArray(c)&&(!c||typeof c!=='object'))return;
   var t,o,cl,h,l;
@@ -43,7 +43,7 @@ function sendHistory(data,fp,size,sourceEvent){
    byBucket[String(bucket)]={time:bucket,open:o,close:cl,high:h,low:l};
   }
  });
- var candles=Object.keys(byBucket).map(Number).sort(function(a,b){return a-b;}).slice(-900).map(function(k){return byBucket[String(k)];});
+ var candles=Object.keys(byBucket).map(Number).sort(function(a,b){return a-b;}).slice(-1800).map(function(k){return byBucket[String(k)];});
  if(candles.length){activePeriod=period;postPayload({type:'history',source:String(sourceEvent||'history/list/v2'),asset:asset,period:period,candles:candles},fp,size);}
 }
 function walk(v,inherited,depth,fp,size,sourceEvent){if(depth>10||v==null)return;if(Array.isArray(v)){if(v.length>=3&&typeof v[0]==='string'&&/^[A-Z0-9_./-]{3,32}$/i.test(v[0])&&sourceTime(v[1])&&Number(v[2])>0){
