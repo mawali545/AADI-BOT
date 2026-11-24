@@ -49,9 +49,10 @@ public final class MainActivity extends Activity {
     private final java.util.Map<String, Runnable> pendingTickFlushes = new java.util.HashMap<>();
     private final java.util.Map<String, Long> lastProcessedArrivalByAsset = new java.util.HashMap<>();
     // QX quote frames can arrive out of timestamp order across the socket event queue.
-    // Hold a full second before flushing so delayed earlier quotes can be sorted
-    // into the tape instead of being discarded as out-of-order by the engine.
-    private static final long TICK_REORDER_WINDOW_MS = 1000L;
+    // Use a short reorder window to absorb minor socket scheduling jitter without
+    // adding a full second of avoidable latency to 10-second signal entries.
+    // Frames remain sorted by the broker timestamp inside this window.
+    private static final long TICK_REORDER_WINDOW_MS = 120L;
     private static final int MAX_PENDING_TICKS_PER_ASSET = 64;
     private volatile double qxHeartbeatSendMs = Double.NaN, qxHttpResponseMs = Double.NaN;
     private volatile long qxHeartbeatWallAt = 0, qxHttpWallAt = 0;
