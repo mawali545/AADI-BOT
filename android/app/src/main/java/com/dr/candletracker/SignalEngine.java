@@ -10,8 +10,9 @@ import org.json.JSONObject;
 
 /**
  * Video-style probability engine. It uses only broker-supplied OHLC history
- * and validated live Market-QX quote events. No synthetic candles or legacy
- * EMA/RSI/MACD indicators are used.
+ * and validated live Market-QX quote events. Fast opposing quote pressure is
+ * checked at entry time without waiting for another chart candle. No synthetic
+ * candles or legacy EMA/RSI/MACD indicators are used.
  */
 public final class SignalEngine {
     private static final int MAX_CANDLES = 900, MAX_TICKS = 900;
