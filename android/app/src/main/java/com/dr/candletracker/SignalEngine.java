@@ -283,12 +283,26 @@ public final class SignalEngine {
             highestBeforeLast = Math.max(highestBeforeLast, c.high);
             lowestBeforeLast = Math.min(lowestBeforeLast, c.low);
         }
-        // A pullback must be a modest retracement, not a collapse through the
-        // nearby swing boundary. This is evaluated immediately from closed bars.
+        // Measure retracement against the impulse boundary BEFORE the pullback.
+        // Comparing a subset with the min/max of the whole prior window was
+        // mathematically ineffective (the subset is always inside that range).
+        // This rejects both negligible noise and deep breaks of the impulse.
+        double impulseHigh = Double.NEGATIVE_INFINITY;
+        double impulseLow = Double.POSITIVE_INFINITY;
+        for (int i = 0; i < pullbackStart; i++) {
+            impulseHigh = Math.max(impulseHigh, stream.get(i).high);
+            impulseLow = Math.min(impulseLow, stream.get(i).low);
+        }
+        double bullishRetracement = impulseHigh - recentPullbackLow;
+        double bearishRetracement = recentPullbackHigh - impulseLow;
         bullishPullback = bullishPullback && Double.isFinite(recentPullbackLow) &&
-            recentPullbackLow >= lowestBeforeLast - atr * 0.35;
+            Double.isFinite(impulseHigh) && Double.isFinite(impulseLow) &&
+            bullishRetracement >= atr * 0.12 && bullishRetracement <= atr * 1.60 &&
+            recentPullbackLow >= impulseLow - atr * 0.15;
         bearishPullback = bearishPullback && Double.isFinite(recentPullbackHigh) &&
-            recentPullbackHigh <= highestBeforeLast + atr * 0.35;
+            Double.isFinite(impulseHigh) && Double.isFinite(impulseLow) &&
+            bearishRetracement >= atr * 0.12 && bearishRetracement <= atr * 1.60 &&
+            recentPullbackHigh <= impulseHigh + atr * 0.15;
 
         double lastRange = safeRange(last);
         double lastBody = Math.abs(last.close - last.open);
