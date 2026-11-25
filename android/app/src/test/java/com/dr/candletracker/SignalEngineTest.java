@@ -280,4 +280,19 @@ public class SignalEngineTest {
             "WAIT".equals(e.getSignal()) || e.getReason().contains("STRUCTURE BREAK / REVERSAL"));
     }
 
+    @Test public void liveScanCanRefreshEveryTenSecondsInsideSixtySecondChartCandle() throws Exception {
+        SignalEngine e = new SignalEngine();
+        e.acceptHistory("EURUSD_otc",60,history(bullishPullbackSetup()));
+        e.acceptTick("EURUSD_otc",1.1012,T+480000,60);
+        assertEquals("CALL",e.getSignal());
+        assertEquals(1,e.getSignalCount());
+
+        // Ten seconds later, the same 60s chart candle is still forming.
+        // The 10s signal engine must be allowed to evaluate a fresh entry slot.
+        e.acceptTick("EURUSD_otc",1.1018,T+490000,60);
+        assertEquals("CALL",e.getSignal());
+        assertEquals(2,e.getSignalCount());
+        assertEquals(1,e.getWins());
+    }
+
 }
