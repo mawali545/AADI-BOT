@@ -110,6 +110,23 @@ public class SignalEngineTest {
         assertTrue(e.getReason().contains("not a measured win probability"));
     }
 
+    @Test public void oldUnrelatedPullbackDoesNotQualifyFreshContinuation() throws Exception {
+        SignalEngine e = new SignalEngine();
+        double[][] bars = new double[][] {
+            {1.1000,1.0998,1.1001,1.0997},
+            {1.0998,1.1001,1.1002,1.0997},
+            {1.1001,1.1004,1.1005,1.1000},
+            {1.1004,1.1007,1.1008,1.1003},
+            {1.1007,1.1010,1.1011,1.1006},
+            {1.1010,1.1013,1.1014,1.1009},
+            {1.1013,1.1016,1.1017,1.1012},
+            {1.1016,1.1019,1.1020,1.1015}
+        };
+        e.acceptHistory("EURUSD_otc",60,history(bars));
+        e.acceptTick("EURUSD_otc",1.1019,T+480000,60);
+        assertEquals("WAIT",e.getSignal());
+    }
+
     @Test public void straightExtendedGreenRunDoesNotChaseWithCall() throws Exception {
         SignalEngine e = new SignalEngine();
         double[][] bars = new double[10][4];
