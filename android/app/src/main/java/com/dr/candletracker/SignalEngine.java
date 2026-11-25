@@ -358,6 +358,16 @@ public final class SignalEngine {
             (bullishStructure || bullishPullback || alignedUp) && !overextendedUp;
         boolean putContinuation = bearishConfirmation &&
             (bearishStructure || bearishPullback || alignedDown) && !overextendedDown;
+
+        // A continuation must not fight a clear majority of the completed-candle
+        // evidence. This is an immediate decision guard, not an extra candle/timer:
+        // it preserves the existing first-live-tick scan timing and 10s settlement.
+        // Do not use the numeric setup score as a probability or a hard threshold.
+        if (bearishVotes >= 2) callContinuation = false;
+        if (bullishVotes >= 2) putContinuation = false;
+
+        // Reversal patterns remain separately eligible: a confirmed level rejection
+        // or decisive structure break is allowed to turn against the prior trend.
         boolean callReversal = (bullishBreak && alignedUp && !overextendedUp) ||
             bullishRejection;
         boolean putReversal = (bearishBreak && alignedDown && !overextendedDown) ||
