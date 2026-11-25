@@ -370,10 +370,10 @@ public final class SignalEngine {
 
         // A fresh confirming candle plus ANY one meaningful context signal
         // (structure, pullback, or aligned OHLC pressure) can qualify.
-        boolean callContinuation = bullishConfirmation &&
-            (bullishStructure || bullishPullback || alignedUp) && !overextendedUp;
-        boolean putContinuation = bearishConfirmation &&
-            (bearishStructure || bearishPullback || alignedDown) && !overextendedDown;
+        boolean callContinuation = bullishConfirmation && bullishPullback &&
+            (bullishStructure || alignedUp) && !overextendedUp;
+        boolean putContinuation = bearishConfirmation && bearishPullback &&
+            (bearishStructure || alignedDown) && !overextendedDown;
 
         // A continuation must not fight a clear majority of the completed-candle
         // evidence. This is an immediate decision guard, not an extra candle/timer:
