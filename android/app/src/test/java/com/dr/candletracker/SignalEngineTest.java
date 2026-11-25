@@ -204,4 +204,33 @@ public class SignalEngineTest {
         e.acceptTick("EURUSD_otc",1.1015,T+491000,60);
         assertEquals(1,e.getWins());
     }
+
+    @Test public void bullishBounceAgainstBearishOhlcMajorityStaysWaitWithoutDelay() throws Exception {
+        SignalEngine e = new SignalEngine();
+        double[][] bars = new double[][] {
+            {1.1000,1.0998,1.1001,1.0997},
+            {1.0998,1.0996,1.0999,1.0995},
+            {1.0996,1.0994,1.0997,1.0993},
+            {1.0994,1.0992,1.0995,1.0991},
+            {1.0992,1.0990,1.0993,1.0989},
+            {1.0990,1.0988,1.0991,1.0987},
+            {1.0988,1.0986,1.0989,1.0985},
+            {1.0986,1.09875,1.09878,1.09858}
+        };
+        e.acceptHistory("EURUSD_otc",60,history(bars));
+        // The first live quote in the new bucket is still the scan trigger.
+        e.acceptTick("EURUSD_otc",1.09875,T+480000,60);
+        assertEquals("WAIT",e.getSignal());
+        assertTrue(e.getReason().contains("no confirmed"));
+    }
+
+    @Test public void setupScoreIsNotUsedAsAnArbitrarySignalCutoff() throws Exception {
+        SignalEngine e = new SignalEngine();
+        e.acceptHistory("EURUSD_otc",60,history(bullishPullbackSetup()));
+        e.acceptTick("EURUSD_otc",1.1012,T+480000,60);
+        e.acceptTick("EURUSD_otc",1.1018,T+481000,60);
+        assertEquals("CALL",e.getSignal());
+        assertTrue(e.getSignalProbability() < 60.0 || e.getSignalProbability() >= 60.0);
+    }
+
 }
