@@ -431,9 +431,13 @@ public final class SignalEngine {
         // Reject only when both price displacement and recent tick pressure
         // strongly oppose the broker-candle setup.
         double liveFlow = tickFlow(symbol);
-        if (liveAgainst < -atr * 0.25 && liveFlow * expected <= -0.45)
+        // Fast anti-fake-entry check: do not wait for another chart candle.
+        // When the latest genuine QX quote tape is already moving against the
+        // proposed side, suppress the entry immediately instead of following
+        // a stale completed-candle pattern into a 10s expiry.
+        if (liveAgainst < -atr * 0.08 && liveFlow * expected <= -0.25)
             return new Scan("WAIT", 0,
-                "WAIT · live QX price displacement and recent tick pressure oppose the setup.");
+                "WAIT · recent genuine QX tick pressure opposes this entry; rescan on next 10s slot.");
 
         double structureScore = ("CALL".equals(result) ?
             (bullishStructure ? 1.0 : 0.75) : (bearishStructure ? 1.0 : 0.75));
