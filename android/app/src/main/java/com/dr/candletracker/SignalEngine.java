@@ -259,12 +259,22 @@ public final class SignalEngine {
         int greenRun = 0, redRun = 0, maxGreenRun = 0, maxRedRun = 0;
         double highestBeforeLast = Double.NEGATIVE_INFINITY;
         double lowestBeforeLast = Double.POSITIVE_INFINITY;
+        // Pullback evidence must be recent (within the four candles immediately
+        // preceding the confirmation candle). An unrelated red/green candle
+        // many bars ago must not qualify a fresh continuation.
+        int pullbackStart = Math.max(1, length - 5);
+        double recentPullbackHigh = Double.NEGATIVE_INFINITY;
+        double recentPullbackLow = Double.POSITIVE_INFINITY;
         for (int i = 0; i < length - 1; i++) {
             Candle c = stream.get(i);
-            if (c.close < c.open || (i > 0 &&
-                c.low < stream.get(i - 1).close - atr * 0.22)) bullishPullback = true;
-            if (c.close > c.open || (i > 0 &&
-                c.high > stream.get(i - 1).close + atr * 0.22)) bearishPullback = true;
+            if (i >= pullbackStart) {
+                recentPullbackHigh = Math.max(recentPullbackHigh, c.high);
+                recentPullbackLow = Math.min(recentPullbackLow, c.low);
+                if (c.close < c.open || (i > 0 &&
+                    c.low < stream.get(i - 1).low - atr * 0.08)) bullishPullback = true;
+                if (c.close > c.open || (i > 0 &&
+                    c.high > stream.get(i - 1).high + atr * 0.08)) bearishPullback = true;
+            }
             if (c.close > c.open) { greenRun++; redRun = 0; }
             else if (c.close < c.open) { redRun++; greenRun = 0; }
             else { greenRun = 0; redRun = 0; }
@@ -273,6 +283,12 @@ public final class SignalEngine {
             highestBeforeLast = Math.max(highestBeforeLast, c.high);
             lowestBeforeLast = Math.min(lowestBeforeLast, c.low);
         }
+        // A pullback must be a modest retracement, not a collapse through the
+        // nearby swing boundary. This is evaluated immediately from closed bars.
+        bullishPullback = bullishPullback && Double.isFinite(recentPullbackLow) &&
+            recentPullbackLow >= lowestBeforeLast - atr * 0.35;
+        bearishPullback = bearishPullback && Double.isFinite(recentPullbackHigh) &&
+            recentPullbackHigh <= highestBeforeLast + atr * 0.35;
 
         double lastRange = safeRange(last);
         double lastBody = Math.abs(last.close - last.open);
@@ -381,7 +397,14 @@ public final class SignalEngine {
             return new Scan("WAIT", 0, why + " · bull " + bullishBars + " / bear " + bearishBars + ".");
         }
 
-        String result = (callContinuation || callReversal) ? "CALL" : "PUT";
+        // If both directions qualify (usually a noisy/ambiguous structure),
+        // do not silently prefer CALL. Resolve the conflict on this same scan.
+        boolean callEligible = callContinuation || callReversal;
+        boolean putEligible = putContinuation || putReversal;
+        if (callEligible && putEligible)
+            return new Scan("WAIT", 0,
+                "WAIT · conflicting bullish and bearish setups on the same completed-candle window.");
+        String result = callEligible ? "CALL" : "PUT";
         int expected = "CALL".equals(result) ? 1 : -1;
         // The current quote is only a confirmation check, never a candle source.
         double liveAgainst = (livePrice - last.close) * expected;
@@ -389,9 +412,9 @@ public final class SignalEngine {
         // Reject only when both price displacement and recent tick pressure
         // strongly oppose the broker-candle setup.
         double liveFlow = tickFlow(symbol);
-        if (liveAgainst < -atr * 0.85 && liveFlow * expected <= -0.70)
+        if (liveAgainst < -atr * 0.25 && liveFlow * expected <= -0.45)
             return new Scan("WAIT", 0,
-                "WAIT · completed-candle setup and live QX tick-flow both oppose entry.");
+                "WAIT · live QX price displacement and recent tick pressure oppose the setup.");
 
         double structureScore = ("CALL".equals(result) ?
             (bullishStructure ? 1.0 : 0.75) : (bearishStructure ? 1.0 : 0.75));
