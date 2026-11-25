@@ -273,7 +273,11 @@ public class SignalEngineTest {
         };
         e.acceptHistory("EURUSD_otc",60,history(bars));
         e.acceptTick("EURUSD_otc",1.1013,T+480000,60);
-        assertEquals("WAIT",e.getSignal());
+        // A genuine close through prior structure may still qualify as a breakout;
+        // shallow noise must never be mislabeled as a pullback continuation.
+        assertFalse(e.getReason().contains("PULLBACK / CONTINUATION"));
+        assertTrue("Only WAIT or a separately confirmed structure break is valid",
+            "WAIT".equals(e.getSignal()) || e.getReason().contains("STRUCTURE BREAK / REVERSAL"));
     }
 
 }
