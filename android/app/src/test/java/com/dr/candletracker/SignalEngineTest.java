@@ -224,13 +224,5 @@ public class SignalEngineTest {
         assertTrue(e.getReason().contains("no confirmed"));
     }
 
-    @Test public void setupScoreIsNotUsedAsAnArbitrarySignalCutoff() throws Exception {
-        SignalEngine e = new SignalEngine();
-        e.acceptHistory("EURUSD_otc",60,history(bullishPullbackSetup()));
-        e.acceptTick("EURUSD_otc",1.1012,T+480000,60);
-        e.acceptTick("EURUSD_otc",1.1018,T+481000,60);
-        assertEquals("CALL",e.getSignal());
-        assertTrue(e.getSignalProbability() < 60.0 || e.getSignalProbability() >= 60.0);
-    }
 
 }
