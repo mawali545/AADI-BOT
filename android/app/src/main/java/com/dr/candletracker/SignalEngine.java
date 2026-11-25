@@ -70,8 +70,13 @@ public final class SignalEngine {
         tape.add(new Tick(symbol, price, timestamp, brokerDirection));
         if (tape.size() > MAX_TICKS) tape.remove(0);
 
+        // Signal cadence is independent of the chart timeframe. QX may display
+        // 60s candles while this tracker settles trades after 10s; using the
+        // chart bucket here accidentally limited the engine to one entry/minute.
+        // Re-evaluate the latest closed-candle context once per 10s decision slot.
+        long decisionSlot = timestamp / 10_000L;
         Long issued = issuedBucketByAsset.get(symbol);
-        if (issued == null || issued.longValue() != bucket) {
+        if (issued == null || issued.longValue() != decisionSlot) {
             Scan scan = scan(symbol, bucket, price);
             signal = scan.signal;
             signalProbability = scan.probability;
@@ -79,7 +84,7 @@ public final class SignalEngine {
             if (!"WAIT".equals(scan.signal)) {
                 signalCount++;
                 pendingResults.add(new Pending(symbol, scan.signal, price, timestamp + 10_000L));
-                issuedBucketByAsset.put(symbol, bucket);
+                issuedBucketByAsset.put(symbol, decisionSlot);
             } else {
                 signalCount = 0;
             }
