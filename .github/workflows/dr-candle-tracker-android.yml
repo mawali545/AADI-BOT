@@ -15,6 +15,7 @@ on:
       - dr-candle-tracker-build242-live-tick-order
       - dr-candle-tracker-build244-closed-candle-entry
       - dr-candle-tracker-build254-directional-guard
+      - dr-candle-tracker-build255-multi-factor-engine
   pull_request:
     branches:
       - dr-candle-tracker-build207-secure-fix
