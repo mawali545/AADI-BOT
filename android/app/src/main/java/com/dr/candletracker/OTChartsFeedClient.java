@@ -105,7 +105,7 @@ public final class OTChartsFeedClient {
     private void dispatch(String event, String json) throws Exception {
         if (json == null || json.isEmpty()) return;
         JSONObject o = new JSONObject(json);
-        if ("connected".equals(event)) listener.onStatus("OTCharts live stream subscribed");
+        if ("connected".equals(event)) { listener.onClosed(false); listener.onStatus("OTCharts live stream subscribed"); }
         else if ("closed".equals(event)) {
             listener.onClosed(true); listener.onStatus("OTCharts: instrument is CLOSED for trading");
         } else if ("tick".equals(event)) {
