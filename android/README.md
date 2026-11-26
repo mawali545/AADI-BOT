@@ -1,25 +1,18 @@
-# DR CANDLE TRACKER — Android 1.0.4
+# AADI OTCharts QX Signal — Build 259
 
-## Main screen
-- Compact old-AADI-style layout only: LIVE TICKER, WAIT / CALL / PUT, then WINS / LOSSES.
-- The rest of the screen remains the original Market-QX trade page/chart.
-- No bubble, mini-card, large technical dashboard, or old AADI signal engine/indicators.
-- Overlay has pointer events disabled so it does not intercept website controls.
+## Market data source
+- OTCharts is the only market-data source used by the Android signal screen.
+- Venue is fixed to `quotex`; the instrument is entered using the exact OTCharts symbol, e.g. `EURUSD_otc`.
+- The app loads 5-second candle history once, then holds the OTCharts Server-Sent Events live stream.
+- It does not read the Quotex WebSocket, use a Quotex SSID/login, or fall back to another provider.
+- The OTCharts API key is entered at runtime and is not embedded in the APK or committed to Git.
+- Manual trading only. No orders are placed.
 
-## Background engine
-- Native Java SignalEngine builds 10-second OHLC candles from validated received ticks.
-- It evaluates candle momentum, body pressure, wick rejection, recent structure, support/resistance liquidity sweeps, pullback recovery, live tick direction, and sideways/chop conditions.
-- It emits CALL / PUT / WAIT; no probability percentages are shown.
-- A signal is settled only against the actual received target candle. Missing target data is not counted as a win or loss.
-- Manual trading only; no orders are placed automatically. No sample/demo/synthetic market ticks or candles are generated.
-- The reference video does not disclose the exact hidden formula or weights. The native rules are an explicit approximation, not claimed source-code reproduction.
+## Plan requirements
+OTCharts free keys allow limited candle requests but do not include live streaming. A live-enabled OTCharts plan is required for continuous CALL/PUT signal operation. If the API key, venue, symbol, quota, or plan is rejected, the app displays the reason and does not use another feed.
 
-## QX data integrity and cryptography
-- The WebView observer reads recognized JSON text frames from the existing signed-in Market-QX page WebSocket. Unknown binary/compressed/encrypted formats are not guessed into prices.
-- Each recognized source frame receives a SHA-256 fingerprint of the observed WebSocket text frame; its source timestamp and byte length travel through the secure bridge.
-- RSA-OAEP-2048 / SHA-256 and AES-256-GCM protect the WebView-to-Android bridge. TLS errors fail closed and the native listener is restricted to the Market-QX HTTPS origin and main frame.
-- Important: this local bridge encryption is not Market-QX's proprietary server-side encryption and does not prove QX encrypted frames have been decrypted. The frame fingerprint is an observed-frame hash, not a QX-issued signature. A QX-specific decoder requires actual original protocol frames and a verifiable protocol specification.
+## Signal engine
+The existing native SignalEngine is retained. It consumes OTCharts 5-second history and real-time ticks, and evaluates 10-second decision/settlement slots. Signal quality and timing still require on-device forward testing against the Quotex screen. A successful APK build does not prove profitability or accuracy.
 
-## Verification
-- CI checks JavaScript syntax, runs JVM unit tests, and assembles the Android debug APK.
-- Physical Android 10/Vivo launch, authenticated QX live feed, event/asset mapping, reconnect stability, native control visibility, and real candle settlement still require on-device verification.
+## Build
+GitHub Actions validates the Android JavaScript asset, runs JVM unit tests, assembles the debug APK, and uploads the APK and Android source ZIP.
