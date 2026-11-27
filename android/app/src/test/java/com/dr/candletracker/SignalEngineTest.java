@@ -143,9 +143,9 @@ public class SignalEngineTest {
         SignalEngine e = new SignalEngine();
         // Only three genuine completed 10-second candles are supplied.
         String json = "["
-            + "{\\"time\\":" + T + ",\\"open\\":1.1000,\\"close\\":1.1002,\\"high\\":1.1003,\\"low\\":1.0999},"
-            + "{\\"time\\":" + (T + 10000L) + ",\\"open\\":1.1002,\\"close\\":1.1004,\\"high\\":1.1005,\\"low\\":1.1001},"
-            + "{\\"time\\":" + (T + 20000L) + ",\\"open\\":1.1004,\\"close\\":1.1007,\\"high\\":1.1008,\\"low\\":1.1003}]";
+            + "{\"time\":" + T + ",\"open\":1.1000,\"close\":1.1002,\"high\":1.1003,\"low\":1.0999},"
+            + "{\"time\":" + (T + 10000L) + ",\"open\":1.1002,\"close\":1.1004,\"high\":1.1005,\"low\":1.1001},"
+            + "{\"time\":" + (T + 20000L) + ",\"open\":1.1004,\"close\":1.1007,\"high\":1.1008,\"low\":1.1003}]";
         e.acceptHistory("EURUSD_otc",10,new JSONArray(json));
         e.acceptTick("EURUSD_otc",1.1007,T+180000,10);
         e.acceptTick("EURUSD_otc",1.1008,T+181000,10);
