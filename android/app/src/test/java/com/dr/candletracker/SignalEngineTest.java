@@ -35,15 +35,24 @@ public class SignalEngineTest {
     }
 
     private double[][] bullishPullbackSetup() {
+        // Fifteen completed 10-second candles: rising structure, a visible
+        // three-candle pullback, then a fresh bullish continuation.
         return new double[][] {
             {1.1000,1.1002,1.1003,1.0999},
             {1.1002,1.1004,1.1005,1.1001},
-            {1.1004,1.1006,1.1007,1.1003},
-            {1.1006,1.1005,1.1008,1.1004},
-            {1.1005,1.1007,1.1008,1.1004},
-            {1.1007,1.10065,1.1009,1.1006},
-            {1.10065,1.1009,1.1010,1.1006},
-            {1.1009,1.1012,1.1013,1.1008}
+            {1.1004,1.10035,1.1006,1.1003},
+            {1.10035,1.10055,1.10065,1.1003},
+            {1.10055,1.10075,1.10085,1.1005},
+            {1.10075,1.10070,1.1009,1.10065},
+            {1.10070,1.1009,1.1010,1.10065},
+            {1.1009,1.10075,1.1010,1.1007},
+            {1.10075,1.1006,1.1008,1.10055},
+            {1.1006,1.10065,1.10075,1.10055},
+            {1.10065,1.10085,1.10095,1.1006},
+            {1.10085,1.1008,1.1010,1.1007},
+            {1.1008,1.1010,1.1011,1.10075},
+            {1.1010,1.1012,1.1013,1.10095},
+            {1.1012,1.1015,1.10155,1.10115}
         };
     }
 
@@ -150,7 +159,7 @@ public class SignalEngineTest {
         e.acceptTick("EURUSD_otc",1.1012,T+480000,60);
         e.acceptTick("EURUSD_otc",1.1018,T+481000,10);
         e.acceptTick("EURUSD_otc",1.1019,T+482000,10);
-        assertEquals("CALL",e.getSignal());
+        assertEquals("Expected CALL; reason=" + e.getReason(), "CALL",e.getSignal());
         assertTrue(e.getReason().contains("PULLBACK / CONTINUATION") || e.getReason().contains("STRUCTURE BREAK / REVERSAL"));
     }
 
@@ -160,7 +169,7 @@ public class SignalEngineTest {
         e.acceptTick("EURUSD_otc",1.1012,T+480000,60);
         e.acceptTick("EURUSD_otc",1.1018,T+481000,60);
         e.acceptTick("EURUSD_otc",1.1019,T+482000,60);
-        assertEquals("CALL",e.getSignal());
+        assertEquals("Expected CALL; reason=" + e.getReason(), "CALL",e.getSignal());
         assertEquals(0.0,e.getSignalProbability(),0.0);
         assertTrue(e.getReason().contains("rule conditions confirmed"));
         assertTrue(e.getReason().contains("no weighted score/probability"));
@@ -248,7 +257,7 @@ public class SignalEngineTest {
         SignalEngine e = new SignalEngine();
         e.acceptHistory("EURUSD_otc",10,history(bullishPullbackSetup()));
         e.acceptTick("EURUSD_otc",1.1012,T+420000,60);
-        assertEquals(8,e.getAssetCandleCount());
+        assertEquals(15,e.getAssetCandleCount());
         assertEquals(8,e.getHistogramBars().length());
     }
 
@@ -299,7 +308,7 @@ public class SignalEngineTest {
         e.acceptTick("EURUSD_otc",1.1012,T+480000,10);
         e.acceptTick("EURUSD_otc",1.1018,T+481000,10);
         e.acceptTick("EURUSD_otc",1.1019,T+482000,10);
-        assertEquals("CALL",e.getSignal());
+        assertEquals("Expected CALL; reason=" + e.getReason(), "CALL",e.getSignal());
 
         // No second signal while the first 10-second contract is unresolved.
         e.acceptTick("EURUSD_otc",1.1017,T+483000,10);
@@ -318,7 +327,7 @@ public class SignalEngineTest {
         e.acceptTick("EURUSD_otc",1.1012,T+480000,10);
         e.acceptTick("EURUSD_otc",1.1018,T+481000,10);
         e.acceptTick("EURUSD_otc",1.1019,T+482000,10);
-        assertEquals("CALL",e.getSignal());
+        assertEquals("Expected CALL; reason=" + e.getReason(), "CALL",e.getSignal());
         e.acceptTick("EURUSD_otc",1.1013,T+491999,10);
         assertEquals(0,e.getWins());
         assertEquals(0,e.getLosses());
