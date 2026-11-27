@@ -106,7 +106,7 @@ public class SignalEngineTest {
         assertEquals("CALL",e.getSignal());
         assertTrue(e.getSignalProbability() >= 45.0);
         assertTrue(e.getSignalProbability() <= 85.0);
-        assertTrue(e.getReason().contains("setup score"));
+        assertTrue(e.getReason().contains("directional evidence"));
         assertTrue(e.getReason().contains("not a measured win probability"));
     }
 
@@ -188,6 +188,18 @@ public class SignalEngineTest {
         e.acceptTick("EURUSD_otc",1.1012,T+420000,60);
         assertEquals(7,e.getAssetCandleCount());
         assertEquals(7,e.getHistogramBars().length());
+    }
+
+
+    @Test public void createsHonestTickBarsWhenBrokerHistoryIsUnavailable() {
+        SignalEngine e = new SignalEngine();
+        for (int i = 0; i < 9; i++) {
+            double price = 1.1000 + i * 0.0001;
+            e.acceptTick("EURUSD_otc", price, T + i * 1000L, 60);
+        }
+        assertTrue(e.getAssetCandleCount() >= 3);
+        assertTrue(e.getHistogramBars().length() >= 3);
+        assertEquals(1, e.getCandleCount()); // only one 60-second forming tick candle
     }
 
     @Test public void tenSecondSettlementUsesFirstRealTickAtOrAfterExpiry() throws Exception {
