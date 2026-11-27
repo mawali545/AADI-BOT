@@ -285,7 +285,7 @@ public class SignalEngineTest {
         e.acceptTick("EURUSD_otc",1.1013,T+491999,10);
         assertEquals(0,e.getWins());
         assertEquals(0,e.getLosses());
-        e.acceptTick("EURUSD_otc",1.1019,T+492000,10);
+        e.acceptTick("EURUSD_otc",1.1020,T+492000,10);
         assertEquals(1,e.getWins());
         e.acceptTick("EURUSD_otc",1.1015,T+493000,10);
         assertEquals(1,e.getWins());
