@@ -545,11 +545,11 @@ public final class SignalEngine {
                 0.02*tickContext.velocityAcceleration;
             weightTotal += 0.10;
         }
-        weighted += 0.09*histogram + 0.07*vector + 0.07*displacement +
-            0.07*slopeMomentum +
+        weighted += 0.10*histogram + 0.08*vector + 0.08*displacement +
+            0.08*slopeMomentum +
             0.07*(bullishStructure ? 1.0 : bearishStructure ? -1.0 : 0.0) +
             0.05*(binary.bullishPattern ? 1.0 : binary.bearishPattern ? -1.0 : 0.0);
-        weightTotal += 0.42;
+        weightTotal += 0.46;
         if (micro.samples >= 2) { weighted += 0.07*micro.directionalPressure; weightTotal += 0.07; }
         if (length >= 4) { weighted += 0.02*awareness.bias; weightTotal += 0.02; }
         double evidence = weightTotal <= 0 ? 0.0 : clamp(weighted/weightTotal, -1.0, 1.0);
@@ -868,7 +868,7 @@ public final class SignalEngine {
             " · velocity acceleration " + signed(out.velocityAcceleration) +
             " · velocity samples " + out.velocitySamples +
             " · configured weights pressure=12/8/6/3/2%, acceleration=4%, velocity=10%" +
-            " · OHLC=9/7/7/7%, structure/pattern=7/5%, micro/regime=7/2%" + " · n=" + n;
+            " · OHLC=10/8/8/8%, structure/pattern=7/5%, micro/regime=7/2%" + " · n=" + n;
         return out;
     }
 
