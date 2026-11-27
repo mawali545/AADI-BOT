@@ -61,7 +61,7 @@ public final class SignalEngine {
         acceptTick(symbol, price, timestamp, periodSeconds, null);
     }
 
-    /** Consume the broker's optional -1/0/+1 tick-direction field without inventing volume. */
+    /** Retain broker direction as protocol metadata only; all directional math uses price deltas. */
     public synchronized void acceptTick(String symbol, double price, long timestamp,
             long periodSeconds, Integer brokerDirection) {
         if (symbol == null || !symbol.matches("[A-Za-z0-9_./-]{3,32}") ||
@@ -90,7 +90,7 @@ public final class SignalEngine {
         current.update(price);
         lastTimestamp = timestamp;
         lastPrice = price;
-        tape.add(new Tick(symbol, price, timestamp, brokerDirection));
+        tape.add(new Tick(symbol, price, timestamp));
         if (tape.size() > MAX_TICKS) tape.remove(0);
 
         Long issued = issuedBucketByAsset.get(symbol);
@@ -832,19 +832,18 @@ public final class SignalEngine {
     public synchronized double getHistogram() { return lastHistogram; }
     public synchronized double getVector() { return lastVector; }
     public synchronized double getDisplacement() { return lastDisplacement; }
-    private synchronized int countBrokerDirections(int wanted) {
-        int count = 0, seen = 0;
-        for (int i = tape.size() - 1; i >= 0 && seen < 12; i--) {
-            Tick tick = tape.get(i);
-            if (!tick.asset.equals(asset) || tick.brokerDirection == null) continue;
-            seen++;
-            if (tick.brokerDirection.intValue() == wanted) count++;
-        }
+    private synchronized int countPriceDirections(int wanted) {
+        List<Tick> recent = new ArrayList<>();
+        for (int i=tape.size()-1; i>=0 && recent.size()<13; i--)
+            if (tape.get(i).asset.equals(asset)) recent.add(0,tape.get(i));
+        int count=0;
+        for(int i=1;i<recent.size();i++)
+            if(direction(recent.get(i).price-recent.get(i-1).price)==wanted)count++;
         return count;
     }
-    public synchronized int getDirectionalUpTicks() { return countBrokerDirections(1); }
-    public synchronized int getDirectionalDownTicks() { return countBrokerDirections(-1); }
-    public synchronized int getDirectionalNeutralTicks() { return countBrokerDirections(0); }
+    public synchronized int getDirectionalUpTicks() { return countPriceDirections(1); }
+    public synchronized int getDirectionalDownTicks() { return countPriceDirections(-1); }
+    public synchronized int getDirectionalNeutralTicks() { return countPriceDirections(0); }
     public synchronized int getBrokerDirectionTickCount() {
         return getDirectionalUpTicks() + getDirectionalDownTicks() + getDirectionalNeutralTicks();
     }
@@ -903,11 +902,8 @@ public final class SignalEngine {
         void update(double p) { high = Math.max(high, p); low = Math.min(low, p); close = p; }
     }
     private static final class Tick {
-        final String asset; final double price; final long timestamp; final Integer brokerDirection;
-        Tick(String a, double p, long t, Integer d) {
-            asset = a; price = p; timestamp = t;
-            brokerDirection = d != null && d >= -1 && d <= 1 ? d : null;
-        }
+        final String asset; final double price; final long timestamp;
+        Tick(String a, double p, long t) { asset = a; price = p; timestamp = t; }
     }
     private static final class Pending {
         final String asset, signal; final double entry; final long expiresAt;
