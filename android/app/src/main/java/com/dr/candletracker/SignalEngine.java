@@ -576,6 +576,7 @@ public final class SignalEngine {
                 " · " + micro.summary);
 
         signalProbability = 0.0; // legacy field; not a probability or confidence score.
+        boolean rejectionSetup = bullishRejection || bearishRejection || resistanceReject || supportHold;
         String setup = (callReversal || putReversal) ?
             (rejectionSetup ? "LEVEL REJECTION / REVERSAL" :
                 ((bullishLiquiditySweep || bearishLiquiditySweep || supportHold || resistanceReject)
