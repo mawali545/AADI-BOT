@@ -839,7 +839,7 @@ public final class SignalEngine {
             double velocity = (b.price - a.price) / (elapsed / 1000.0);
             if (!Double.isFinite(velocity)) continue;
             velocities[velocityCount++] = velocity;
-            absoluteVelocities.add(Math.abs(velocity));
+            if (Math.abs(velocity) > 1e-15) absoluteVelocities.add(Math.abs(velocity));
         }
         double baseline = median(absoluteVelocities);
         if (baseline > 1e-15 && velocityCount > 0) {
