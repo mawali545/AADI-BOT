@@ -72,7 +72,7 @@ public final class SignalEngine {
 
         Long issued = issuedBucketByAsset.get(symbol);
         if (issued == null || issued.longValue() != bucket) {
-            Scan scan = scan(symbol, bucket, price);
+            Scan scan = scan(symbol, bucket, price, timestamp);
             signal = scan.signal;
             signalProbability = scan.probability;
             reason = scan.reason;
@@ -174,7 +174,7 @@ public final class SignalEngine {
      * close through the recent structure boundary. Extended moves, weak closes,
      * opposing live flow and choppy memory remain WAIT.
      */
-    private Scan scan(String symbol, long currentBucket, double livePrice) {
+    private Scan scan(String symbol, long currentBucket, double livePrice, long nowMillis) {
         // Entry decisions are based ONLY on closed broker candles.
         // The live/forming candle is deliberately excluded: its wick and body
         // can reverse before close, creating transient false CALL/PUT entries.
@@ -429,9 +429,20 @@ public final class SignalEngine {
         // Reject only when both price displacement and recent tick pressure
         // strongly oppose the broker-candle setup.
         double liveFlow = tickFlow(symbol);
+        // Binary expiry is fixed at 10 seconds. Inspect only genuine quote events
+        // from that same horizon; this adds computation, never a waiting delay.
+        MicroContext micro = analyzeTenSecondTape(symbol, nowMillis, livePrice, atr);
         if (liveAgainst < -atr * 0.85 && liveFlow * expected <= -0.70)
             return new Scan("WAIT", 0,
                 "WAIT · completed-candle setup and live QX tick-flow both oppose entry.");
+        // If the last ten seconds show a strong opposing impulse AND a reversal
+        // in tick acceleration, do not enter against the live microstructure.
+        if (micro.samples >= 6 && micro.directionalPressure * expected < -0.72 &&
+            micro.displacementAtr * expected < -0.10 &&
+            micro.acceleration * expected < -0.18)
+            return new Scan("WAIT", 0,
+                "WAIT · 10-second quote impulse/acceleration opposes " + result +
+                " · " + micro.summary);
 
         double structureScore = ("CALL".equals(result) ?
             (bullishStructure ? 1.0 : 0.75) : (bearishStructure ? 1.0 : 0.75));
@@ -463,6 +474,9 @@ public final class SignalEngine {
         // Context is a small capped confluence adjustment, not a fabricated
         // win-rate estimate. Weak or contradictory evidence never gets promoted.
         setupScore += Math.min(6.0, binary.confluenceBonus);
+        // Small corroboration only: ten-second tape cannot overrule price structure.
+        if (micro.samples >= 6 && micro.directionalPressure * expectedDirection > 0.55 &&
+            micro.displacementAtr * expectedDirection > 0.04) setupScore += 2.0;
         setupScore = clamp(setupScore, 45.0, 85.0);
         String setup = (callReversal || putReversal) ?
             (rejectionSetup ? "LEVEL REJECTION / REVERSAL" :
@@ -477,6 +491,7 @@ public final class SignalEngine {
             resistanceTouches + " · " + binary.summary +
             " · trend efficiency " + signed(binary.trendEfficiency) +
             " · volatility " + signed(binary.volatilityRatio) +
+            " · " + micro.summary +
             " · bull " + bullishBars + " / bear " + bearishBars);
     }
 
@@ -595,6 +610,67 @@ public final class SignalEngine {
         boolean bullishPattern, bearishPattern, bullishPinBar, bearishPinBar;
         boolean bullishBreakout, bearishBreakout, bullishFakeoutReclaim, bearishFakeoutReject;
         boolean blocksCallContinuation, blocksPutContinuation;
+    }
+
+    /**
+     * Ten-second binary-expiry tape context. Uses only genuine QX quote events:
+     * directional pressure, first/second-half acceleration, displacement and
+     * path efficiency. No volume, spread, order-book depth or synthetic ticks
+     * are fabricated when the broker feed does not provide them.
+     */
+    private MicroContext analyzeTenSecondTape(String symbol, long nowMillis,
+            double livePrice, double atr) {
+        List<Tick> window = new ArrayList<>();
+        for (int i = tape.size() - 1; i >= 0; i--) {
+            Tick tick = tape.get(i);
+            if (!tick.asset.equals(symbol)) continue;
+            if (nowMillis - tick.timestamp > 10_000L) break;
+            if (tick.timestamp <= nowMillis) window.add(0, tick);
+        }
+        MicroContext out = new MicroContext();
+        out.samples = window.size();
+        if (window.size() < 2) {
+            out.summary = "10s tape warming " + window.size() + " quotes";
+            return out;
+        }
+        int up = 0, down = 0;
+        double path = 0.0;
+        int split = Math.max(1, window.size() / 2);
+        int firstHalfUp = 0, firstHalfDown = 0, secondHalfUp = 0, secondHalfDown = 0;
+        for (int i = 1; i < window.size(); i++) {
+            Tick a = window.get(i - 1), b = window.get(i);
+            int d = b.brokerDirection != null ? b.brokerDirection.intValue()
+                : direction(b.price - a.price);
+            path += Math.abs(b.price - a.price);
+            if (d > 0) { up++; if (i < split) firstHalfUp++; else secondHalfUp++; }
+            else if (d < 0) { down++; if (i < split) firstHalfDown++; else secondHalfDown++; }
+        }
+        int directional = up + down;
+        out.directionalPressure = directional == 0 ? 0.0 :
+            clamp((double) (up - down) / directional, -1.0, 1.0);
+        Tick first = window.get(0);
+        Tick last = window.get(window.size() - 1);
+        double scale = Math.max(atr, Math.max(Math.abs(livePrice) * 1e-10, 1e-12));
+        out.displacementAtr = (last.price - first.price) / scale;
+        double firstPressure = firstHalfUp + firstHalfDown == 0 ? 0.0 :
+            (double) (firstHalfUp - firstHalfDown) / (firstHalfUp + firstHalfDown);
+        double secondPressure = secondHalfUp + secondHalfDown == 0 ? 0.0 :
+            (double) (secondHalfUp - secondHalfDown) / (secondHalfUp + secondHalfDown);
+        out.acceleration = secondPressure - firstPressure;
+        out.pathEfficiency = path <= 1e-12 ? 0.0 :
+            clamp((last.price - first.price) / path, -1.0, 1.0);
+        out.summary = "10s tape n=" + out.samples +
+            " · pressure " + signed(out.directionalPressure) +
+            " · impulse/ATR " + signed(out.displacementAtr) +
+            " · acceleration " + signed(out.acceleration) +
+            " · efficiency " + signed(out.pathEfficiency);
+        return out;
+    }
+
+    private static final class MicroContext {
+        int samples;
+        double directionalPressure, displacementAtr, acceleration, pathEfficiency;
+        String summary = "10s tape unavailable";
     }
 
     private int recentTickCount(String symbol) {
