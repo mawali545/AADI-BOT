@@ -538,10 +538,12 @@ public final class SignalEngine {
              binary.bullishFakeoutReclaim || binary.bearishFakeoutReject ||
              binary.bullishPinBar || binary.bearishPinBar);
         if (decisiveReversal) {
-            double triggerEvidence = expectedDirection * lastClosePosition;
-            double patternEvidence = "CALL".equals(result)
-                ? (binary.bullishPattern ? 1.0 : binary.bearishPattern ? -1.0 : 0.0)
-                : (binary.bearishPattern ? 1.0 : binary.bullishPattern ? -1.0 : 0.0);
+            // Evidence is stored on one fixed axis: positive = CALL,
+            // negative = PUT. Do not rotate the axis toward the candidate;
+            // doing so inverted every bearish reversal into bullish evidence.
+            double triggerEvidence = lastClosePosition;
+            double patternEvidence = binary.bullishPattern ? 1.0 :
+                binary.bearishPattern ? -1.0 : 0.0;
             double reversalEvidence = clamp(0.72 * triggerEvidence +
                 0.28 * patternEvidence, -1.0, 1.0);
             evidence = clamp(0.05 * evidence + 0.95 * reversalEvidence, -1.0, 1.0);
@@ -791,7 +793,12 @@ public final class SignalEngine {
         out.pressure300 = pressure(values, Math.max(0,n-300));
         out.pressure900 = pressure(values, Math.max(0,n-900));
         int split = Math.max(2, n/2);
-        out.acceleration = pressure(values, split, n) - pressure(values, 0, split);
+        // Do not infer acceleration from a single quote-to-quote move.
+        // With fewer than four samples, the two halves are too small to
+        // represent a meaningful change in directional pressure.
+        out.acceleration = n >= 4
+            ? pressure(values, split, n) - pressure(values, 0, split)
+            : 0.0;
         out.summary = "tick pressure 12/36/90/300/900=" +
             signed(out.pressure12) + "/" + signed(out.pressure36) + "/" +
             signed(out.pressure90) + "/" + signed(out.pressure300) + "/" +
