@@ -479,11 +479,12 @@ public final class SignalEngine {
         // Weighted, normalized evidence model. Configured weights total 100%;
         // unavailable horizons are omitted and remaining weights renormalized.
         double weighted = 0.0, weightTotal = 0.0;
-        if (tickContext.samples >= 12) { weighted += 0.16*tickContext.pressure12; weightTotal += 0.16; }
-        if (tickContext.samples >= 36) { weighted += 0.12*tickContext.pressure36; weightTotal += 0.12; }
-        if (tickContext.samples >= 90) { weighted += 0.08*tickContext.pressure90; weightTotal += 0.08; }
-        if (tickContext.samples >= 300) { weighted += 0.05*tickContext.pressure300; weightTotal += 0.05; }
+        if (tickContext.samples >= 12) { weighted += 0.15*tickContext.pressure12; weightTotal += 0.15; }
+        if (tickContext.samples >= 36) { weighted += 0.11*tickContext.pressure36; weightTotal += 0.11; }
+        if (tickContext.samples >= 90) { weighted += 0.07*tickContext.pressure90; weightTotal += 0.07; }
+        if (tickContext.samples >= 300) { weighted += 0.04*tickContext.pressure300; weightTotal += 0.04; }
         if (tickContext.samples >= 900) { weighted += 0.03*tickContext.pressure900; weightTotal += 0.03; }
+        if (tickContext.samples >= 24) { weighted += 0.04*tickContext.acceleration; weightTotal += 0.04; }
         weighted += 0.10*histogram + 0.08*vector + 0.08*displacement +
             0.08*slopeMomentum +
             0.08*(bullishStructure ? 1.0 : bearishStructure ? -1.0 : 0.0) +
@@ -731,19 +732,24 @@ public final class SignalEngine {
         out.pressure90 = pressure(values, Math.max(0,n-90));
         out.pressure300 = pressure(values, Math.max(0,n-300));
         out.pressure900 = pressure(values, Math.max(0,n-900));
-        int split = Math.max(1, n/2);
-        out.acceleration = pressure(values, split) - pressure(values, 0);
+        int split = Math.max(2, n/2);
+        out.acceleration = pressure(values, split, n) - pressure(values, 0, split);
         out.summary = "tick pressure 12/36/90/300/900=" +
             signed(out.pressure12) + "/" + signed(out.pressure36) + "/" +
             signed(out.pressure90) + "/" + signed(out.pressure300) + "/" +
             signed(out.pressure900) + " · acceleration " + signed(out.acceleration) +
-            " · weights 12/36/90/300/900=16/12/8/5/3%" + " · n=" + n;
+            " · tick weights 16/12/8/5/3%" +
+            " · OHLC weights histogram/vector/displacement/slope=10/8/8/8%" +
+            " · structure/pattern/micro/regime=8/6/5/3%" + " · n=" + n;
         return out;
     }
 
     private static double pressure(List<Tick> values, int start) {
+        return pressure(values, start, values.size());
+    }
+    private static double pressure(List<Tick> values, int start, int end) {
         int up=0, down=0;
-        for (int i=Math.max(1,start); i<values.size(); i++) {
+        for (int i=Math.max(1,start); i<Math.min(end,values.size()); i++) {
             Tick current=values.get(i), previous=values.get(i-1);
             int d=current.brokerDirection != null ? current.brokerDirection.intValue()
                 : direction(current.price-previous.price);
