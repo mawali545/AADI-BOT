@@ -231,7 +231,7 @@ public final class SignalEngine {
         // Entry decisions are based ONLY on closed broker candles.
         // The live/forming candle is deliberately excluded: its wick and body
         // can reverse before close, creating transient false CALL/PUT entries.
-        // Walk backward and retain the latest 12 completed candles only.
+        // Walk backward and retain the latest 15 completed candles: the full visual context for every entry.
         List<Candle> recentMemory = new ArrayList<>();
         int count = 0;
         for (int i = candles.size() - 1; i >= 0; i--) {
@@ -239,27 +239,26 @@ public final class SignalEngine {
             if (!c.asset.equals(symbol) || c.bucket >= currentBucket) continue;
             count++;
             recentMemory.add(0, c);
-            if (recentMemory.size() >= 12) break;
+            if (recentMemory.size() >= 15) break;
         }
         boolean tickDerivedBars = false;
         // Prefer the latest closed 1-second bars aggregated from real QX ticks
         // for a 10-second expiry, regardless of the chart's selected timeframe.
         // Genuine broker OHLC remains the fallback while the live tick window warms.
         List<Candle> microBars = buildTickBars(symbol, nowMillis, 10_000L);
-        if (microBars.size() >= 3) {
+        if (microBars.size() >= 15) {
             recentMemory.clear();
             recentMemory.addAll(microBars);
             count = recentMemory.size();
             tickDerivedBars = true;
         }
-        if (count < 3)
+        if (count < 15)
             return new Scan("WAIT", 0,
-                "10-SECOND MEMORY · collecting 3 completed 10s candles (" + count + "/3).");
+                "15-CANDLE VISUAL MEMORY · collecting 15 completed 10s candles (" + count + "/15); no shortened-memory signal.");
 
-        // Use a short adaptive memory: three completed broker/tick-derived bars are the minimum.
-        // The forming candle is excluded from structure decisions; current real
-        // QX ticks corroborate momentum, so the engine does not wait for 8-12 bars.
-        int completedWindow = Math.min(12, recentMemory.size());
+        // Every signal must inspect the same 15 completed candles. The live/forming
+        // candle is excluded from the visual read and is used only for tick-flow confirmation.
+        int completedWindow = 15;
         List<Candle> stream = new ArrayList<>(
             recentMemory.subList(recentMemory.size() - completedWindow, recentMemory.size()));
         int length = stream.size();
@@ -400,7 +399,7 @@ public final class SignalEngine {
             last.close > previous.close;
 
         // Full binary-price-action context, computed only from the already available
-        // completed OHLC window. This is bounded to 12 candles (O(12)); it adds no
+        // 15-candle completed OHLC window. This remains bounded (O(15)); it adds no
         // sleep, network request, or extra candle wait to the live signal cycle.
         BinaryContext binary = analyzeBinaryContext(stream, atr);
         double[] awarenessOpen = new double[length], awarenessHigh = new double[length];
@@ -807,7 +806,7 @@ public final class SignalEngine {
             else bar.update(tick.price);
         }
         List<Candle> result = new ArrayList<>(grouped.values());
-        if (result.size() > 12) return new ArrayList<>(result.subList(result.size()-12, result.size()));
+        if (result.size() > 15) return new ArrayList<>(result.subList(result.size()-15, result.size()));
         return result;
     }
 
