@@ -230,6 +230,7 @@ public final class SignalEngine {
             if (i > 0) totalPath += Math.abs(c.close - stream.get(i - 1).close);
         }
         atr /= length;
+        BinaryContext binaryContext = analyzeBinaryContext(stream, atr);
         histogram = clamp(histogram / totalWeight, -1, 1);
         double vector = clamp(0.62 * (vectorBody / totalWeight) +
             0.38 * (vectorClose / totalWeight), -1, 1);
@@ -466,6 +467,8 @@ public final class SignalEngine {
         // evidence is weak; confirmed level-rejection reversals use their own candle score.
         if (!rejectionSetup && agreement < 0.40)
             setupScore = Math.min(setupScore, 55.0 + agreement * 25.0);
+        // Binary-trading knowledge contributes bounded confluence, never a fake win probability.
+        setupScore += binaryContext.confluenceBonus(result);
         setupScore = clamp(setupScore, 45.0, 85.0);
         String setup = (callReversal || putReversal) ?
             (rejectionSetup ? "LEVEL REJECTION / REVERSAL" :
@@ -474,7 +477,89 @@ public final class SignalEngine {
             result + " · " + setup + " · setup score " + Math.round(setupScore) +
             "/100 (evidence score, not a measured win probability) · histogram " + signed(histogram) +
             " · vector " + signed(vector) + " · displacement " +
-            signed(displacement) + " · bull " + bullishBars + " / bear " + bearishBars);
+            signed(displacement) + " · " + binaryContext.summary(result) +
+            " · bull " + bullishBars + " / bear " + bearishBars);
+    }
+
+    /**
+     * Compact binary-options knowledge layer evaluated on the same completed
+     * OHLC window: candle anatomy, engulfing/rejection, local S/R, volatility
+     * regime and directional efficiency. It is deliberately O(n), bounded
+     * to the current 12-bar memory, and never waits for another candle.
+     */
+    private static BinaryContext analyzeBinaryContext(List<Candle> bars, double atr) {
+        int n = bars.size();
+        Candle last = bars.get(n - 1), prev = bars.get(n - 2);
+        double range = safeRange(last);
+        double body = Math.abs(last.close - last.open);
+        double upper = last.high - Math.max(last.open, last.close);
+        double lower = Math.min(last.open, last.close) - last.low;
+        double closePos = clamp((last.close - last.low) / range, 0, 1);
+        boolean bullEngulf = last.close > last.open && prev.close < prev.open &&
+            last.open <= prev.close && last.close >= prev.open;
+        boolean bearEngulf = last.close < last.open && prev.close > prev.open &&
+            last.open >= prev.close && last.close <= prev.open;
+        boolean bullPin = lower >= Math.max(body * 1.8, atr * 0.18) && closePos >= 0.62;
+        boolean bearPin = upper >= Math.max(body * 1.8, atr * 0.18) && closePos <= 0.38;
+
+        double support = Double.POSITIVE_INFINITY, resistance = Double.NEGATIVE_INFINITY;
+        double totalRange = 0, path = 0;
+        int bullish = 0, bearish = 0;
+        for (int i = 0; i < n; i++) {
+            Candle c = bars.get(i);
+            totalRange += safeRange(c);
+            if (c.close > c.open) bullish++;
+            else if (c.close < c.open) bearish++;
+            if (i < n - 1) {
+                support = Math.min(support, c.low);
+                resistance = Math.max(resistance, c.high);
+                path += Math.abs(bars.get(i + 1).close - c.close);
+            }
+        }
+        double supportDistance = Math.abs(last.low - support);
+        double resistanceDistance = Math.abs(resistance - last.high);
+        boolean nearSupport = supportDistance <= atr * 0.22;
+        boolean nearResistance = resistanceDistance <= atr * 0.22;
+        double efficiency = path <= 1e-12 ? 0 :
+            Math.abs(last.close - bars.get(0).close) / path;
+        double avgRange = totalRange / n;
+        boolean volatilityExpansion = range > avgRange * 1.35;
+        boolean compression = avgRange < Math.max(atr * 0.55, 1e-12);
+        return new BinaryContext(bullEngulf, bearEngulf, bullPin, bearPin,
+            nearSupport, nearResistance, volatilityExpansion, compression,
+            efficiency, bullish, bearish);
+    }
+
+    private static final class BinaryContext {
+        final boolean bullEngulf, bearEngulf, bullPin, bearPin;
+        final boolean nearSupport, nearResistance, volatilityExpansion, compression;
+        final double efficiency;
+        final int bullish, bearish;
+        BinaryContext(boolean be, boolean se, boolean bp, boolean sp,
+                boolean ns, boolean nr, boolean vx, boolean cp, double ef, int bu, int ba) {
+            bullEngulf=be; bearEngulf=se; bullPin=bp; bearPin=sp;
+            nearSupport=ns; nearResistance=nr; volatilityExpansion=vx;
+            compression=cp; efficiency=ef; bullish=bu; bearish=ba;
+        }
+        double confluenceBonus(String side) {
+            boolean call = "CALL".equals(side);
+            int bonus = call
+                ? (bullEngulf ? 2 : 0) + (bullPin && nearSupport ? 2 : 0)
+                : (bearEngulf ? 2 : 0) + (bearPin && nearResistance ? 2 : 0);
+            if (volatilityExpansion && efficiency >= 0.35) bonus += 1;
+            return Math.min(5, bonus);
+        }
+        String summary(String side) {
+            boolean call = "CALL".equals(side);
+            String pattern = call ? (bullEngulf ? "bull-engulf" : bullPin ? "bull-pin" : "no-bull-pattern")
+                : (bearEngulf ? "bear-engulf" : bearPin ? "bear-pin" : "no-bear-pattern");
+            String level = call ? (nearSupport ? "near-support" : "support-not-near")
+                : (nearResistance ? "near-resistance" : "resistance-not-near");
+            return "binary-context " + pattern + "/" + level +
+                (volatilityExpansion ? "/volatility-expansion" : "") +
+                (compression ? "/compression" : "") +
+                "/efficiency " + String.format(java.util.Locale.US, "%.2f", efficiency);
+        }
     }
 
     private double tickFlow(String symbol) {
