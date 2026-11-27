@@ -41,6 +41,15 @@ public class SignalEngineTest {
         assertEquals("WAIT", e.getSignal());
     }
 
+    @Test public void internalCandlesAreAlwaysTenSecondsRegardlessOfChartPeriodArgument() {
+        SignalEngine e = new SignalEngine();
+        e.acceptTick("EURUSD_otc",1.1000,T,60);
+        e.acceptTick("EURUSD_otc",1.1001,T+9999,60);
+        assertEquals(1,e.getCandleCount());
+        e.acceptTick("EURUSD_otc",1.1002,T+10000,60);
+        assertEquals(2,e.getCandleCount());
+    }
+
     @Test public void buildsOhlcOnlyFromAcceptedTicks() {
         SignalEngine e = new SignalEngine();
         e.acceptTick("EURUSD_otc",1.1000,T);
@@ -115,6 +124,7 @@ public class SignalEngineTest {
         e.acceptHistory("EURUSD_otc",10,history(bullishPullbackSetup()));
         e.acceptTick("EURUSD_otc",1.1012,T+480000,60);
         e.acceptTick("EURUSD_otc",1.1018,T+481000,60);
+        e.acceptTick("EURUSD_otc",1.1019,T+482000,60);
         assertEquals("CALL",e.getSignal());
         assertEquals(0.0,e.getSignalProbability(),0.0);
         assertTrue(e.getReason().contains("rule conditions confirmed"));
@@ -170,6 +180,7 @@ public class SignalEngineTest {
         e.acceptTick("EURUSD_otc",1.1019,T+480000,60);
         e.acceptTick("EURUSD_otc",1.1028,T+480500,60);
         e.acceptTick("EURUSD_otc",1.1013,T+481000,60);
+        e.acceptTick("EURUSD_otc",1.1012,T+481500,60);
         assertEquals("Expected PUT reversal; actual=" + e.getSignal() +
             "; reason=" + e.getReason(), "PUT", e.getSignal());
         assertTrue(e.getReason().contains("LEVEL REJECTION / REVERSAL"));
