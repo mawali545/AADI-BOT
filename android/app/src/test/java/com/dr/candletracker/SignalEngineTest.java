@@ -148,7 +148,7 @@ public class SignalEngineTest {
         e.acceptHistory("EURUSD_otc",60,history(bars));
         e.acceptTick("EURUSD_otc",1.0988,T+480000,60);
         e.acceptTick("EURUSD_otc",1.0985,T+481000,60);
-        assertEquals("PUT",e.getSignal());
+        assertEquals("Expected PUT; actual=" + e.getSignal() + "; reason=" + e.getReason(), "PUT", e.getSignal());
     }
 
     @Test public void reboundIntoPriorHighWithUpperWickCanSignalPutReversal() throws Exception {
