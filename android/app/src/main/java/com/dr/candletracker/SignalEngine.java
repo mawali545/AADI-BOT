@@ -670,8 +670,9 @@ public final class SignalEngine {
         int firstHalfUp = 0, firstHalfDown = 0, secondHalfUp = 0, secondHalfDown = 0;
         for (int i = 1; i < window.size(); i++) {
             Tick a = window.get(i - 1), b = window.get(i);
-            int d = b.brokerDirection != null ? b.brokerDirection.intValue()
-                : direction(b.price - a.price);
+            // Derive direction from the observed price delta. The fourth QX
+            // quote field is retained as metadata but its semantics are unverified.
+            int d = direction(b.price - a.price);
             path += Math.abs(b.price - a.price);
             if (d > 0) { up++; if (i < split) firstHalfUp++; else secondHalfUp++; }
             else if (d < 0) { down++; if (i < split) firstHalfDown++; else secondHalfDown++; }
@@ -751,8 +752,8 @@ public final class SignalEngine {
         int up=0, down=0;
         for (int i=Math.max(1,start); i<Math.min(end,values.size()); i++) {
             Tick current=values.get(i), previous=values.get(i-1);
-            int d=current.brokerDirection != null ? current.brokerDirection.intValue()
-                : direction(current.price-previous.price);
+            // Use price movement, not the undocumented broker enum.
+            int d=direction(current.price-previous.price);
             if (d>0) up++; else if (d<0) down++;
         }
         int total=up+down;
@@ -780,9 +781,7 @@ public final class SignalEngine {
         int up = 0, down = 0;
         for (int i = 1; i < recent.size(); i++) {
             Tick current = recent.get(i);
-            int d = current.brokerDirection != null
-                ? current.brokerDirection.intValue()
-                : direction(current.price - recent.get(i - 1).price);
+            int d = direction(current.price - recent.get(i - 1).price);
             if (d > 0) up++; else if (d < 0) down++;
         }
         int total = up + down;
