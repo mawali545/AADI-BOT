@@ -450,7 +450,7 @@ public final class SignalEngine {
         // A confirmed close beyond the prior swing is itself the reversal trigger.
         // Do not suppress that structural break merely because the same move is
         // large versus ATR; anti-chase remains active for continuations and weak touches.
-        boolean callReversal = (bullishBreak && alignedUp) ||
+        boolean callReversal = (bullishBreak && alignedUp && !overextendedUp) ||
             bullishRejection || bullishLiquiditySweep || binary.bullishFakeoutReclaim ||
             binary.bullishPinBar || (supportHold && supportTouches >= 1 &&
             lastClosePosition > 0.10 && momentum > -0.25);
@@ -544,7 +544,7 @@ public final class SignalEngine {
                 : (binary.bearishPattern ? 1.0 : binary.bullishPattern ? -1.0 : 0.0);
             double reversalEvidence = clamp(0.72 * triggerEvidence +
                 0.28 * patternEvidence, -1.0, 1.0);
-            evidence = clamp(0.35 * evidence + 0.65 * reversalEvidence, -1.0, 1.0);
+            evidence = clamp(0.15 * evidence + 0.85 * reversalEvidence, -1.0, 1.0);
         }
 
         double feedQuality = feedReliability();
