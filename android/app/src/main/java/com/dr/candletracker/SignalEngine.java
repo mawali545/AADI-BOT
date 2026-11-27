@@ -849,13 +849,15 @@ public final class SignalEngine {
         double baseline = median(absoluteVelocities);
         if (baseline > 1e-15 && velocityCount > 0) {
             int recentStart = Math.max(0, velocityCount - 12);
-            int priorEnd = recentStart;
             double recentVelocity = meanNormalizedVelocity(velocities, recentStart, velocityCount, baseline);
-            double priorVelocity = priorEnd >= 3
-                ? meanNormalizedVelocity(velocities, Math.max(0, priorEnd - 12), priorEnd, baseline)
+            // Do not label the initial warm-up window as acceleration: a separate
+            // prior window of at least three intervals is required for comparison.
+            double priorVelocity = recentStart >= 3
+                ? meanNormalizedVelocity(velocities, Math.max(0, recentStart - 12), recentStart, baseline)
                 : 0.0;
             out.velocity = recentVelocity;
-            out.velocityAcceleration = clamp(recentVelocity - priorVelocity, -1.0, 1.0);
+            out.velocityAcceleration = recentStart >= 3
+                ? clamp(recentVelocity - priorVelocity, -1.0, 1.0) : 0.0;
             out.velocitySamples = velocityCount;
         }
         lastTickVelocity = out.velocity;
