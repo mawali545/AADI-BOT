@@ -52,7 +52,19 @@ public final class MarketScanner {
         asset=symbol;
         candles.clear(); for(Bar b:unique.values()){candles.addLast(b);if(candles.size()>MAX_CANDLES)candles.removeFirst();}
         historyLoads++;
+        scanFullHistory();
         analyze(started);
+    }
+
+    /** Full scan is performed only when genuine broker history arrives. */
+    private void scanFullHistory() {
+        fullHistoryScans++;
+        fullHistoryHigh=Double.NEGATIVE_INFINITY;
+        fullHistoryLow=Double.POSITIVE_INFINITY;
+        if(candles.isEmpty()){fullHistoryDirection="UNKNOWN";return;}
+        double first=candles.peekFirst().close,last=candles.peekLast().close;
+        for(Bar bar:candles){fullHistoryHigh=Math.max(fullHistoryHigh,bar.high);fullHistoryLow=Math.min(fullHistoryLow,bar.low);}
+        fullHistoryDirection=last>first?"UP":(last<first?"DOWN":"SIDEWAYS");
     }
 
     public synchronized void acceptTick(String symbol,double price,long timestamp) {
@@ -146,9 +158,12 @@ public final class MarketScanner {
                 pace=rate>=4||normalized>=1.5?"FAST":(rate>=1||normalized>=0.45?"NORMAL":"SLOW");
             }else pace="WAITING FOR TICKS";
             detail=pattern+" · "+direction+" · "+structure+(useDerived?" · real quotes aggregated into 1s bars":" · broker OHLC");
-            fullHistoryScans++;
-            fullHistoryHigh=high;fullHistoryLow=low;
-            fullHistoryDirection=direction+(useDerived?" (TICK WINDOW)":" (BROKER HISTORY)");
+            if(historyLoads==0 && useDerived){
+                fullHistoryHigh=high;fullHistoryLow=low;
+                fullHistoryDirection=direction+" (TICK WINDOW)";
+            } else if(historyLoads>0) {
+                fullHistoryDirection += " (BROKER HISTORY)";
+            }
         }
         lastDurationNs=Math.max(0,System.nanoTime()-started);totalDurationNs+=lastDurationNs;maxDurationNs=Math.max(maxDurationNs,lastDurationNs);
     }
