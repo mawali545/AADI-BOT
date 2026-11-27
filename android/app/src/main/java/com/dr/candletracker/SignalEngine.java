@@ -447,11 +447,14 @@ public final class SignalEngine {
         boolean putContinuation = bearishConfirmation &&
             (bearishStructure || bearishPullback || alignedDown || binary.bearishBreakout) &&
             !overextendedDown && !binary.blocksPutContinuation && !awareness.blocksPut;
-        boolean callReversal = (bullishBreak && alignedUp && !overextendedUp) ||
+        // A confirmed close beyond the prior swing is itself the reversal trigger.
+        // Do not suppress that structural break merely because the same move is
+        // large versus ATR; anti-chase remains active for continuations and weak touches.
+        boolean callReversal = (bullishBreak && alignedUp) ||
             bullishRejection || bullishLiquiditySweep || binary.bullishFakeoutReclaim ||
             binary.bullishPinBar || (supportHold && supportTouches >= 1 &&
             lastClosePosition > 0.10 && momentum > -0.25);
-        boolean putReversal = (bearishBreak && alignedDown && !overextendedDown) ||
+        boolean putReversal = (bearishBreak && alignedDown) ||
             bearishRejection || bearishLiquiditySweep || binary.bearishFakeoutReject ||
             binary.bearishPinBar || (resistanceReject && resistanceTouches >= 1 &&
             lastClosePosition < -0.10 && momentum < 0.25);
