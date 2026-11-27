@@ -288,8 +288,7 @@ public final class SignalEngine {
         }
         atr /= length;
         histogram = clamp(histogram / barCount, -1, 1);
-        double vector = clamp(0.5 * ((vectorBody + vectorClose) / barCount) +
-            0.5 * ((vectorBody + vectorClose) / barCount), -1, 1);
+        double vector = clamp((vectorBody + vectorClose) / barCount, -1, 1);
         double displacement = totalPath <= 1e-12 ? 0 :
             clamp((last.close - stream.get(0).close) / totalPath, -1, 1);
         lastHistogram = histogram;
