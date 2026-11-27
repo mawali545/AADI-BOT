@@ -267,18 +267,17 @@ public final class SignalEngine {
         Candle previous = stream.get(length - 2);
 
         double atr = 0.0, histogram = 0.0, vectorBody = 0.0, vectorClose = 0.0;
-        double totalWeight = 0.0, totalPath = 0.0;
+        double barCount = 0.0, totalPath = 0.0;
         int bullishBars = 0, bearishBars = 0, reversals = 0, priorDirection = 0;
         for (int i = 0; i < length; i++) {
             Candle c = stream.get(i);
             double range = safeRange(c);
             double body = clamp((c.close - c.open) / range, -1.0, 1.0);
             double closePosition = clamp(((c.close - c.low) - (c.high - c.close)) / range, -1.0, 1.0);
-            double weight = 1.0;
-            histogram += ((body + closePosition) * 0.5) * weight;
-            vectorBody += body * weight;
-            vectorClose += closePosition * weight;
-            totalWeight += weight;
+            histogram += (body + closePosition) * 0.5;
+            vectorBody += body;
+            vectorClose += closePosition;
+            barCount += 1.0;
             atr += range;
             int d = direction(c.close - c.open);
             if (d > 0) bullishBars++;
@@ -288,9 +287,9 @@ public final class SignalEngine {
             if (i > 0) totalPath += Math.abs(c.close - stream.get(i - 1).close);
         }
         atr /= length;
-        histogram = clamp(histogram / totalWeight, -1, 1);
-        double vector = clamp(0.5 * (vectorBody / totalWeight) +
-            0.5 * (vectorClose / totalWeight), -1, 1);
+        histogram = clamp(histogram / barCount, -1, 1);
+        double vector = clamp(0.5 * ((vectorBody + vectorClose) / barCount) +
+            0.5 * ((vectorBody + vectorClose) / barCount), -1, 1);
         double displacement = totalPath <= 1e-12 ? 0 :
             clamp((last.close - stream.get(0).close) / totalPath, -1, 1);
         lastHistogram = histogram;
@@ -934,9 +933,9 @@ public final class SignalEngine {
     public synchronized int getLosses() { return losses; }
     public synchronized int getTies() { return ties; }
     public synchronized int getSignalCount() { return signalCount; }
-    /** Directional evidence score (0-100), not a statistically calibrated win probability. */
-    public synchronized double getSignalEvidenceScore() { return signalProbability; }
-    public synchronized double getSignalProbability() { return signalProbability; }
+    /** Legacy compatibility only; this rule-based engine does not calculate a confidence score. */
+    public synchronized double getSignalEvidenceScore() { return 0.0; }
+    public synchronized double getSignalProbability() { return 0.0; }
     public synchronized double getHistogram() { return lastHistogram; }
     public synchronized double getVector() { return lastVector; }
     public synchronized double getDisplacement() { return lastDisplacement; }
