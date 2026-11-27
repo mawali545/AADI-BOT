@@ -28,6 +28,29 @@ public final class SignalEngine {
     private long lastTimestamp;
     private double lastPrice = Double.NaN, signalProbability;
     private double lastHistogram, lastVector, lastDisplacement;
+    private long feedGaps, feedOutOfOrder, feedDuplicates, feedAccepted, feedAgeMs;
+    private double feedJitterMs;
+
+    /** Native bridge feed-integrity telemetry; never used as directional evidence. */
+    public synchronized void setFeedQuality(long gaps, long outOfOrder, long duplicates,
+            double jitterMs, long arrivalAgeMs, long acceptedTicks) {
+        feedGaps = Math.max(0, gaps);
+        feedOutOfOrder = Math.max(0, outOfOrder);
+        feedDuplicates = Math.max(0, duplicates);
+        feedJitterMs = Double.isFinite(jitterMs) ? Math.max(0, jitterMs) : 0;
+        feedAgeMs = Math.max(0, arrivalAgeMs);
+        feedAccepted = Math.max(0, acceptedTicks);
+    }
+
+    private double feedReliability() {
+        double denominator = Math.max(1.0, feedAccepted);
+        double errorRate = (3.0*feedGaps + feedOutOfOrder + feedDuplicates) / denominator;
+        double penalty = Math.min(0.28, errorRate * 4.0);
+        if (feedJitterMs > 50.0) penalty += Math.min(0.12, (feedJitterMs-50.0)/1000.0);
+        if (feedAgeMs > 500) penalty += 0.05;
+        if (feedAgeMs > 1500) penalty += 0.10;
+        return clamp(1.0-penalty, 0.60, 1.0);
+    }
 
     public synchronized void acceptTick(String symbol, double price, long timestamp) {
         acceptTick(symbol, price, timestamp, 10L, null);
@@ -493,6 +516,8 @@ public final class SignalEngine {
         if (micro.samples >= 2) { weighted += 0.05*micro.directionalPressure; weightTotal += 0.05; }
         if (length >= 4) { weighted += 0.03*awareness.bias; weightTotal += 0.03; }
         double evidence = weightTotal <= 0 ? 0.0 : clamp(weighted/weightTotal, -1.0, 1.0);
+        double feedQuality = feedReliability();
+        evidence = clamp(evidence * feedQuality, -1.0, 1.0);
         double callEvidence = 50.0 + 35.0 * evidence;
         double setupScore = "CALL".equals(result) ? callEvidence : 100.0 - callEvidence;
         // A candidate setup is not enough: require a clear weighted edge in its
@@ -513,7 +538,8 @@ public final class SignalEngine {
         return new Scan(result, setupScore,
             result + " · " + setup + " · directional evidence " + Math.round(setupScore) +
             "/100 (not a measured win probability) · CALL " + Math.round(callEvidence) +
-            "% / PUT " + Math.round(100.0-callEvidence) + "% · " + tickContext.summary +
+            "% / PUT " + Math.round(100.0-callEvidence) + "% · feed reliability " +
+            Math.round(feedQuality*100.0) + "% · " + tickContext.summary +
             " · histogram " + signed(histogram) +
             " · vector " + signed(vector) + " · slope " + signed(slopeMomentum) +
             " · live momentum " + signed(momentum) + " · S/R touches " + supportTouches + "/" +
