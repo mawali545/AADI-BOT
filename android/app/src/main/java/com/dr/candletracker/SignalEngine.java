@@ -19,7 +19,9 @@ public final class SignalEngine {
     private final List<Tick> tape = new ArrayList<>();
     private final Map<String, Long> lastTimestampByAsset = new HashMap<>();
     private final Map<String, Long> liveBucketByAsset = new HashMap<>();
-    private final Map<String, Long> issuedBucketByAsset = new HashMap<>();
+    // A setup may emit at most once per chart candle. Separately, only one
+    // unresolved 10-second binary contract may exist at a time.
+    private final Map<String, Long> issuedCandleBucketByAsset = new HashMap<>();
     private final List<Pending> pendingResults = new ArrayList<>();
     private int signalCount;
     private String asset = "WAITING FOR QX", signal = "WAIT";
@@ -71,8 +73,14 @@ public final class SignalEngine {
         // QX quote timestamps identify events: ignore duplicate and older frames.
         if (previous != null && timestamp <= previous) return;
 
-        // Each result is settled once, on the first actual QX quote at/after expiry.
-        settlePending(symbol, timestamp, price);
+        // Settle the active contract first. Until this exact expiry event arrives,
+        // no new signal is allowed for any asset.
+        boolean settled = settlePending(symbol, timestamp, price);
+        if (settled && symbol.equals(asset)) {
+            signal = "WAIT";
+            signalProbability = 0;
+            reason = "Previous 10-second signal completed; waiting for a fresh candle/setup.";
+        }
         lastTimestampByAsset.put(symbol, timestamp);
         long bucket = timestamp / duration * duration;
         Candle current = lastCandle(symbol);
@@ -93,11 +101,12 @@ public final class SignalEngine {
         tape.add(new Tick(symbol, price, timestamp));
         if (tape.size() > MAX_TICKS) tape.remove(0);
 
-        // Signal cadence is fixed to the 10-second binary expiry, not the
-        // user's chart candle period (which may be 1m/5m/etc.).
-        long signalBucket = timestamp / 10_000L * 10_000L;
-        Long issued = issuedBucketByAsset.get(symbol);
-        if (issued == null || issued.longValue() != signalBucket) {
+        // Signal lifecycle: one unresolved contract globally, and no more than
+        // one emitted setup per chart candle for the selected asset. This avoids
+        // repeated CALL/PUT alerts on every 10-second sub-window of one candle.
+        Long issuedCandle = issuedCandleBucketByAsset.get(symbol);
+        boolean candleAlreadyUsed = issuedCandle != null && issuedCandle.longValue() == bucket;
+        if (pendingResults.isEmpty() && !candleAlreadyUsed) {
             Scan scan = scan(symbol, bucket, price, timestamp);
             signal = scan.signal;
             signalProbability = scan.probability;
@@ -105,7 +114,7 @@ public final class SignalEngine {
             if (!"WAIT".equals(scan.signal)) {
                 signalCount++;
                 pendingResults.add(new Pending(symbol, scan.signal, price, timestamp + 10_000L));
-                issuedBucketByAsset.put(symbol, signalBucket);
+                issuedCandleBucketByAsset.put(symbol, bucket);
             } else {
                 signalCount = 0;
             }
@@ -155,7 +164,6 @@ public final class SignalEngine {
         while (candles.size() > MAX_CANDLES) candles.remove(0);
         asset = symbol;
         liveBucketByAsset.remove(symbol);
-        issuedBucketByAsset.remove(symbol);
         signal = "WAIT";
         signalCount = 0;
         signalProbability = 0;
@@ -179,7 +187,8 @@ public final class SignalEngine {
         return null;
     }
 
-    private void settlePending(String symbol, long timestamp, double expiryPrice) {
+    private boolean settlePending(String symbol, long timestamp, double expiryPrice) {
+        boolean settled = false;
         for (int i = pendingResults.size() - 1; i >= 0; i--) {
             Pending p = pendingResults.get(i);
             if (!p.asset.equals(symbol) || timestamp < p.expiresAt) continue;
@@ -188,7 +197,9 @@ public final class SignalEngine {
             else if (("CALL".equals(p.signal) && delta > 0) || ("PUT".equals(p.signal) && delta < 0)) wins++;
             else losses++;
             pendingResults.remove(i);
+            settled = true;
         }
+        return settled;
     }
 
     /**
