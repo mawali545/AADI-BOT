@@ -274,8 +274,8 @@ public final class SignalEngine {
             double range = safeRange(c);
             double body = clamp((c.close - c.open) / range, -1.0, 1.0);
             double closePosition = clamp(((c.close - c.low) - (c.high - c.close)) / range, -1.0, 1.0);
-            double weight = 1.0 + (double) i / Math.max(1, length - 1);
-            histogram += (0.68 * body + 0.32 * closePosition) * weight;
+            double weight = 1.0;
+            histogram += ((body + closePosition) * 0.5) * weight;
             vectorBody += body * weight;
             vectorClose += closePosition * weight;
             totalWeight += weight;
@@ -289,8 +289,8 @@ public final class SignalEngine {
         }
         atr /= length;
         histogram = clamp(histogram / totalWeight, -1, 1);
-        double vector = clamp(0.62 * (vectorBody / totalWeight) +
-            0.38 * (vectorClose / totalWeight), -1, 1);
+        double vector = clamp(0.5 * (vectorBody / totalWeight) +
+            0.5 * (vectorClose / totalWeight), -1, 1);
         double displacement = totalPath <= 1e-12 ? 0 :
             clamp((last.close - stream.get(0).close) / totalPath, -1, 1);
         lastHistogram = histogram;
@@ -310,9 +310,7 @@ public final class SignalEngine {
         double slopeMomentum = varianceX <= 0 ? 0 : clamp((covariance / varianceX) / Math.max(atr, 1e-12), -1, 1);
         int liveTickCount = recentTickCount(symbol);
         double liveTickMomentum = tickFlow(symbol);
-        double momentum = liveTickCount >= 4
-            ? clamp(0.65 * slopeMomentum + 0.35 * liveTickMomentum, -1, 1)
-            : slopeMomentum;
+        double momentum = liveTickCount >= 4 ? liveTickMomentum : slopeMomentum;
 
         // Compare the earlier and later halves for higher-high/higher-low
         // or lower-high/lower-low structure rather than following candle color.
@@ -980,7 +978,7 @@ public final class SignalEngine {
             double body = clamp((candle.close - candle.open) / range, -1, 1);
             double closePosition = clamp(((candle.close - candle.low) -
                 (candle.high - candle.close)) / range, -1, 1);
-            try { bars.put(clamp(0.68 * body + 0.32 * closePosition, -1, 1)); }
+            try { bars.put(clamp(0.5 * (body + closePosition), -1, 1)); }
             catch (JSONException ignored) { /* Skip an invalid telemetry bar. */ }
         }
         return bars;
