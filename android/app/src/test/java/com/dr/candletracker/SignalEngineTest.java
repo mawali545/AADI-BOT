@@ -212,6 +212,28 @@ public class SignalEngineTest {
         assertEquals(1, e.getCandleCount()); // only one 60-second forming tick candle
     }
 
+    @Test public void oneSignalPerCandleAndNoNextSignalBeforeExpiry() throws Exception {
+        SignalEngine e = new SignalEngine();
+        e.acceptHistory("EURUSD_otc",60,history(bullishPullbackSetup()));
+        e.acceptTick("EURUSD_otc",1.1012,T+480000,60);
+        e.acceptTick("EURUSD_otc",1.1018,T+481000,60);
+        assertEquals("CALL",e.getSignal());
+
+        // More quote events during the active 10-second contract cannot emit
+        // another signal, even if the scanner is invoked repeatedly.
+        e.acceptTick("EURUSD_otc",1.1017,T+482000,60);
+        e.acceptTick("EURUSD_otc",1.1016,T+489999,60);
+        assertEquals("CALL",e.getSignal());
+
+        // First quote at expiry settles the contract. The same chart candle
+        // remains locked, so it cannot immediately generate a replacement.
+        e.acceptTick("EURUSD_otc",1.1019,T+490000,60);
+        assertEquals(1,e.getWins());
+        assertEquals("WAIT",e.getSignal());
+        e.acceptTick("EURUSD_otc",1.1018,T+491000,60);
+        assertEquals("WAIT",e.getSignal());
+    }
+
     @Test public void tenSecondSettlementUsesFirstRealTickAtOrAfterExpiry() throws Exception {
         SignalEngine e = new SignalEngine();
         e.acceptHistory("EURUSD_otc",60,history(bullishPullbackSetup()));
