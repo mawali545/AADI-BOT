@@ -1,4 +1,4 @@
-name: Build 312 - Weighted Tick Reasoning
+name: Build 312 - Formula-Driven 10s Signal Engine
 
 on:
   push:
@@ -36,7 +36,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: QX-Build312-Weighted-Tick-Reasoning
+          name: QX-Build312-Formula-10s-Rules
           path: |
             android/app/build/outputs/apk/debug/app-debug.apk
             android/app/build/reports/tests/testDebugUnitTest/
