@@ -50,7 +50,7 @@ public final class MarketScanner {
         }
         if(!symbol.equals(asset)){
             candles.clear();ticks.clear();lastTimestamp=0;
-            historyLoads=0;fullHistoryScans=0;fullHistoryDirection="UNKNOWN";
+            historyLoads=0;fullHistoryScans=0;gaps=0;fullHistoryDirection="UNKNOWN";
             fullHistoryHigh=Double.NaN;fullHistoryLow=Double.NaN;
         }
         asset=symbol;
