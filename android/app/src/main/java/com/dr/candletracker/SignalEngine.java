@@ -215,14 +215,15 @@ public final class SignalEngine {
             if (recentMemory.size() >= 12) break;
         }
         boolean tickDerivedBars = false;
-        if (recentMemory.size() < 3) {
-            List<Candle> microBars = buildTickBars(symbol, nowMillis, 1000L);
-            if (microBars.size() >= 3) {
-                recentMemory.clear();
-                recentMemory.addAll(microBars);
-                count = recentMemory.size();
-                tickDerivedBars = true;
-            }
+        // Prefer the latest closed 1-second bars aggregated from real QX ticks
+        // for a 10-second expiry, regardless of the chart's selected timeframe.
+        // Genuine broker OHLC remains the fallback while the live tick window warms.
+        List<Candle> microBars = buildTickBars(symbol, nowMillis, 1000L);
+        if (microBars.size() >= 3) {
+            recentMemory.clear();
+            recentMemory.addAll(microBars);
+            count = recentMemory.size();
+            tickDerivedBars = true;
         }
         if (count < 3)
             return new Scan("WAIT", 0,
