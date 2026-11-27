@@ -69,7 +69,7 @@ public final class SignalEngine {
             long periodSeconds, Integer brokerDirection) {
         if (symbol == null || !symbol.matches("[A-Za-z0-9_./-]{3,32}") ||
             !Double.isFinite(price) || price <= 0 || timestamp <= 0) return;
-        long duration = Math.max(1L, Math.min(86400L, periodSeconds)) * 1000L;
+        long duration = 10_000L;
         Long previous = lastTimestampByAsset.get(symbol);
         // QX quote timestamps identify events: ignore duplicate and older frames.
         if (previous != null && timestamp <= previous) return;
@@ -242,7 +242,7 @@ public final class SignalEngine {
         // Prefer the latest closed 1-second bars aggregated from real QX ticks
         // for a 10-second expiry, regardless of the chart's selected timeframe.
         // Genuine broker OHLC remains the fallback while the live tick window warms.
-        List<Candle> microBars = buildTickBars(symbol, nowMillis, 1000L);
+        List<Candle> microBars = buildTickBars(symbol, nowMillis, 10_000L);
         if (microBars.size() >= 3) {
             recentMemory.clear();
             recentMemory.addAll(microBars);
@@ -251,7 +251,7 @@ public final class SignalEngine {
         }
         if (count < 3)
             return new Scan("WAIT", 0,
-                "MEMORY STREAM · collecting 3 completed broker/tick-derived bars (" + count + "/3).");
+                "10-SECOND MEMORY · collecting 3 completed 10s candles (" + count + "/3).");
 
         // Use a short adaptive memory: three completed broker/tick-derived bars are the minimum.
         // The forming candle is excluded from structure decisions; current real
@@ -530,79 +530,57 @@ public final class SignalEngine {
 
         double expectedDirection = "CALL".equals(result) ? 1.0 : -1.0;
         TickContext tickContext = analyzeTickContext(symbol);
-        // Weighted, normalized evidence model. Configured weights total 100%;
-        // unavailable horizons are omitted and remaining weights renormalized.
-        double weighted = 0.0, weightTotal = 0.0;
-        if (tickContext.samples >= 12) { weighted += 0.12*tickContext.pressure12; weightTotal += 0.12; }
-        if (tickContext.samples >= 36) { weighted += 0.08*tickContext.pressure36; weightTotal += 0.08; }
-        if (tickContext.samples >= 90) { weighted += 0.06*tickContext.pressure90; weightTotal += 0.06; }
-        if (tickContext.samples >= 300) { weighted += 0.03*tickContext.pressure300; weightTotal += 0.03; }
-        if (tickContext.samples >= 900) { weighted += 0.02*tickContext.pressure900; weightTotal += 0.02; }
-        if (tickContext.samples >= 24) { weighted += 0.04*tickContext.acceleration; weightTotal += 0.04; }
-        // Quote-to-quote speed and its change receive their own measured weights.
-        if (tickContext.velocitySamples >= 4) {
-            weighted += 0.08*tickContext.velocity +
-                0.02*tickContext.velocityAcceleration;
-            weightTotal += 0.10;
-        }
-        weighted += 0.10*histogram + 0.08*vector + 0.08*displacement +
-            0.08*slopeMomentum +
-            0.07*(bullishStructure ? 1.0 : bearishStructure ? -1.0 : 0.0) +
-            0.05*(binary.bullishPattern ? 1.0 : binary.bearishPattern ? -1.0 : 0.0);
-        weightTotal += 0.46;
-        if (micro.samples >= 2) { weighted += 0.07*micro.directionalPressure; weightTotal += 0.07; }
-        if (length >= 4) { weighted += 0.02*awareness.bias; weightTotal += 0.02; }
-        double evidence = weightTotal <= 0 ? 0.0 : clamp(weighted/weightTotal, -1.0, 1.0);
 
-        // A confirmed rejection / sweep / structure break is a local reversal
-        // event. Do not let the older trend's multi-candle momentum drown out
-        // the actual trigger candle: blend the broader evidence with the
-        // direction and close-location of the completed trigger candle.
-        // This remains an evidence score (not a win probability), and feed
-        // integrity still reduces the final score.
-        boolean rejectionSetup = bullishRejection || bearishRejection ||
-            resistanceReject || supportHold;
-        boolean decisiveReversal = reversalEntry &&
-            (bullishBreak || bearishBreak || bullishRejection || bearishRejection ||
-             bullishLiquiditySweep || bearishLiquiditySweep ||
-             binary.bullishFakeoutReclaim || binary.bearishFakeoutReject ||
-             binary.bullishPinBar || binary.bearishPinBar);
-        if (decisiveReversal) {
-            // Evidence is stored on one fixed axis: positive = CALL,
-            // negative = PUT. Do not rotate the axis toward the candidate;
-            // doing so inverted every bearish reversal into bullish evidence.
-            double triggerEvidence = lastClosePosition;
-            double patternEvidence = binary.bullishPattern ? 1.0 :
-                binary.bearishPattern ? -1.0 : 0.0;
-            double reversalEvidence = clamp(0.72 * triggerEvidence +
-                0.28 * patternEvidence, -1.0, 1.0);
-            evidence = clamp(0.05 * evidence + 0.95 * reversalEvidence, -1.0, 1.0);
-        }
+        // Formula-driven rule evaluation over genuine quote deltas/timestamps.
+        // No manually assigned weights, blended score, or probability threshold.
+        boolean enoughTickHistory = tickContext.samples >= 4 &&
+            tickContext.velocitySamples >= 3;
+        boolean tickPressureConfirms = enoughTickHistory &&
+            tickContext.pressure12 * expectedDirection > 0.0;
+        boolean velocityConfirms = enoughTickHistory &&
+            tickContext.velocity * expectedDirection > 0.0;
+        boolean accelerationStronglyOpposes = tickContext.velocitySamples >= 6 &&
+            tickContext.velocityAcceleration * expectedDirection < -0.20;
+        boolean shortPressureStronglyOpposes = tickContext.samples >= 12 &&
+            tickContext.pressure12 * expectedDirection < -0.55;
+        boolean tapeConfirms = micro.samples >= 3 &&
+            micro.directionalPressure * expectedDirection > 0.0 &&
+            micro.pathEfficiency * expectedDirection > 0.0;
+        boolean tapeStronglyOpposes = micro.samples >= 6 &&
+            micro.directionalPressure * expectedDirection < -0.55 &&
+            micro.displacementAtr * expectedDirection < -0.08;
 
-        double feedQuality = feedReliability();
-        evidence = clamp(evidence * feedQuality, -1.0, 1.0);
-        double callEvidence = 50.0 + 35.0 * evidence;
-        double setupScore = "CALL".equals(result) ? callEvidence : 100.0 - callEvidence;
-        // A candidate setup is not enough: require a clear weighted edge in its
-        // own direction. This is a directional evidence score, not a win-rate.
-        if (setupScore < 62.0)
-            return new Scan("WAIT", 0, "WAIT · weighted evidence below entry threshold · CALL " +
-                Math.round(callEvidence) + "% / PUT " + Math.round(100.0-callEvidence) +
-                "% · " + tickContext.summary);
-        if (tickContext.pressure12 * expectedDirection < -0.65 &&
-            tickContext.pressure36 * expectedDirection < -0.30)
-            return new Scan("WAIT", 0, "WAIT · short and medium tick pressure oppose setup · " +
+        if (!enoughTickHistory)
+            return new Scan("WAIT", 0,
+                "WAIT · collecting genuine live ticks for velocity/pressure calculations · " +
                 tickContext.summary);
+        if (accelerationStronglyOpposes && shortPressureStronglyOpposes)
+            return new Scan("WAIT", 0,
+                "WAIT · nested rule: tick acceleration AND short-window pressure oppose " +
+                result + " · " + tickContext.summary);
+        if (tapeStronglyOpposes)
+            return new Scan("WAIT", 0,
+                "WAIT · 10-second tick sequence and displacement oppose " + result +
+                " · " + micro.summary);
+        if (!tickPressureConfirms && !velocityConfirms)
+            return new Scan("WAIT", 0,
+                "WAIT · neither measured tick pressure nor quote velocity confirms " +
+                result + " · " + tickContext.summary);
+        if (micro.samples >= 3 && !tapeConfirms &&
+                micro.directionalPressure * expectedDirection <= 0.0)
+            return new Scan("WAIT", 0,
+                "WAIT · latest 10-second tick sequence does not confirm " + result +
+                " · " + micro.summary);
+
+        signalProbability = 0.0; // legacy field; not a probability or confidence score.
         String setup = (callReversal || putReversal) ?
             (rejectionSetup ? "LEVEL REJECTION / REVERSAL" :
                 ((bullishLiquiditySweep || bearishLiquiditySweep || supportHold || resistanceReject)
                     ? "LIQUIDITY SWEEP / LEVEL REVERSAL" : "STRUCTURE BREAK / REVERSAL"))
             : "PULLBACK / CONTINUATION";
-        return new Scan(result, setupScore,
-            result + " · " + setup + " · directional evidence " + Math.round(setupScore) +
-            "/100 (not a measured win probability) · CALL " + Math.round(callEvidence) +
-            "% / PUT " + Math.round(100.0-callEvidence) + "% · feed reliability " +
-            Math.round(feedQuality*100.0) + "% · " + tickContext.summary +
+        return new Scan(result, 0,
+            result + " · " + setup + " · rule conditions confirmed · no weighted score/probability · " +
+            tickContext.summary +
             " · histogram " + signed(histogram) +
             " · vector " + signed(vector) + " · slope " + signed(slopeMomentum) +
             " · live momentum " + signed(momentum) + " · S/R touches " + supportTouches + "/" +
@@ -611,7 +589,7 @@ public final class SignalEngine {
             " · trend efficiency " + signed(binary.trendEfficiency) +
             " · volatility " + signed(binary.volatilityRatio) +
             " · " + micro.summary +
-            (tickDerivedBars ? " · 1s bars aggregated from genuine QX ticks" : " · broker OHLC bars") +
+            (tickDerivedBars ? " · 10s candles aggregated from genuine QX ticks" : " · broker OHLC bars") +
             " · bull " + bullishBars + " / bear " + bearishBars);
     }
 
@@ -869,8 +847,7 @@ public final class SignalEngine {
             " · tick velocity " + signed(out.velocity) +
             " · velocity acceleration " + signed(out.velocityAcceleration) +
             " · velocity samples " + out.velocitySamples +
-            " · configured weights pressure=12/8/6/3/2%, acceleration=4%, velocity=10%" +
-            " · OHLC=10/8/8/8%, structure/pattern=7/5%, micro/regime=7/2%" + " · n=" + n;
+            " · raw formula outputs; no assigned factor weights" + " · n=" + n;
         return out;
     }
 
@@ -992,7 +969,7 @@ public final class SignalEngine {
         }
         if (recent.size() < 3) {
             recent.clear();
-            recent.addAll(buildTickBars(asset, lastTimestamp, 1000L));
+            recent.addAll(buildTickBars(asset, lastTimestamp, 10_000L));
         }
         for (Candle candle : recent) {
             double range = safeRange(candle);
@@ -1010,7 +987,7 @@ public final class SignalEngine {
         Long forming = liveBucketByAsset.get(asset);
         for (Candle candle : candles)
             if (candle.asset.equals(asset) && (forming == null || candle.bucket != forming.longValue())) count++;
-        return Math.max(count, buildTickBars(asset, lastTimestamp, 1000L).size());
+        return Math.max(count, buildTickBars(asset, lastTimestamp, 10_000L).size());
     }
     public synchronized int getCandleCount() { return candles.size(); }
     public synchronized long getLastTimestamp() { return lastTimestamp; }
@@ -1018,7 +995,7 @@ public final class SignalEngine {
     private Candle displayCandle() {
         Candle c = lastCandle(asset);
         if (c != null) return c;
-        List<Candle> bars = buildTickBars(asset, lastTimestamp, 1000L);
+        List<Candle> bars = buildTickBars(asset, lastTimestamp, 10_000L);
         return bars.isEmpty() ? null : bars.get(bars.size()-1);
     }
     public synchronized double getOpen() { Candle c = displayCandle(); return c == null ? Double.NaN : c.open; }
