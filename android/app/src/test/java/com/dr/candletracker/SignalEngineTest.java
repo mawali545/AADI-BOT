@@ -9,8 +9,21 @@ public class SignalEngineTest {
 
     private JSONArray history(double[][] bars) throws Exception {
         StringBuilder s = new StringBuilder("[");
-        for (int i = 0; i < bars.length; i++) {
+        // Unit fixtures with shorter patterns receive neutral historical padding,
+        // so every signal test still exercises the production 15-candle window.
+        int padding = Math.max(0, 15 - bars.length);
+        double base = bars.length == 0 ? 1.0 : bars[0][0];
+        for (int i = 0; i < padding; i++) {
             if (i > 0) s.append(",");
+            long time = T - (padding - i) * 10000L;
+            s.append("{\"time\":").append(time)
+             .append(",\"open\":").append(base)
+             .append(",\"close\":").append(base)
+             .append(",\"high\":").append(base + 0.000001)
+             .append(",\"low\":").append(base - 0.000001).append("}");
+        }
+        for (int i = 0; i < bars.length; i++) {
+            if (padding + i > 0) s.append(",");
             double[] b = bars[i]; // open, close, high, low
             s.append("{\"time\":").append(T + i * 10000L)
              .append(",\"open\":").append(b[0])
@@ -39,6 +52,28 @@ public class SignalEngineTest {
         e.acceptTick("EURUSD_otc", 1.1000, T, 60);
         e.acceptTick("EURUSD_otc", 1.1002, T + 60000, 60);
         assertEquals("WAIT", e.getSignal());
+    }
+
+    @Test public void refusesToSignalUntilFifteenCompletedCandlesAreAvailable() throws Exception {
+        SignalEngine e = new SignalEngine();
+        double[][] bars = new double[14][4];
+        for (int i = 0; i < bars.length; i++) {
+            double p = 1.1000 + i * 0.0001;
+            bars[i] = new double[]{p, p + 0.0001, p + 0.0002, p - 0.00005};
+        }
+        // Deliberately pass only 14 real candles (without the helper padding).
+        StringBuilder json = new StringBuilder("[");
+        for (int i = 0; i < bars.length; i++) {
+            if (i > 0) json.append(",");
+            double[] b = bars[i];
+            json.append("{\"time\":").append(T + i * 10000L)
+                .append(",\"open\":").append(b[0]).append(",\"close\":").append(b[1])
+                .append(",\"high\":").append(b[2]).append(",\"low\":").append(b[3]).append("}");
+        }
+        e.acceptHistory("EURUSD_otc", 10, new JSONArray(json.append("]").toString()));
+        e.acceptTick("EURUSD_otc", 1.1020, T + 140000L, 10);
+        assertEquals("WAIT", e.getSignal());
+        assertTrue(e.getReason().contains("15-CANDLE VISUAL MEMORY"));
     }
 
     @Test public void internalCandlesAreAlwaysTenSecondsRegardlessOfChartPeriodArgument() {
