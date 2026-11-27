@@ -61,7 +61,7 @@ public final class SignalEngine {
         acceptTick(symbol, price, timestamp, periodSeconds, null);
     }
 
-    /** Retain broker direction as protocol metadata only; all directional math uses price deltas. */
+    /** The optional broker direction value is metadata only; directional math uses observed price deltas. */
     public synchronized void acceptTick(String symbol, double price, long timestamp,
             long periodSeconds, Integer brokerDirection) {
         if (symbol == null || !symbol.matches("[A-Za-z0-9_./-]{3,32}") ||
