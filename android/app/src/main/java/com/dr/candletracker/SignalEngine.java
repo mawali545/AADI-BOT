@@ -833,7 +833,10 @@ public final class SignalEngine {
             if (candle.asset.equals(asset) && (forming == null || candle.bucket != forming.longValue()))
                 recent.add(0, candle);
         }
-        if (recent.isEmpty()) recent.addAll(buildTickBars(asset, lastTimestamp, 1000L));
+        if (recent.size() < 3) {
+            recent.clear();
+            recent.addAll(buildTickBars(asset, lastTimestamp, 1000L));
+        }
         for (Candle candle : recent) {
             double range = safeRange(candle);
             double body = clamp((candle.close - candle.open) / range, -1, 1);
