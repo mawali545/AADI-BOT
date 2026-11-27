@@ -413,6 +413,10 @@ public final class SignalEngine {
         QxMarketAwareness.Context awareness = QxMarketAwareness.analyze(
             awarenessOpen, awarenessHigh, awarenessLow, awarenessClose);
 
+        // Mathematical indicator state from completed 10-second OHLC only.
+        // EMA(5/9), Wilder RSI(7), and ATR(7) are context checks, not weighted scores.
+        IndicatorMath.Result indicators = IndicatorMath.calculate(stream);
+
         // Broker-feed liquidity proxy: repeated OHLC wick tests create local
         // support/resistance zones. This is NOT traded volume or a full order book.
         int supportTouches = 0, resistanceTouches = 0;
@@ -498,6 +502,25 @@ public final class SignalEngine {
         String result = (callContinuation || callReversal) ? "CALL" : "PUT";
         int expected = "CALL".equals(result) ? 1 : -1;
         boolean reversalEntry = callReversal || putReversal;
+        // For continuation entries, require EMA direction and RSI momentum not
+        // to contradict one another. A genuine structure-break/rejection reversal
+        // is evaluated separately and is not blindly vetoed by lagging EMAs.
+        if (!reversalEntry && indicators.ready) {
+            boolean indicatorConflict = ("CALL".equals(result) && indicators.emaBear &&
+                    indicators.rsiFalling) ||
+                ("PUT".equals(result) && indicators.emaBull && indicators.rsiRising);
+            if (indicatorConflict)
+                return new Scan("WAIT", 0, "WAIT · EMA trend AND RSI momentum conflict with " +
+                    result + " · " + indicators.summary());
+            if ("CALL".equals(result) && indicators.rsi7 >= 88.0 &&
+                    !binary.bullishBreakout)
+                return new Scan("WAIT", 0, "WAIT · RSI7 stretched upward; continuation entry is late · " +
+                    indicators.summary());
+            if ("PUT".equals(result) && indicators.rsi7 <= 12.0 &&
+                    !binary.bearishBreakout)
+                return new Scan("WAIT", 0, "WAIT · RSI7 stretched downward; continuation entry is late · " +
+                    indicators.summary());
+        }
         if (!reversalEntry && awareness.bias * expected < -0.68)
             return new Scan("WAIT", 0, "WAIT · market-state bias strongly opposes " +
                 result + " · " + awareness.summary);
@@ -1003,7 +1026,7 @@ public final class SignalEngine {
     public synchronized double getLow() { Candle c = displayCandle(); return c == null ? Double.NaN : c.low; }
     public synchronized double getClose() { Candle c = displayCandle(); return c == null ? Double.NaN : c.close; }
 
-    private static final class Candle {
+    static final class Candle {
         final String asset; final long bucket; final double open; double high, low, close;
         Candle(String a, long b, double p) { this(a, b, p, p, p, p); }
         Candle(String a, long b, double o, double h, double l, double c) {
