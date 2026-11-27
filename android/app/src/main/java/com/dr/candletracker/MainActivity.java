@@ -393,6 +393,7 @@ public final class MainActivity extends Activity {
             o.put("qxDirectionalTicks", signalEngine.getBrokerDirectionTickCount());
             o.put("signalCount", signalEngine.getSignalCount());
             o.put("signalProbability", signalEngine.getSignalProbability());
+            o.put("signalEvidenceScore", signalEngine.getSignalEvidenceScore());
             o.put("histogram", signalEngine.getHistogram());
             o.put("vector", signalEngine.getVector());
             o.put("displacement", signalEngine.getDisplacement());
