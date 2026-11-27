@@ -16,6 +16,7 @@ on:
       - dr-candle-tracker-build244-closed-candle-entry
       - dr-candle-tracker-build261-low-latency-live-flow
       - dr-candle-tracker-build261-binary-knowledge-upgrade
+      - dr-candle-tracker-build308-complete-binary-knowledge
   pull_request:
     branches:
       - dr-candle-tracker-build207-secure-fix
