@@ -64,8 +64,14 @@ final class QxMarketAwareness {
         double impulseChange = bodySecond - bodyFirst;
         double overlapRatio = (double) overlaps / Math.max(1, n - 1);
 
-        out.bias = clamp(0.38 * structure + 0.30 * slope +
-                0.20 * out.efficiency + 0.12 * clamp(wickBias, -1, 1), -1, 1);
+        // Compare independent calculated conditions as logical votes instead
+        // of assigning percentages or blending factors with hand-picked weights.
+        int bullishVotes = (structure > 0 ? 1 : 0) + (slope > 0 ? 1 : 0) +
+                (out.efficiency > 0 ? 1 : 0) + (wickBias > 0 ? 1 : 0);
+        int bearishVotes = (structure < 0 ? 1 : 0) + (slope < 0 ? 1 : 0) +
+                (out.efficiency < 0 ? 1 : 0) + (wickBias < 0 ? 1 : 0);
+        out.bias = bullishVotes > bearishVotes ? 1.0 :
+                bearishVotes > bullishVotes ? -1.0 : 0.0;
         boolean directional = Math.abs(out.efficiency) >= 0.38 &&
                 Math.abs(slope) >= 0.10 && structure != 0;
         boolean compressed = out.volatilityRatio < 0.68;
@@ -79,7 +85,7 @@ final class QxMarketAwareness {
         else out.regime = "TRANSITION / MIXED";
 
         out.momentumFading = Math.abs(bodyFirst) > 0.01 &&
-                Math.abs(bodySecond) < Math.abs(bodyFirst) * 0.48 &&
+                Math.abs(bodySecond) < Math.abs(bodyFirst) &&
                 Math.abs(out.efficiency) > 0.25;
         out.nearUpperRange = out.rangePosition > 0.84;
         out.nearLowerRange = out.rangePosition < 0.16;
