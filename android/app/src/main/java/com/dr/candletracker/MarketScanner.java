@@ -64,7 +64,7 @@ public final class MarketScanner {
         if(candles.isEmpty()){fullHistoryDirection="UNKNOWN";return;}
         double first=candles.peekFirst().close,last=candles.peekLast().close;
         for(Bar bar:candles){fullHistoryHigh=Math.max(fullHistoryHigh,bar.high);fullHistoryLow=Math.min(fullHistoryLow,bar.low);}
-        fullHistoryDirection=last>first?"UP":(last<first?"DOWN":"SIDEWAYS");
+        fullHistoryDirection=(last>first?"UP":(last<first?"DOWN":"SIDEWAYS"))+" (BROKER HISTORY)";
     }
 
     public synchronized void acceptTick(String symbol,double price,long timestamp) {
@@ -161,8 +161,6 @@ public final class MarketScanner {
             if(historyLoads==0 && useDerived){
                 fullHistoryHigh=high;fullHistoryLow=low;
                 fullHistoryDirection=direction+" (TICK WINDOW)";
-            } else if(historyLoads>0) {
-                fullHistoryDirection += " (BROKER HISTORY)";
             }
         }
         lastDurationNs=Math.max(0,System.nanoTime()-started);totalDurationNs+=lastDurationNs;maxDurationNs=Math.max(maxDurationNs,lastDurationNs);
