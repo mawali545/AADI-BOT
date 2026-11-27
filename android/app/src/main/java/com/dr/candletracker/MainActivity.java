@@ -298,6 +298,14 @@ public final class MainActivity extends Activity {
             long orderedArrival = Math.max(item.arrivalElapsed, previousArrival + 1L);
             if (!feedMonitor.recordTick(asset, item.timestamp, orderedArrival, item.period)) continue;
             lastProcessedArrivalByAsset.put(asset, orderedArrival);
+            JSONObject feedQuality = feedMonitor.snapshot(asset, SystemClock.elapsedRealtime());
+            signalEngine.setFeedQuality(
+                feedQuality.optLong("tickGapCount", 0),
+                feedQuality.optLong("outOfOrderCount", 0),
+                feedQuality.optLong("duplicateTimestampCount", 0),
+                feedQuality.optDouble("tickJitterMs", 0.0),
+                feedQuality.optLong("nativeArrivalMs", 0),
+                feedQuality.optLong("nativeAcceptedTicks", 0));
             qxDataConfirmed = true;
             tickCount++; lastPrice = item.price; currentAsset = asset;
             lastTickAt = item.timestamp; lastTickReceivedAt = System.currentTimeMillis();
