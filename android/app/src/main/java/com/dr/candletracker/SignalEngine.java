@@ -117,7 +117,7 @@ public final class SignalEngine {
         // repeated CALL/PUT alerts on every 10-second sub-window of one candle.
         Long issuedCandle = issuedCandleBucketByAsset.get(symbol);
         boolean candleAlreadyUsed = issuedCandle != null && issuedCandle.longValue() == bucket;
-        if (pendingResults.isEmpty() && !candleAlreadyUsed) {
+        if (!settled && pendingResults.isEmpty() && !candleAlreadyUsed) {
             Scan scan = scan(symbol, bucket, price, timestamp);
             signal = scan.signal;
             signalProbability = scan.probability;
@@ -138,7 +138,10 @@ public final class SignalEngine {
      */
     public synchronized void acceptHistory(String symbol, long periodSeconds, JSONArray rows) {
         if (symbol == null || !symbol.matches("[A-Za-z0-9_./-]{3,32}") || rows == null) return;
-        long duration = Math.max(1L, Math.min(86400L, periodSeconds)) * 1000L;
+        // Only genuine 10-second broker candles may seed this 10s strategy.
+        // A 1m/5m candle must never be relabelled as a 10s candle.
+        if (periodSeconds != 10L) return;
+        long duration = 10_000L;
         Map<Long, Candle> unique = new HashMap<>();
         for (int i = 0; i < rows.length(); i++) {
             try {
