@@ -93,8 +93,11 @@ public final class SignalEngine {
         tape.add(new Tick(symbol, price, timestamp));
         if (tape.size() > MAX_TICKS) tape.remove(0);
 
+        // Signal cadence is fixed to the 10-second binary expiry, not the
+        // user's chart candle period (which may be 1m/5m/etc.).
+        long signalBucket = timestamp / 10_000L * 10_000L;
         Long issued = issuedBucketByAsset.get(symbol);
-        if (issued == null || issued.longValue() != bucket) {
+        if (issued == null || issued.longValue() != signalBucket) {
             Scan scan = scan(symbol, bucket, price, timestamp);
             signal = scan.signal;
             signalProbability = scan.probability;
@@ -102,7 +105,7 @@ public final class SignalEngine {
             if (!"WAIT".equals(scan.signal)) {
                 signalCount++;
                 pendingResults.add(new Pending(symbol, scan.signal, price, timestamp + 10_000L));
-                issuedBucketByAsset.put(symbol, bucket);
+                issuedBucketByAsset.put(symbol, signalBucket);
             } else {
                 signalCount = 0;
             }
@@ -225,7 +228,7 @@ public final class SignalEngine {
             return new Scan("WAIT", 0,
                 "MEMORY STREAM · collecting 3 completed broker/tick-derived bars (" + count + "/3).");
 
-        // Use a short adaptive memory: two completed broker candles are the minimum.
+        // Use a short adaptive memory: three completed broker/tick-derived bars are the minimum.
         // The forming candle is excluded from structure decisions; current real
         // QX ticks corroborate momentum, so the engine does not wait for 8-12 bars.
         int completedWindow = Math.min(12, recentMemory.size());
