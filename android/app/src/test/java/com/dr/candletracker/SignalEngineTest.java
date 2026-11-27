@@ -167,7 +167,8 @@ public class SignalEngineTest {
         e.acceptTick("EURUSD_otc",1.1019,T+480000,60);
         e.acceptTick("EURUSD_otc",1.1028,T+480500,60);
         e.acceptTick("EURUSD_otc",1.1013,T+481000,60);
-        assertEquals("PUT",e.getSignal());
+        assertEquals("Expected PUT reversal; actual=" + e.getSignal() +
+            "; reason=" + e.getReason(), "PUT", e.getSignal());
         assertTrue(e.getReason().contains("LEVEL REJECTION / REVERSAL"));
     }
 
