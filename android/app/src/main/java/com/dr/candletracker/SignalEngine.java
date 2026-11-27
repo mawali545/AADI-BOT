@@ -476,23 +476,22 @@ public final class SignalEngine {
 
         double expectedDirection = "CALL".equals(result) ? 1.0 : -1.0;
         TickContext tickContext = analyzeTickContext(symbol);
-        // Weighted, normalized evidence model. Weights total 100%; each feature
-        // contributes in [-1,+1], so one noisy factor cannot dominate by scale.
-        double evidence =
-            0.16 * tickContext.pressure12 +
-            0.12 * tickContext.pressure36 +
-            0.08 * tickContext.pressure90 +
-            0.05 * tickContext.pressure300 +
-            0.03 * tickContext.pressure900 +
-            0.10 * histogram +
-            0.08 * vector +
-            0.08 * displacement +
-            0.08 * slopeMomentum +
-            0.08 * (bullishStructure ? 1.0 : bearishStructure ? -1.0 : 0.0) +
-            0.06 * (binary.bullishPattern ? 1.0 : binary.bearishPattern ? -1.0 : 0.0) +
-            0.05 * micro.directionalPressure +
-            0.03 * awareness.bias;
-        evidence = clamp(evidence, -1.0, 1.0);
+        // Weighted, normalized evidence model. Configured weights total 100%;
+        // unavailable horizons are omitted and remaining weights renormalized.
+        double weighted = 0.0, weightTotal = 0.0;
+        if (tickContext.samples >= 12) { weighted += 0.16*tickContext.pressure12; weightTotal += 0.16; }
+        if (tickContext.samples >= 36) { weighted += 0.12*tickContext.pressure36; weightTotal += 0.12; }
+        if (tickContext.samples >= 90) { weighted += 0.08*tickContext.pressure90; weightTotal += 0.08; }
+        if (tickContext.samples >= 300) { weighted += 0.05*tickContext.pressure300; weightTotal += 0.05; }
+        if (tickContext.samples >= 900) { weighted += 0.03*tickContext.pressure900; weightTotal += 0.03; }
+        weighted += 0.10*histogram + 0.08*vector + 0.08*displacement +
+            0.08*slopeMomentum +
+            0.08*(bullishStructure ? 1.0 : bearishStructure ? -1.0 : 0.0) +
+            0.06*(binary.bullishPattern ? 1.0 : binary.bearishPattern ? -1.0 : 0.0);
+        weightTotal += 0.48;
+        if (micro.samples >= 2) { weighted += 0.05*micro.directionalPressure; weightTotal += 0.05; }
+        if (length >= 4) { weighted += 0.03*awareness.bias; weightTotal += 0.03; }
+        double evidence = weightTotal <= 0 ? 0.0 : clamp(weighted/weightTotal, -1.0, 1.0);
         double callEvidence = 50.0 + 35.0 * evidence;
         double setupScore = "CALL".equals(result) ? callEvidence : 100.0 - callEvidence;
         // A candidate setup is not enough: require a clear weighted edge in its
@@ -738,7 +737,7 @@ public final class SignalEngine {
             signed(out.pressure12) + "/" + signed(out.pressure36) + "/" +
             signed(out.pressure90) + "/" + signed(out.pressure300) + "/" +
             signed(out.pressure900) + " · acceleration " + signed(out.acceleration) +
-            " · n=" + n;
+            " · weights 12/36/90/300/900=16/12/8/5/3%" + " · n=" + n;
         return out;
     }
 
