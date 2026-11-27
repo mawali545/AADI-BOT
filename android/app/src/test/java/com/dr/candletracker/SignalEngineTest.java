@@ -212,6 +212,35 @@ public class SignalEngineTest {
         assertEquals(1, e.getCandleCount()); // only one 60-second forming tick candle
     }
 
+
+    @Test public void measuresPriceVelocityAndAccelerationBetweenEveryAcceptedTick() {
+        SignalEngine e = new SignalEngine();
+        e.acceptTick("EURUSD_otc", 1.10000, T, 10);
+        double price = 1.10000;
+        for (int i = 1; i <= 20; i++) {
+            price += 0.00001;
+            e.acceptTick("EURUSD_otc", price, T + i * 1000L, 10);
+        }
+        for (int i = 21; i <= 40; i++) {
+            price += 0.00010;
+            e.acceptTick("EURUSD_otc", price, T + i * 1000L, 10);
+        }
+        assertTrue("upward quote velocity must be positive", e.getTickVelocity() > 0.0);
+        assertTrue("increasing upward speed must produce positive velocity acceleration",
+            e.getTickVelocityAcceleration() > 0.0);
+    }
+
+    @Test public void measuresNegativeVelocityWhenRecentPriceFalls() {
+        SignalEngine e = new SignalEngine();
+        e.acceptTick("EURUSD_otc", 1.10000, T, 10);
+        double price = 1.10000;
+        for (int i = 1; i <= 30; i++) {
+            price -= 0.00010;
+            e.acceptTick("EURUSD_otc", price, T + i * 1000L, 10);
+        }
+        assertTrue("downward quote velocity must be negative", e.getTickVelocity() < 0.0);
+    }
+
     @Test public void oneSignalPerCandleAndNoNextSignalBeforeExpiry() throws Exception {
         SignalEngine e = new SignalEngine();
         e.acceptHistory("EURUSD_otc",60,history(bullishPullbackSetup()));
