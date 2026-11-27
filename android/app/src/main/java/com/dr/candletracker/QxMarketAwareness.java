@@ -66,10 +66,18 @@ final class QxMarketAwareness {
 
         // Compare independent calculated conditions as logical votes instead
         // of assigning percentages or blending factors with hand-picked weights.
-        int bullishVotes = (structure > 0 ? 1 : 0) + (slope > 0 ? 1 : 0) +
-                (out.efficiency > 0 ? 1 : 0) + (wickBias > 0.25 ? 1 : 0);
-        int bearishVotes = (structure < 0 ? 1 : 0) + (slope < 0 ? 1 : 0) +
-                (out.efficiency < 0 ? 1 : 0) + (wickBias < -0.25 ? 1 : 0);
+        // Slope and path-efficiency are related measurements. Count them
+        // only when the path has meaningful directional efficiency, otherwise
+        // a tiny net drift in a range must not masquerade as two confirmations.
+        boolean meaningfulDirectionalMove = Math.abs(out.efficiency) >= 0.25;
+        int bullishVotes = (structure > 0 ? 1 : 0) +
+                (meaningfulDirectionalMove && slope > 0 ? 1 : 0) +
+                (meaningfulDirectionalMove && out.efficiency > 0 ? 1 : 0) +
+                (wickBias > 0.25 ? 1 : 0);
+        int bearishVotes = (structure < 0 ? 1 : 0) +
+                (meaningfulDirectionalMove && slope < 0 ? 1 : 0) +
+                (meaningfulDirectionalMove && out.efficiency < 0 ? 1 : 0) +
+                (wickBias < -0.25 ? 1 : 0);
         out.bias = bullishVotes > bearishVotes ? 1.0 :
                 bearishVotes > bullishVotes ? -1.0 : 0.0;
         boolean directional = Math.abs(out.efficiency) >= 0.38 &&
