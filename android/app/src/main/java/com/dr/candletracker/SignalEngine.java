@@ -738,7 +738,7 @@ public final class SignalEngine {
             signed(out.pressure12) + "/" + signed(out.pressure36) + "/" +
             signed(out.pressure90) + "/" + signed(out.pressure300) + "/" +
             signed(out.pressure900) + " · acceleration " + signed(out.acceleration) +
-            " · tick weights 16/12/8/5/3%" +
+            " · tick weights 15/11/7/4/3% + acceleration 4%" +
             " · OHLC weights histogram/vector/displacement/slope=10/8/8/8%" +
             " · structure/pattern/micro/regime=8/6/5/3%" + " · n=" + n;
         return out;
