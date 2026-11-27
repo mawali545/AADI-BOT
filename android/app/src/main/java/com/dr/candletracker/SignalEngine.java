@@ -520,6 +520,30 @@ public final class SignalEngine {
         if (micro.samples >= 2) { weighted += 0.05*micro.directionalPressure; weightTotal += 0.05; }
         if (length >= 4) { weighted += 0.03*awareness.bias; weightTotal += 0.03; }
         double evidence = weightTotal <= 0 ? 0.0 : clamp(weighted/weightTotal, -1.0, 1.0);
+
+        // A confirmed rejection / sweep / structure break is a local reversal
+        // event. Do not let the older trend's multi-candle momentum drown out
+        // the actual trigger candle: blend the broader evidence with the
+        // direction and close-location of the completed trigger candle.
+        // This remains an evidence score (not a win probability), and feed
+        // integrity still reduces the final score.
+        boolean rejectionSetup = bullishRejection || bearishRejection ||
+            resistanceReject || supportHold;
+        boolean decisiveReversal = reversalEntry &&
+            (bullishBreak || bearishBreak || bullishRejection || bearishRejection ||
+             bullishLiquiditySweep || bearishLiquiditySweep ||
+             binary.bullishFakeoutReclaim || binary.bearishFakeoutReject ||
+             binary.bullishPinBar || binary.bearishPinBar);
+        if (decisiveReversal) {
+            double triggerEvidence = expectedDirection * lastClosePosition;
+            double patternEvidence = "CALL".equals(result)
+                ? (binary.bullishPattern ? 1.0 : binary.bearishPattern ? -1.0 : 0.0)
+                : (binary.bearishPattern ? 1.0 : binary.bullishPattern ? -1.0 : 0.0);
+            double reversalEvidence = clamp(0.72 * triggerEvidence +
+                0.28 * patternEvidence, -1.0, 1.0);
+            evidence = clamp(0.35 * evidence + 0.65 * reversalEvidence, -1.0, 1.0);
+        }
+
         double feedQuality = feedReliability();
         evidence = clamp(evidence * feedQuality, -1.0, 1.0);
         double callEvidence = 50.0 + 35.0 * evidence;
