@@ -1,0 +1,40 @@
+name: Build 312 - Weighted Tick Reasoning
+
+on:
+  push:
+    branches:
+      - dr-candle-tracker-build312-weighted-tick-reasoning
+  workflow_dispatch:
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Run unit tests and assemble APK
+        run: gradle -p android testDebugUnitTest assembleDebug
+
+      - name: Upload APK and test reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: QX-Build312-Weighted-Tick-Reasoning
+          path: |
+            android/app/build/outputs/apk/debug/app-debug.apk
+            android/app/build/reports/tests/testDebugUnitTest/
+          if-no-files-found: error
