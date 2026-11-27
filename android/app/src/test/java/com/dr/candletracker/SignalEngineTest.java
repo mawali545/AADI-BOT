@@ -140,6 +140,8 @@ public class SignalEngineTest {
         }
         e.acceptHistory("EURUSD_otc",10,history(bars));
         e.acceptTick("EURUSD_otc",1.1030,T+600000,60);
+        e.acceptTick("EURUSD_otc",1.1031,T+601000,60);
+        e.acceptTick("EURUSD_otc",1.1032,T+602000,60);
         assertEquals("WAIT",e.getSignal());
         assertTrue(e.getReason().contains("extended") ||
             e.getReason().contains("no confirmed pullback"));
