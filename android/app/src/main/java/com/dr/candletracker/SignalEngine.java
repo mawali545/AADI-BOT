@@ -9,7 +9,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 /**
- * Video-style probability engine. It uses only broker-supplied OHLC history
+ * Video-style directional-evidence engine. It uses broker-supplied OHLC history
  * and validated live Market-QX quote events. No synthetic candles or legacy
  * EMA/RSI/MACD indicators are used.
  */
@@ -828,6 +828,8 @@ public final class SignalEngine {
     public synchronized int getLosses() { return losses; }
     public synchronized int getTies() { return ties; }
     public synchronized int getSignalCount() { return signalCount; }
+    /** Directional evidence score (0-100), not a statistically calibrated win probability. */
+    public synchronized double getSignalEvidenceScore() { return signalProbability; }
     public synchronized double getSignalProbability() { return signalProbability; }
     public synchronized double getHistogram() { return lastHistogram; }
     public synchronized double getVector() { return lastVector; }
