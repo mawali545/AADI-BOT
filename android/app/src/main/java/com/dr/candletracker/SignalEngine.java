@@ -106,6 +106,11 @@ public final class SignalEngine {
         lastPrice = price;
         tape.add(new Tick(symbol, price, timestamp));
         if (tape.size() > MAX_TICKS) tape.remove(0);
+        // Refresh tick-speed telemetry on every accepted genuine quote, not only
+        // when a candidate signal happens to reach the scoring stage.
+        TickContext liveTickContext = analyzeTickContext(symbol);
+        lastTickVelocity = liveTickContext.velocity;
+        lastTickVelocityAcceleration = liveTickContext.velocityAcceleration;
 
         // Signal lifecycle: one unresolved contract globally, and no more than
         // one emitted setup per chart candle for the selected asset. This avoids
