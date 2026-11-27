@@ -30,6 +30,24 @@ public class MarketScannerTest {
         assertTrue(s.getDouble("avgScanUs")>=0);
     }
 
+
+    @Test public void scansAllNineHundredTicksAndBuildsTickDerivedBarsWithoutHistory() throws Exception {
+        MarketScanner scanner=new MarketScanner();
+        for(int i=0;i<900;i++){
+            double price=1.1000+((i%24)-12)*0.00001+(i*0.0000001);
+            scanner.acceptTick("CADCHF_otc",price,T+i*100L);
+        }
+        org.json.JSONObject s=scanner.snapshot();
+        assertEquals(900,s.getInt("ticksAvailable"));
+        assertEquals(900,s.getInt("ticksScanned"));
+        assertEquals(0,s.getInt("candlesAvailable"));
+        assertTrue(s.getInt("tickBarsAvailable")>0);
+        assertTrue(s.getInt("candlesScanned")>0);
+        assertEquals(0,s.getLong("historyLoads"));
+        assertTrue(s.getString("historyStatus").contains("TICK-DERIVED"));
+        assertTrue(s.getDouble("lastScanUs")>=0);
+    }
+
     @Test public void rejectsOlderTicksAndKeepsRealDataOnly() throws Exception {
         MarketScanner scanner=new MarketScanner();
         scanner.acceptTick("EURUSD_otc",1.1,T+2000);
