@@ -188,9 +188,19 @@ public final class SignalEngine {
             recentMemory.add(0, c);
             if (recentMemory.size() >= 12) break;
         }
-        if (count < 2)
+        boolean tickDerivedBars = false;
+        if (recentMemory.size() < 4) {
+            List<Candle> microBars = buildTickBars(symbol, nowMillis, 1000L);
+            if (microBars.size() >= 4) {
+                recentMemory.clear();
+                recentMemory.addAll(microBars);
+                count = recentMemory.size();
+                tickDerivedBars = true;
+            }
+        }
+        if (count < 4)
             return new Scan("WAIT", 0,
-                "MEMORY STREAM · collecting 2 completed genuine QX candles (" + count + "/2).");
+                "MEMORY STREAM · collecting 4 completed broker/tick-derived bars (" + count + "/4).");
 
         // Use a short adaptive memory: two completed broker candles are the minimum.
         // The forming candle is excluded from structure decisions; current real
@@ -419,6 +429,8 @@ public final class SignalEngine {
             binary.bearishPinBar || (resistanceReject && resistanceTouches >= 1 &&
             lastClosePosition < -0.10 && momentum < 0.25);
 
+        if ((callContinuation || callReversal) && (putContinuation || putReversal))
+            return new Scan("WAIT", 0, "WAIT · CALL and PUT evidence conflict; no forced direction.");
         if (!callContinuation && !putContinuation && !callReversal && !putReversal) {
             String why = "WAIT · no confirmed pullback/continuation or structure-break reversal";
             if (overextendedUp || overextendedDown) why += " · move extended; do not chase";
@@ -462,51 +474,47 @@ public final class SignalEngine {
                 "WAIT · 10-second quote impulse/acceleration opposes " + result +
                 " · " + micro.summary);
 
-        double structureScore = ("CALL".equals(result) ?
-            (bullishStructure ? 1.0 : 0.75) : (bearishStructure ? 1.0 : 0.75));
         double expectedDirection = "CALL".equals(result) ? 1.0 : -1.0;
-        double agreement = (clamp(histogram * expectedDirection, 0.0, 1.0) +
-            clamp(vector * expectedDirection, 0.0, 1.0) +
-            clamp(displacement * expectedDirection, 0.0, 1.0) +
-            clamp(momentum * expectedDirection, 0.0, 1.0)) / 4.0;
-        double bodyQuality = clamp(lastBody / Math.max(atr * 0.9, 1e-12), 0.0, 1.0);
-        double closeQuality = "CALL".equals(result) ?
-            clamp((lastClosePosition + 1.0) * 0.5, 0.0, 1.0) :
-            clamp((1.0 - lastClosePosition) * 0.5, 0.0, 1.0);
-        boolean rejectionSetup = bullishRejection || bearishRejection;
-        double patternQuality = rejectionSetup ?
-            clamp(Math.max(upperWick, lowerWick) / lastRange, 0.0, 1.0) : 1.0;
-        double setupScore;
-        if (rejectionSetup) {
-            setupScore = 48.0 + patternQuality * 14.0 + bodyQuality * 10.0 +
-                closeQuality * 8.0 + Math.min(1.0, Math.abs(displacement)) * 8.0;
-        } else {
-            setupScore = 45.0 + agreement * 22.0 + structureScore * 8.0 +
-                bodyQuality * 10.0 + closeQuality * 8.0 + patternQuality * 7.0;
-        }
-        // Weak directional agreement must not be inflated by structure/body bonuses.
-        // Keep the signal available, but cap its evidence score when continuation/break
-        // evidence is weak; confirmed level-rejection reversals use their own candle score.
-        if (!rejectionSetup && agreement < 0.40)
-            setupScore = Math.min(setupScore, 55.0 + agreement * 25.0);
-        // Context is a small capped confluence adjustment, not a fabricated
-        // win-rate estimate. Weak or contradictory evidence never gets promoted.
-        setupScore += Math.min(6.0, binary.confluenceBonus);
-        if (awareness.bias * expectedDirection > 0.38) setupScore += 2.0;
-        else if (awareness.bias * expectedDirection < -0.30) setupScore -= 4.0;
-        if (awareness.momentumFading) setupScore -= 2.0;
-        // Small corroboration only: ten-second tape cannot overrule price structure.
-        if (micro.samples >= 6 && micro.directionalPressure * expectedDirection > 0.55 &&
-            micro.displacementAtr * expectedDirection > 0.04) setupScore += 2.0;
-        setupScore = clamp(setupScore, 45.0, 85.0);
+        TickContext tickContext = analyzeTickContext(symbol);
+        // Weighted, normalized evidence model. Weights total 100%; each feature
+        // contributes in [-1,+1], so one noisy factor cannot dominate by scale.
+        double evidence =
+            0.16 * tickContext.pressure12 +
+            0.12 * tickContext.pressure36 +
+            0.08 * tickContext.pressure90 +
+            0.05 * tickContext.pressure300 +
+            0.03 * tickContext.pressure900 +
+            0.10 * histogram +
+            0.08 * vector +
+            0.08 * displacement +
+            0.08 * slopeMomentum +
+            0.08 * (bullishStructure ? 1.0 : bearishStructure ? -1.0 : 0.0) +
+            0.06 * (binary.bullishPattern ? 1.0 : binary.bearishPattern ? -1.0 : 0.0) +
+            0.05 * micro.directionalPressure +
+            0.03 * awareness.bias;
+        evidence = clamp(evidence, -1.0, 1.0);
+        double callEvidence = 50.0 + 50.0 * evidence;
+        double setupScore = "CALL".equals(result) ? callEvidence : 100.0 - callEvidence;
+        // A candidate setup is not enough: require a clear weighted edge in its
+        // own direction. This is a directional evidence score, not a win-rate.
+        if (setupScore < 62.0)
+            return new Scan("WAIT", 0, "WAIT · weighted evidence below entry threshold · CALL " +
+                Math.round(callEvidence) + "% / PUT " + Math.round(100.0-callEvidence) +
+                "% · " + tickContext.summary);
+        if (tickContext.pressure12 * expectedDirection < -0.65 &&
+            tickContext.pressure36 * expectedDirection < -0.30)
+            return new Scan("WAIT", 0, "WAIT · short and medium tick pressure oppose setup · " +
+                tickContext.summary);
         String setup = (callReversal || putReversal) ?
             (rejectionSetup ? "LEVEL REJECTION / REVERSAL" :
                 ((bullishLiquiditySweep || bearishLiquiditySweep || supportHold || resistanceReject)
                     ? "LIQUIDITY SWEEP / LEVEL REVERSAL" : "STRUCTURE BREAK / REVERSAL"))
             : "PULLBACK / CONTINUATION";
         return new Scan(result, setupScore,
-            result + " · " + setup + " · setup score " + Math.round(setupScore) +
-            "/100 (evidence score, not a measured win probability) · histogram " + signed(histogram) +
+            result + " · " + setup + " · directional evidence " + Math.round(setupScore) +
+            "/100 (not a measured win probability) · CALL " + Math.round(callEvidence) +
+            "% / PUT " + Math.round(100.0-callEvidence) + "% · " + tickContext.summary +
+            " · histogram " + signed(histogram) +
             " · vector " + signed(vector) + " · slope " + signed(slopeMomentum) +
             " · live momentum " + signed(momentum) + " · S/R touches " + supportTouches + "/" +
             resistanceTouches + " · " + binary.summary +
@@ -514,6 +522,7 @@ public final class SignalEngine {
             " · trend efficiency " + signed(binary.trendEfficiency) +
             " · volatility " + signed(binary.volatilityRatio) +
             " · " + micro.summary +
+            (tickDerivedBars ? " · 1s bars aggregated from genuine QX ticks" : " · broker OHLC bars") +
             " · bull " + bullishBars + " / bear " + bearishBars);
     }
 
@@ -695,6 +704,62 @@ public final class SignalEngine {
         String summary = "10s tape unavailable";
     }
 
+    /** Build closed one-second OHLC bars from genuine QX quotes; no price is interpolated. */
+    private List<Candle> buildTickBars(String symbol, long nowMillis, long bucketMillis) {
+        Map<Long, Candle> grouped = new java.util.TreeMap<>();
+        for (Tick tick : tape) {
+            if (!tick.asset.equals(symbol)) continue;
+            long bucket = tick.timestamp / bucketMillis * bucketMillis;
+            if (bucket + bucketMillis > nowMillis) continue;
+            Candle bar = grouped.get(bucket);
+            if (bar == null) grouped.put(bucket, new Candle(symbol, bucket, tick.price));
+            else bar.update(tick.price);
+        }
+        List<Candle> result = new ArrayList<>(grouped.values());
+        if (result.size() > 12) return new ArrayList<>(result.subList(result.size()-12, result.size()));
+        return result;
+    }
+
+    /** Multi-horizon quote pressure over the complete retained 900-tick tape. */
+    private TickContext analyzeTickContext(String symbol) {
+        List<Tick> values = new ArrayList<>();
+        for (Tick tick : tape) if (tick.asset.equals(symbol)) values.add(tick);
+        TickContext out = new TickContext();
+        int n = values.size();
+        out.samples = n;
+        out.pressure12 = pressure(values, Math.max(0,n-12));
+        out.pressure36 = pressure(values, Math.max(0,n-36));
+        out.pressure90 = pressure(values, Math.max(0,n-90));
+        out.pressure300 = pressure(values, Math.max(0,n-300));
+        out.pressure900 = pressure(values, Math.max(0,n-900));
+        int split = Math.max(1, n/2);
+        out.acceleration = pressure(values, split) - pressure(values, 0);
+        out.summary = "tick pressure 12/36/90/300/900=" +
+            signed(out.pressure12) + "/" + signed(out.pressure36) + "/" +
+            signed(out.pressure90) + "/" + signed(out.pressure300) + "/" +
+            signed(out.pressure900) + " · acceleration " + signed(out.acceleration) +
+            " · n=" + n;
+        return out;
+    }
+
+    private static double pressure(List<Tick> values, int start) {
+        int up=0, down=0;
+        for (int i=Math.max(1,start); i<values.size(); i++) {
+            Tick current=values.get(i), previous=values.get(i-1);
+            int d=current.brokerDirection != null ? current.brokerDirection.intValue()
+                : direction(current.price-previous.price);
+            if (d>0) up++; else if (d<0) down++;
+        }
+        int total=up+down;
+        return total==0?0.0:clamp((double)(up-down)/total,-1.0,1.0);
+    }
+
+    private static final class TickContext {
+        int samples;
+        double pressure12, pressure36, pressure90, pressure300, pressure900, acceleration;
+        String summary = "tick context warming";
+    }
+
     private int recentTickCount(String symbol) {
         int count = 0;
         for (int i = tape.size() - 1; i >= 0 && count < 12; i--)
@@ -779,15 +844,21 @@ public final class SignalEngine {
         Long forming = liveBucketByAsset.get(asset);
         for (Candle candle : candles)
             if (candle.asset.equals(asset) && (forming == null || candle.bucket != forming.longValue())) count++;
-        return count;
+        return Math.max(count, buildTickBars(asset, lastTimestamp, 1000L).size());
     }
     public synchronized int getCandleCount() { return candles.size(); }
     public synchronized long getLastTimestamp() { return lastTimestamp; }
     public synchronized double getLastPrice() { return lastPrice; }
-    public synchronized double getOpen() { Candle c = lastCandle(asset); return c == null ? Double.NaN : c.open; }
-    public synchronized double getHigh() { Candle c = lastCandle(asset); return c == null ? Double.NaN : c.high; }
-    public synchronized double getLow() { Candle c = lastCandle(asset); return c == null ? Double.NaN : c.low; }
-    public synchronized double getClose() { Candle c = lastCandle(asset); return c == null ? Double.NaN : c.close; }
+    private Candle displayCandle() {
+        Candle c = lastCandle(asset);
+        if (c != null) return c;
+        List<Candle> bars = buildTickBars(asset, lastTimestamp, 1000L);
+        return bars.isEmpty() ? null : bars.get(bars.size()-1);
+    }
+    public synchronized double getOpen() { Candle c = displayCandle(); return c == null ? Double.NaN : c.open; }
+    public synchronized double getHigh() { Candle c = displayCandle(); return c == null ? Double.NaN : c.high; }
+    public synchronized double getLow() { Candle c = displayCandle(); return c == null ? Double.NaN : c.low; }
+    public synchronized double getClose() { Candle c = displayCandle(); return c == null ? Double.NaN : c.close; }
 
     private static final class Candle {
         final String asset; final long bucket; final double open; double high, low, close;
