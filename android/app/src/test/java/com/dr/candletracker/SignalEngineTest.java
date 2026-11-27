@@ -270,7 +270,7 @@ public class SignalEngineTest {
         assertEquals("CALL",e.getSignal());
 
         // First genuine quote at entry+10 seconds settles the contract.
-        e.acceptTick("EURUSD_otc",1.1019,T+492000,10);
+        e.acceptTick("EURUSD_otc",1.1020,T+492000,10);
         assertEquals(1,e.getWins());
         assertEquals("WAIT",e.getSignal());
     }
