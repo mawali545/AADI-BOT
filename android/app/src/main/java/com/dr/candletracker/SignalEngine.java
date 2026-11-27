@@ -189,18 +189,18 @@ public final class SignalEngine {
             if (recentMemory.size() >= 12) break;
         }
         boolean tickDerivedBars = false;
-        if (recentMemory.size() < 4) {
+        if (recentMemory.size() < 3) {
             List<Candle> microBars = buildTickBars(symbol, nowMillis, 1000L);
-            if (microBars.size() >= 4) {
+            if (microBars.size() >= 3) {
                 recentMemory.clear();
                 recentMemory.addAll(microBars);
                 count = recentMemory.size();
                 tickDerivedBars = true;
             }
         }
-        if (count < 4)
+        if (count < 3)
             return new Scan("WAIT", 0,
-                "MEMORY STREAM · collecting 4 completed broker/tick-derived bars (" + count + "/4).");
+                "MEMORY STREAM · collecting 3 completed broker/tick-derived bars (" + count + "/3).");
 
         // Use a short adaptive memory: two completed broker candles are the minimum.
         // The forming candle is excluded from structure decisions; current real
@@ -493,7 +493,7 @@ public final class SignalEngine {
             0.05 * micro.directionalPressure +
             0.03 * awareness.bias;
         evidence = clamp(evidence, -1.0, 1.0);
-        double callEvidence = 50.0 + 50.0 * evidence;
+        double callEvidence = 50.0 + 35.0 * evidence;
         double setupScore = "CALL".equals(result) ? callEvidence : 100.0 - callEvidence;
         // A candidate setup is not enough: require a clear weighted edge in its
         // own direction. This is a directional evidence score, not a win-rate.
@@ -828,6 +828,7 @@ public final class SignalEngine {
             if (candle.asset.equals(asset) && (forming == null || candle.bucket != forming.longValue()))
                 recent.add(0, candle);
         }
+        if (recent.isEmpty()) recent.addAll(buildTickBars(asset, lastTimestamp, 1000L));
         for (Candle candle : recent) {
             double range = safeRange(candle);
             double body = clamp((candle.close - candle.open) / range, -1, 1);
