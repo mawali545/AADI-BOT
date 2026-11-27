@@ -20,6 +20,7 @@ on:
       - dr-candle-tracker-build257-10s-live-scan
       - dr-candle-tracker-build258-fast-live-confirmation
       - otcharts-build259-sole-feed
+      - qx-complete-binary-knowledge-fast-engine
   pull_request:
     branches:
       - dr-candle-tracker-build207-secure-fix
