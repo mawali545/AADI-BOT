@@ -242,7 +242,7 @@ public final class SignalEngine {
             if (recentMemory.size() >= 15) break;
         }
         boolean tickDerivedBars = false;
-        // Prefer the latest closed 1-second bars aggregated from real QX ticks
+        // Prefer the latest closed 10-second bars aggregated from real QX ticks
         // for a 10-second expiry, regardless of the chart's selected timeframe.
         // Genuine broker OHLC remains the fallback while the live tick window warms.
         List<Candle> microBars = buildTickBars(symbol, nowMillis, 10_000L);
@@ -619,7 +619,7 @@ public final class SignalEngine {
      * Compact binary-trading context over completed candles:
      * candle anatomy, engulfing/pin/doji/inside patterns, swing levels,
      * breakout versus failed-break reclaim, trend efficiency and volatility.
-     * It is deliberately deterministic and bounded to the current 12-bar stream.
+     * It is deliberately deterministic and bounded to the current 15-candle stream.
      */
     private static BinaryContext analyzeBinaryContext(List<Candle> bars, double atr) {
         BinaryContext out = new BinaryContext();
@@ -794,7 +794,7 @@ public final class SignalEngine {
         String summary = "10s tape unavailable";
     }
 
-    /** Build closed one-second OHLC bars from genuine QX quotes; no price is interpolated. */
+    /** Build closed 10-second OHLC candles from genuine QX quotes; no price is interpolated. */
     private List<Candle> buildTickBars(String symbol, long nowMillis, long bucketMillis) {
         Map<Long, Candle> grouped = new java.util.TreeMap<>();
         for (Tick tick : tape) {
