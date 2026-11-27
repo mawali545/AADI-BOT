@@ -69,6 +69,15 @@ public class SignalEngineTest {
         assertEquals(1.1000,e.getClose(),0.0000001);
     }
 
+
+    @Test public void derivesDirectionFromPriceNotUndocumentedBrokerEnum() {
+        SignalEngine e = new SignalEngine();
+        e.acceptTick("EURUSD_otc", 1.1000, T, 10, 1);
+        e.acceptTick("EURUSD_otc", 1.0990, T + 1000, 10, 1);
+        assertEquals(0, e.getDirectionalUpTicks());
+        assertEquals(1, e.getDirectionalDownTicks());
+    }
+
     @Test public void rejectsInvalidInputs() {
         SignalEngine e = new SignalEngine();
         e.acceptTick("EURUSD_otc",-1,T);
