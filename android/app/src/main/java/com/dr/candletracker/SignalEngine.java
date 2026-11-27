@@ -536,8 +536,8 @@ public final class SignalEngine {
 
         // Formula-driven rule evaluation over genuine quote deltas/timestamps.
         // No manually assigned weights, blended score, or probability threshold.
-        boolean enoughTickHistory = tickContext.samples >= 4 &&
-            tickContext.velocitySamples >= 3;
+        boolean enoughTickHistory = tickContext.samples >= 3 &&
+            tickContext.velocitySamples >= 2;
         boolean tickPressureConfirms = enoughTickHistory &&
             tickContext.pressure12 * expectedDirection > 0.0;
         boolean velocityConfirms = enoughTickHistory &&
