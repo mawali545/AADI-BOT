@@ -81,6 +81,14 @@ public final class SignalEngine {
             signalProbability = 0;
             reason = "Previous 10-second signal completed; waiting for a fresh candle/setup.";
         }
+        // Do not switch the visible asset away from an unresolved contract.
+        // Once it settles, the next incoming asset can become the scan target.
+        if (pendingResults.isEmpty() && !symbol.equals(asset)) {
+            asset = symbol;
+            signal = "WAIT";
+            signalProbability = 0;
+            reason = "Scanning real QX candle flow for " + symbol;
+        }
         lastTimestampByAsset.put(symbol, timestamp);
         long bucket = timestamp / duration * duration;
         Candle current = lastCandle(symbol);
@@ -90,10 +98,7 @@ public final class SignalEngine {
             current = new Candle(symbol, bucket, price);
             candles.add(current);
             if (candles.size() > MAX_CANDLES) candles.remove(0);
-            if (!symbol.equals(asset)) {
-                asset = symbol; signal = "WAIT"; signalCount = 0; signalProbability = 0;
-                reason = "Scanning real QX candle flow for " + symbol;
-            }
+
         }
         current.update(price);
         lastTimestamp = timestamp;
@@ -162,12 +167,14 @@ public final class SignalEngine {
             if (candles.get(i).asset.equals(symbol)) candles.remove(i);
         candles.addAll(imported);
         while (candles.size() > MAX_CANDLES) candles.remove(0);
-        asset = symbol;
+        if (pendingResults.isEmpty()) {
+            asset = symbol;
+            signal = "WAIT";
+            signalCount = 0;
+            signalProbability = 0;
+            reason = "Loaded " + imported.size() + " genuine QX OHLC candles; scanning live flow.";
+        }
         liveBucketByAsset.remove(symbol);
-        signal = "WAIT";
-        signalCount = 0;
-        signalProbability = 0;
-        reason = "Loaded " + imported.size() + " genuine QX OHLC candles; scanning live flow.";
     }
 
     private static double number(JSONObject o, String... keys) {
