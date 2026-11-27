@@ -48,7 +48,11 @@ public final class MarketScanner {
                 unique.put(stamp,new Bar(stamp,op,hi,lo,cl));
             } catch(Exception ignored){rejectedRows++;}
         }
-        if(!symbol.equals(asset)){candles.clear();ticks.clear();lastTimestamp=0;}
+        if(!symbol.equals(asset)){
+            candles.clear();ticks.clear();lastTimestamp=0;
+            historyLoads=0;fullHistoryScans=0;fullHistoryDirection="UNKNOWN";
+            fullHistoryHigh=Double.NaN;fullHistoryLow=Double.NaN;
+        }
         asset=symbol;
         candles.clear(); for(Bar b:unique.values()){candles.addLast(b);if(candles.size()>MAX_CANDLES)candles.removeFirst();}
         historyLoads++;
@@ -69,7 +73,11 @@ public final class MarketScanner {
 
     public synchronized void acceptTick(String symbol,double price,long timestamp) {
         if(symbol==null||!symbol.matches("[A-Za-z0-9_./-]{3,32}")||!Double.isFinite(price)||price<=0||timestamp<=0)return;
-        if(!symbol.equals(asset)){asset=symbol;candles.clear();ticks.clear();lastTimestamp=0;}
+        if(!symbol.equals(asset)){
+            asset=symbol;candles.clear();ticks.clear();lastTimestamp=0;
+            historyLoads=0;fullHistoryScans=0;fullHistoryDirection="UNKNOWN";
+            fullHistoryHigh=Double.NaN;fullHistoryLow=Double.NaN;
+        }
         if(timestamp<=lastTimestamp)return;
         long started=System.nanoTime();
         if(lastTimestamp>0&&timestamp-lastTimestamp>5000L)gaps++;
