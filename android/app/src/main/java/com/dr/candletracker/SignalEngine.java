@@ -558,8 +558,6 @@ public final class SignalEngine {
             tickContext.pressure36 * expectedDirection < -0.30)
             return new Scan("WAIT", 0, "WAIT · short and medium tick pressure oppose setup · " +
                 tickContext.summary);
-        boolean rejectionSetup = bullishRejection || bearishRejection ||
-            resistanceReject || supportHold;
         String setup = (callReversal || putReversal) ?
             (rejectionSetup ? "LEVEL REJECTION / REVERSAL" :
                 ((bullishLiquiditySweep || bearishLiquiditySweep || supportHold || resistanceReject)
