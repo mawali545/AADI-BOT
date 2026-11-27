@@ -343,6 +343,15 @@ public final class SignalEngine {
         // completed OHLC window. This is bounded to 12 candles (O(12)); it adds no
         // sleep, network request, or extra candle wait to the live signal cycle.
         BinaryContext binary = analyzeBinaryContext(stream, atr);
+        double[] awarenessOpen = new double[length], awarenessHigh = new double[length];
+        double[] awarenessLow = new double[length], awarenessClose = new double[length];
+        for (int i = 0; i < length; i++) {
+            Candle c = stream.get(i);
+            awarenessOpen[i] = c.open; awarenessHigh[i] = c.high;
+            awarenessLow[i] = c.low; awarenessClose[i] = c.close;
+        }
+        QxMarketAwareness.Context awareness = QxMarketAwareness.analyze(
+            awarenessOpen, awarenessHigh, awarenessLow, awarenessClose);
 
         // Broker-feed liquidity proxy: repeated OHLC wick tests create local
         // support/resistance zones. This is NOT traded volume or a full order book.
@@ -397,10 +406,10 @@ public final class SignalEngine {
         // (structure, pullback, or aligned OHLC pressure) can qualify.
         boolean callContinuation = bullishConfirmation &&
             (bullishStructure || bullishPullback || alignedUp || binary.bullishBreakout) &&
-            !overextendedUp && !binary.blocksCallContinuation;
+            !overextendedUp && !binary.blocksCallContinuation && !awareness.blocksCall;
         boolean putContinuation = bearishConfirmation &&
             (bearishStructure || bearishPullback || alignedDown || binary.bearishBreakout) &&
-            !overextendedDown && !binary.blocksPutContinuation;
+            !overextendedDown && !binary.blocksPutContinuation && !awareness.blocksPut;
         boolean callReversal = (bullishBreak && alignedUp && !overextendedUp) ||
             bullishRejection || bullishLiquiditySweep || binary.bullishFakeoutReclaim ||
             binary.bullishPinBar || (supportHold && supportTouches >= 1 &&
@@ -423,6 +432,15 @@ public final class SignalEngine {
 
         String result = (callContinuation || callReversal) ? "CALL" : "PUT";
         int expected = "CALL".equals(result) ? 1 : -1;
+        boolean reversalEntry = callReversal || putReversal;
+        if (!reversalEntry && awareness.bias * expected < -0.68)
+            return new Scan("WAIT", 0, "WAIT · market-state bias strongly opposes " +
+                result + " · " + awareness.summary);
+        if (!reversalEntry && (("CALL".equals(result) && awareness.nearUpperRange) ||
+                ("PUT".equals(result) && awareness.nearLowerRange)) &&
+                !(binary.bullishBreakout || binary.bearishBreakout))
+            return new Scan("WAIT", 0, "WAIT · entry would chase the wrong range extreme · " +
+                awareness.summary);
         // The current quote is only a confirmation check, never a candle source.
         double liveAgainst = (livePrice - last.close) * expected;
         // Real quote tape is corroborating evidence, not a blanket veto.
@@ -474,6 +492,9 @@ public final class SignalEngine {
         // Context is a small capped confluence adjustment, not a fabricated
         // win-rate estimate. Weak or contradictory evidence never gets promoted.
         setupScore += Math.min(6.0, binary.confluenceBonus);
+        if (awareness.bias * expectedDirection > 0.38) setupScore += 2.0;
+        else if (awareness.bias * expectedDirection < -0.30) setupScore -= 4.0;
+        if (awareness.momentumFading) setupScore -= 2.0;
         // Small corroboration only: ten-second tape cannot overrule price structure.
         if (micro.samples >= 6 && micro.directionalPressure * expectedDirection > 0.55 &&
             micro.displacementAtr * expectedDirection > 0.04) setupScore += 2.0;
@@ -489,6 +510,7 @@ public final class SignalEngine {
             " · vector " + signed(vector) + " · slope " + signed(slopeMomentum) +
             " · live momentum " + signed(momentum) + " · S/R touches " + supportTouches + "/" +
             resistanceTouches + " · " + binary.summary +
+            " · QX market awareness " + awareness.summary +
             " · trend efficiency " + signed(binary.trendEfficiency) +
             " · volatility " + signed(binary.volatilityRatio) +
             " · " + micro.summary +
