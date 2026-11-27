@@ -32,6 +32,7 @@ public final class SignalEngine {
     private double lastHistogram, lastVector, lastDisplacement;
     private long feedGaps, feedOutOfOrder, feedDuplicates, feedAccepted, feedAgeMs;
     private double feedJitterMs;
+    private double lastTickVelocity, lastTickVelocityAcceleration;
 
     /** Native bridge feed-integrity telemetry; never used as directional evidence. */
     public synchronized void setFeedQuality(long gaps, long outOfOrder, long duplicates,
@@ -527,19 +528,25 @@ public final class SignalEngine {
         // Weighted, normalized evidence model. Configured weights total 100%;
         // unavailable horizons are omitted and remaining weights renormalized.
         double weighted = 0.0, weightTotal = 0.0;
-        if (tickContext.samples >= 12) { weighted += 0.15*tickContext.pressure12; weightTotal += 0.15; }
-        if (tickContext.samples >= 36) { weighted += 0.11*tickContext.pressure36; weightTotal += 0.11; }
-        if (tickContext.samples >= 90) { weighted += 0.07*tickContext.pressure90; weightTotal += 0.07; }
-        if (tickContext.samples >= 300) { weighted += 0.04*tickContext.pressure300; weightTotal += 0.04; }
-        if (tickContext.samples >= 900) { weighted += 0.03*tickContext.pressure900; weightTotal += 0.03; }
+        if (tickContext.samples >= 12) { weighted += 0.12*tickContext.pressure12; weightTotal += 0.12; }
+        if (tickContext.samples >= 36) { weighted += 0.08*tickContext.pressure36; weightTotal += 0.08; }
+        if (tickContext.samples >= 90) { weighted += 0.06*tickContext.pressure90; weightTotal += 0.06; }
+        if (tickContext.samples >= 300) { weighted += 0.03*tickContext.pressure300; weightTotal += 0.03; }
+        if (tickContext.samples >= 900) { weighted += 0.02*tickContext.pressure900; weightTotal += 0.02; }
         if (tickContext.samples >= 24) { weighted += 0.04*tickContext.acceleration; weightTotal += 0.04; }
-        weighted += 0.10*histogram + 0.08*vector + 0.08*displacement +
-            0.08*slopeMomentum +
-            0.08*(bullishStructure ? 1.0 : bearishStructure ? -1.0 : 0.0) +
-            0.06*(binary.bullishPattern ? 1.0 : binary.bearishPattern ? -1.0 : 0.0);
-        weightTotal += 0.48;
-        if (micro.samples >= 2) { weighted += 0.05*micro.directionalPressure; weightTotal += 0.05; }
-        if (length >= 4) { weighted += 0.03*awareness.bias; weightTotal += 0.03; }
+        // Quote-to-quote speed and its change receive their own measured weights.
+        if (tickContext.velocitySamples >= 4) {
+            weighted += 0.08*tickContext.velocity +
+                0.02*tickContext.velocityAcceleration;
+            weightTotal += 0.10;
+        }
+        weighted += 0.09*histogram + 0.07*vector + 0.07*displacement +
+            0.07*slopeMomentum +
+            0.07*(bullishStructure ? 1.0 : bearishStructure ? -1.0 : 0.0) +
+            0.05*(binary.bullishPattern ? 1.0 : binary.bearishPattern ? -1.0 : 0.0);
+        weightTotal += 0.42;
+        if (micro.samples >= 2) { weighted += 0.07*micro.directionalPressure; weightTotal += 0.07; }
+        if (length >= 4) { weighted += 0.02*awareness.bias; weightTotal += 0.02; }
         double evidence = weightTotal <= 0 ? 0.0 : clamp(weighted/weightTotal, -1.0, 1.0);
 
         // A confirmed rejection / sweep / structure break is a local reversal
@@ -817,14 +824,69 @@ public final class SignalEngine {
         out.acceleration = n >= 4
             ? pressure(values, split, n) - pressure(values, 0, split)
             : 0.0;
+
+        // Measure every quote-to-quote move as price velocity (price units/second).
+        // Normalize against the median absolute velocity in the retained tape so
+        // symbols with different quote scales remain comparable. Median is robust
+        // to isolated spikes; tanh bounds the contribution to [-1, 1].
+        List<Double> absoluteVelocities = new ArrayList<>();
+        double[] velocities = new double[Math.max(0, n - 1)];
+        int velocityCount = 0;
+        for (int i = 1; i < n; i++) {
+            Tick a = values.get(i - 1), b = values.get(i);
+            long elapsed = b.timestamp - a.timestamp;
+            if (elapsed <= 0) continue;
+            double velocity = (b.price - a.price) / (elapsed / 1000.0);
+            if (!Double.isFinite(velocity)) continue;
+            velocities[velocityCount++] = velocity;
+            absoluteVelocities.add(Math.abs(velocity));
+        }
+        double baseline = median(absoluteVelocities);
+        if (baseline > 1e-15 && velocityCount > 0) {
+            int recentStart = Math.max(0, velocityCount - 12);
+            int priorEnd = recentStart;
+            double recentVelocity = meanNormalizedVelocity(velocities, recentStart, velocityCount, baseline);
+            double priorVelocity = priorEnd >= 3
+                ? meanNormalizedVelocity(velocities, Math.max(0, priorEnd - 12), priorEnd, baseline)
+                : 0.0;
+            out.velocity = recentVelocity;
+            out.velocityAcceleration = clamp(recentVelocity - priorVelocity, -1.0, 1.0);
+            out.velocitySamples = velocityCount;
+        }
+        lastTickVelocity = out.velocity;
+        lastTickVelocityAcceleration = out.velocityAcceleration;
         out.summary = "tick pressure 12/36/90/300/900=" +
             signed(out.pressure12) + "/" + signed(out.pressure36) + "/" +
             signed(out.pressure90) + "/" + signed(out.pressure300) + "/" +
-            signed(out.pressure900) + " · acceleration " + signed(out.acceleration) +
-            " · tick weights 15/11/7/4/3% + acceleration 4%" +
-            " · OHLC weights histogram/vector/displacement/slope=10/8/8/8%" +
-            " · structure/pattern/micro/regime=8/6/5/3%" + " · n=" + n;
+            signed(out.pressure900) + " · pressure acceleration " + signed(out.acceleration) +
+            " · tick velocity " + signed(out.velocity) +
+            " · velocity acceleration " + signed(out.velocityAcceleration) +
+            " · velocity samples " + out.velocitySamples +
+            " · configured weights pressure=12/8/6/3/2%, acceleration=4%, velocity=10%" +
+            " · OHLC=9/7/7/7%, structure/pattern=7/5%, micro/regime=7/2%" + " · n=" + n;
         return out;
+    }
+
+    private static double median(List<Double> values) {
+        if (values.isEmpty()) return 0.0;
+        List<Double> sorted = new ArrayList<>(values);
+        java.util.Collections.sort(sorted);
+        int mid = sorted.size() / 2;
+        return sorted.size() % 2 == 0
+            ? (sorted.get(mid - 1) + sorted.get(mid)) * 0.5
+            : sorted.get(mid);
+    }
+
+    private static double meanNormalizedVelocity(double[] velocities, int start,
+            int end, double baseline) {
+        if (end <= start || baseline <= 1e-15) return 0.0;
+        double total = 0.0;
+        int count = 0;
+        for (int i = Math.max(0, start); i < Math.min(end, velocities.length); i++) {
+            total += Math.tanh(velocities[i] / (2.0 * baseline));
+            count++;
+        }
+        return count == 0 ? 0.0 : clamp(total / count, -1.0, 1.0);
     }
 
     private static double pressure(List<Tick> values, int start) {
@@ -845,6 +907,8 @@ public final class SignalEngine {
     private static final class TickContext {
         int samples;
         double pressure12, pressure36, pressure90, pressure300, pressure900, acceleration;
+        double velocity, velocityAcceleration;
+        int velocitySamples;
         String summary = "tick context warming";
     }
 
@@ -890,6 +954,10 @@ public final class SignalEngine {
     public synchronized double getHistogram() { return lastHistogram; }
     public synchronized double getVector() { return lastVector; }
     public synchronized double getDisplacement() { return lastDisplacement; }
+    /** Median-normalized quote velocity; bounded [-1,1], not a win probability. */
+    public synchronized double getTickVelocity() { return lastTickVelocity; }
+    /** Change in normalized quote velocity between recent and prior tick windows. */
+    public synchronized double getTickVelocityAcceleration() { return lastTickVelocityAcceleration; }
     private synchronized int countPriceDirections(int wanted) {
         List<Tick> recent = new ArrayList<>();
         for (int i=tape.size()-1; i>=0 && recent.size()<13; i--)
