@@ -339,6 +339,11 @@ public final class SignalEngine {
             lastClosePosition >= -0.22 && last.close > last.open &&
             last.close > previous.close;
 
+        // Full binary-price-action context, computed only from the already available
+        // completed OHLC window. This is bounded to 12 candles (O(12)); it adds no
+        // sleep, network request, or extra candle wait to the live signal cycle.
+        BinaryContext binary = analyzeBinaryContext(stream, atr);
+
         // Broker-feed liquidity proxy: repeated OHLC wick tests create local
         // support/resistance zones. This is NOT traded volume or a full order book.
         int supportTouches = 0, resistanceTouches = 0;
@@ -391,22 +396,29 @@ public final class SignalEngine {
         // A fresh confirming candle plus ANY one meaningful context signal
         // (structure, pullback, or aligned OHLC pressure) can qualify.
         boolean callContinuation = bullishConfirmation &&
-            (bullishStructure || bullishPullback || alignedUp) && !overextendedUp;
+            (bullishStructure || bullishPullback || alignedUp || binary.bullishBreakout) &&
+            !overextendedUp && !binary.blocksCallContinuation;
         boolean putContinuation = bearishConfirmation &&
-            (bearishStructure || bearishPullback || alignedDown) && !overextendedDown;
+            (bearishStructure || bearishPullback || alignedDown || binary.bearishBreakout) &&
+            !overextendedDown && !binary.blocksPutContinuation;
         boolean callReversal = (bullishBreak && alignedUp && !overextendedUp) ||
-            bullishRejection || bullishLiquiditySweep || (supportHold && supportTouches >= 1 &&
+            bullishRejection || bullishLiquiditySweep || binary.bullishFakeoutReclaim ||
+            binary.bullishPinBar || (supportHold && supportTouches >= 1 &&
             lastClosePosition > 0.10 && momentum > -0.25);
         boolean putReversal = (bearishBreak && alignedDown && !overextendedDown) ||
-            bearishRejection || bearishLiquiditySweep || (resistanceReject && resistanceTouches >= 1 &&
+            bearishRejection || bearishLiquiditySweep || binary.bearishFakeoutReject ||
+            binary.bearishPinBar || (resistanceReject && resistanceTouches >= 1 &&
             lastClosePosition < -0.10 && momentum < 0.25);
 
         if (!callContinuation && !putContinuation && !callReversal && !putReversal) {
             String why = "WAIT · no confirmed pullback/continuation or structure-break reversal";
             if (overextendedUp || overextendedDown) why += " · move extended; do not chase";
+            else if (binary.blocksCallContinuation || binary.blocksPutContinuation)
+                why += " · opposing candle/level context blocks continuation";
             else if (!alignedUp && !alignedDown) why += " · slope/momentum/pressure disagree";
             else if (!(bullishConfirmation || bearishConfirmation)) why += " · candle confirmation missing";
-            return new Scan("WAIT", 0, why + " · bull " + bullishBars + " / bear " + bearishBars + ".");
+            return new Scan("WAIT", 0, why + " · " + binary.summary +
+                " · bull " + bullishBars + " / bear " + bearishBars + ".");
         }
 
         String result = (callContinuation || callReversal) ? "CALL" : "PUT";
@@ -448,6 +460,9 @@ public final class SignalEngine {
         // evidence is weak; confirmed level-rejection reversals use their own candle score.
         if (!rejectionSetup && agreement < 0.40)
             setupScore = Math.min(setupScore, 55.0 + agreement * 25.0);
+        // Context is a small capped confluence adjustment, not a fabricated
+        // win-rate estimate. Weak or contradictory evidence never gets promoted.
+        setupScore += Math.min(6.0, binary.confluenceBonus);
         setupScore = clamp(setupScore, 45.0, 85.0);
         String setup = (callReversal || putReversal) ?
             (rejectionSetup ? "LEVEL REJECTION / REVERSAL" :
@@ -459,7 +474,127 @@ public final class SignalEngine {
             "/100 (evidence score, not a measured win probability) · histogram " + signed(histogram) +
             " · vector " + signed(vector) + " · slope " + signed(slopeMomentum) +
             " · live momentum " + signed(momentum) + " · S/R touches " + supportTouches + "/" +
-            resistanceTouches + " · bull " + bullishBars + " / bear " + bearishBars);
+            resistanceTouches + " · " + binary.summary +
+            " · trend efficiency " + signed(binary.trendEfficiency) +
+            " · volatility " + signed(binary.volatilityRatio) +
+            " · bull " + bullishBars + " / bear " + bearishBars);
+    }
+
+    /**
+     * Compact binary-trading context over completed candles:
+     * candle anatomy, engulfing/pin/doji/inside patterns, swing levels,
+     * breakout versus failed-break reclaim, trend efficiency and volatility.
+     * It is deliberately deterministic and bounded to the current 12-bar stream.
+     */
+    private static BinaryContext analyzeBinaryContext(List<Candle> bars, double atr) {
+        BinaryContext out = new BinaryContext();
+        int n = bars.size();
+        if (n < 3) return out;
+        Candle last = bars.get(n - 1);
+        Candle prev = bars.get(n - 2);
+        double range = safeRange(last);
+        double body = Math.abs(last.close - last.open);
+        double upper = last.high - Math.max(last.open, last.close);
+        double lower = Math.min(last.open, last.close) - last.low;
+        double closePos = clamp(((last.close - last.low) -
+            (last.high - last.close)) / range, -1.0, 1.0);
+        boolean bullEngulf = last.close > last.open && prev.close < prev.open &&
+            last.open <= prev.close && last.close >= prev.open &&
+            body >= Math.abs(prev.close - prev.open) * 0.85;
+        boolean bearEngulf = last.close < last.open && prev.close > prev.open &&
+            last.open >= prev.close && last.close <= prev.open &&
+            body >= Math.abs(prev.close - prev.open) * 0.85;
+        out.bullishPinBar = lower >= Math.max(body * 2.0, atr * 0.12) &&
+            closePos >= 0.30 && body / range <= 0.38;
+        out.bearishPinBar = upper >= Math.max(body * 2.0, atr * 0.12) &&
+            closePos <= -0.30 && body / range <= 0.38;
+        boolean doji = body / range <= 0.10;
+        boolean inside = last.high <= prev.high && last.low >= prev.low;
+        out.pattern = bullEngulf ? "BULL ENGULF" : bearEngulf ? "BEAR ENGULF" :
+            out.bullishPinBar ? "BULL PIN" : out.bearishPinBar ? "BEAR PIN" :
+            doji ? "DOJI" : inside ? "INSIDE BAR" :
+            last.close > last.open ? "BULL BODY" : last.close < last.open ? "BEAR BODY" : "NEUTRAL";
+        out.bullishPattern = bullEngulf || out.bullishPinBar;
+        out.bearishPattern = bearEngulf || out.bearishPinBar;
+
+        // Confirmed local swing levels; ignore the current candle when deriving
+        // the prior range so a breakout cannot move its own reference level.
+        double support = Double.POSITIVE_INFINITY;
+        double resistance = Double.NEGATIVE_INFINITY;
+        int start = Math.max(1, n - 9);
+        for (int i = start; i < n - 1; i++) {
+            Candle c = bars.get(i);
+            Candle left = bars.get(i - 1);
+            Candle right = bars.get(Math.min(n - 1, i + 1));
+            if (c.low <= left.low && c.low <= right.low) support = Math.min(support, c.low);
+            if (c.high >= left.high && c.high >= right.high) resistance = Math.max(resistance, c.high);
+        }
+        if (!Double.isFinite(support)) {
+            support = Double.POSITIVE_INFINITY;
+            for (int i = Math.max(0, n - 7); i < n - 1; i++)
+                support = Math.min(support, bars.get(i).low);
+        }
+        if (!Double.isFinite(resistance)) {
+            resistance = Double.NEGATIVE_INFINITY;
+            for (int i = Math.max(0, n - 7); i < n - 1; i++)
+                resistance = Math.max(resistance, bars.get(i).high);
+        }
+        out.support = support;
+        out.resistance = resistance;
+        double tol = Math.max(atr * 0.10, Math.abs(last.close) * 1e-8);
+        boolean nearResistance = resistance >= last.close && resistance - last.close <= atr * 0.18;
+        boolean nearSupport = support <= last.close && last.close - support <= atr * 0.18;
+        out.bullishBreakout = last.close > resistance + tol &&
+            last.close > last.open && body >= atr * 0.25 && closePos >= 0.25;
+        out.bearishBreakout = last.close < support - tol &&
+            last.close < last.open && body >= atr * 0.25 && closePos <= -0.25;
+        out.bearishFakeoutReject = last.high > resistance + tol &&
+            last.close < resistance && upper >= Math.max(body * 0.65, atr * 0.10);
+        out.bullishFakeoutReclaim = last.low < support - tol &&
+            last.close > support && lower >= Math.max(body * 0.65, atr * 0.10);
+        out.blocksCallContinuation = doji || (out.bearishPattern && !out.bullishBreakout) ||
+            (nearResistance && !out.bullishBreakout && !out.bearishFakeoutReject);
+        out.blocksPutContinuation = doji || (out.bullishPattern && !out.bearishBreakout) ||
+            (nearSupport && !out.bearishBreakout && !out.bullishFakeoutReclaim);
+
+        double path = 0.0;
+        for (int i = 1; i < n; i++)
+            path += Math.abs(bars.get(i).close - bars.get(i - 1).close);
+        out.trendEfficiency = path <= 1e-12 ? 0.0 :
+            clamp((last.close - bars.get(0).close) / path, -1.0, 1.0);
+        double recentRange = 0.0, baseRange = 0.0;
+        int recentCount = 0, baseCount = 0;
+        for (int i = 0; i < n; i++) {
+            double r = safeRange(bars.get(i));
+            if (i >= n - 3) { recentRange += r; recentCount++; }
+            else { baseRange += r; baseCount++; }
+        }
+        double recentAvg = recentCount == 0 ? 0 : recentRange / recentCount;
+        double baseAvg = baseCount == 0 ? recentAvg : baseRange / baseCount;
+        out.volatilityRatio = baseAvg <= 1e-12 ? 1.0 : recentAvg / baseAvg;
+        out.confluenceBonus = 0.0;
+        if ((out.bullishPattern && !out.blocksCallContinuation) ||
+            (out.bearishPattern && !out.blocksPutContinuation)) out.confluenceBonus += 2.0;
+        if (out.bullishBreakout || out.bearishBreakout ||
+            out.bullishFakeoutReclaim || out.bearishFakeoutReject) out.confluenceBonus += 2.0;
+        if (Math.abs(out.trendEfficiency) >= 0.45) out.confluenceBonus += 1.0;
+        if (out.volatilityRatio >= 1.15 && out.volatilityRatio <= 2.8) out.confluenceBonus += 1.0;
+        out.summary = out.pattern + " · support " + signed(support) +
+            " · resistance " + signed(resistance) +
+            (out.bullishBreakout ? " · BULL BREAKOUT" : "") +
+            (out.bearishBreakout ? " · BEAR BREAKOUT" : "") +
+            (out.bullishFakeoutReclaim ? " · BULL SWEEP RECLAIM" : "") +
+            (out.bearishFakeoutReject ? " · BEAR SWEEP REJECT" : "");
+        return out;
+    }
+
+    private static final class BinaryContext {
+        String pattern = "N/A", summary = "binary context warming";
+        double support = Double.NaN, resistance = Double.NaN;
+        double trendEfficiency, volatilityRatio = 1.0, confluenceBonus;
+        boolean bullishPattern, bearishPattern, bullishPinBar, bearishPinBar;
+        boolean bullishBreakout, bearishBreakout, bullishFakeoutReclaim, bearishFakeoutReject;
+        boolean blocksCallContinuation, blocksPutContinuation;
     }
 
     private int recentTickCount(String symbol) {
